@@ -1,4 +1,9 @@
 from src.ui.main_window_parts.lifecycle.init_view import __init__ as init_view
+from src.ui.main_window_parts.lifecycle.maximizar_janela import maximizar_janela
+from src.ui.main_window_parts.lifecycle.alternar_tela_cheia import alternar_tela_cheia
+from src.ui.main_window_parts.lifecycle.sair_tela_cheia import sair_tela_cheia
+from src.ui.main_window_parts.lifecycle.configurar_atalhos_tela import configurar_atalhos_tela
+from src.ui.main_window_parts.lifecycle.obter_geometria_monitor_atual import obter_geometria_monitor_atual
 from src.ui.main_window_parts.layout.criar_layout import criar_layout
 from src.ui.main_window_parts.layout.criar_barra_metadados import criar_barra_metadados
 from src.ui.main_window_parts.layout.criar_area_dashboard import criar_area_dashboard
@@ -49,6 +54,7 @@ from src.ui.main_window_parts.updates.atualizar_resumo_selecao import atualizar_
 from src.ui.main_window_parts.updates.atualizar_resumo_sem_analise import atualizar_resumo_sem_analise
 from src.ui.main_window_parts.history.adicionar_resultado_historico import adicionar_resultado_historico
 from src.ui.main_window_parts.history.obter_data_hora import obter_data_hora
+from src.ui.main_window_parts.lifecycle.init_view import __init__ as init_view
 
 
 class LumusPCIView:
@@ -129,3 +135,8 @@ class LumusPCIView:
     atualizar_resumo_sem_analise = atualizar_resumo_sem_analise
     adicionar_resultado_historico = adicionar_resultado_historico
     obter_data_hora = obter_data_hora
+    maximizar_janela = maximizar_janela
+    alternar_tela_cheia = alternar_tela_cheia
+    sair_tela_cheia = sair_tela_cheia
+    configurar_atalhos_tela = configurar_atalhos_tela
+    obter_geometria_monitor_atual = obter_geometria_monitor_atual
