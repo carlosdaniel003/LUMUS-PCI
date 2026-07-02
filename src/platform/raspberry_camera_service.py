@@ -10,7 +10,8 @@ from src.platform.camera_advanced_config import (
     normalizar_controles_avancados,
 )
 from src.platform.raspberry_pi3_settings import (
-    WINDOWS_CAMERA_INDEX,
+    CAMERA_SCAN_MAX_INDEX,
+    WINDOWS_PREFERRED_CAMERA_INDEX,
 )
 
 
@@ -30,12 +31,9 @@ class RaspberryPi3CameraService(CameraService):
     )
 
     def __init__(self, *args, **kwargs) -> None:
-        # No notebook, a webcam integrada ocupa o índice 0 e a Logitech BRIO
-        # foi confirmada no índice 1. No Raspberry o índice recebido permanece 0.
-        if sys.platform.startswith("win") and "indice_camera" in kwargs:
-            kwargs["indice_camera"] = WINDOWS_CAMERA_INDEX
-
         super().__init__(*args, **kwargs)
+        self._indice_camera_solicitado = int(self.indice_camera)
+        self._indice_camera_ativo: int | None = None
 
         for nome in self.CONTROLES_AVANCADOS:
             self._status_controles_camera.setdefault(
@@ -77,6 +75,31 @@ class RaspberryPi3CameraService(CameraService):
 
         return ((cv2.CAP_ANY, "automático"),)
 
+    def _indices_candidatos(self) -> tuple[int, ...]:
+        indices: list[int] = []
+
+        def adicionar(indice: int) -> None:
+            indice = int(indice)
+            if indice < 0 or indice in indices:
+                return
+            indices.append(indice)
+
+        # No notebook, a BRIO foi identificada no índice 1. Esse índice é
+        # apenas a primeira tentativa; se ela não estiver conectada, o serviço
+        # volta automaticamente para 0 e para os demais índices disponíveis.
+        if sys.platform.startswith("win"):
+            adicionar(WINDOWS_PREFERRED_CAMERA_INDEX)
+
+        adicionar(self._indice_camera_solicitado)
+
+        if self._indice_camera_ativo is not None:
+            adicionar(self._indice_camera_ativo)
+
+        for indice in range(CAMERA_SCAN_MAX_INDEX + 1):
+            adicionar(indice)
+
+        return tuple(indices)
+
     def iniciar(self) -> None:
         if self._ativo:
             return
@@ -86,7 +109,7 @@ class RaspberryPi3CameraService(CameraService):
         self._proxima_reconexao_em = 0.0
         self._definir_estado(
             self.ESTADO_CONECTANDO,
-            f"Conectando câmera {self.indice_camera}...",
+            "Procurando câmera disponível...",
         )
         self._abrir_camera()
 
@@ -105,51 +128,60 @@ class RaspberryPi3CameraService(CameraService):
 
     def _abrir_camera(self) -> bool:
         self._liberar_camera()
-        nomes_backend = ", ".join(
-            nome
-            for _backend, nome in self._backends_preferidos()
-        )
+        indices = self._indices_candidatos()
+        backends = self._backends_preferidos()
+        indices_texto = ", ".join(str(indice) for indice in indices)
+        nomes_backend = ", ".join(nome for _backend, nome in backends)
+
         self._definir_estado(
             self.ESTADO_ESTABILIZANDO,
             (
-                f"Abrindo câmera {self.indice_camera}. "
+                f"Procurando câmera nos índices {indices_texto}. "
                 f"Backends: {nomes_backend}..."
             ),
         )
 
         capture = None
         backend_name = "automático"
+        indice_selecionado = None
 
-        for backend, candidate_name in self._backends_preferidos():
-            try:
-                candidate = cv2.VideoCapture(
-                    self.indice_camera,
-                    backend,
-                )
-            except Exception:
-                candidate = None
+        # O backend é priorizado antes do índice. Assim, no Windows, o ODIN
+        # tenta DirectShow no índice preferido e logo depois no índice 0, sem
+        # esperar Media Foundation em um índice ausente.
+        for backend, candidate_name in backends:
+            for indice in indices:
+                try:
+                    candidate = cv2.VideoCapture(indice, backend)
+                except Exception:
+                    candidate = None
 
-            if candidate is not None and candidate.isOpened():
-                capture = candidate
-                backend_name = candidate_name
+                if candidate is not None and candidate.isOpened():
+                    capture = candidate
+                    backend_name = candidate_name
+                    indice_selecionado = indice
+                    break
+
+                if candidate is not None:
+                    try:
+                        candidate.release()
+                    except Exception:
+                        pass
+
+            if capture is not None:
                 break
 
-            if candidate is not None:
-                try:
-                    candidate.release()
-                except Exception:
-                    pass
-
-        if capture is None:
+        if capture is None or indice_selecionado is None:
             self._capture = None
             self._agendar_reconexao(
                 (
-                    f"Câmera {self.indice_camera} não abriu pelos backends "
-                    f"{nomes_backend}."
+                    f"Nenhuma câmera abriu nos índices {indices_texto} "
+                    f"pelos backends {nomes_backend}."
                 )
             )
             return False
 
+        self.indice_camera = int(indice_selecionado)
+        self._indice_camera_ativo = int(indice_selecionado)
         self._capture = capture
         self._backend_name = backend_name
         self._aplicar_perfil_capture(capture)
@@ -336,6 +368,6 @@ class RaspberryPi3CameraService(CameraService):
             self._resolucao = (frame_width, frame_height)
             self._estado = self.ESTADO_CONECTADA
             self._mensagem = (
-                f"Câmera conectada via {backend_name}. "
+                f"Câmera {self.indice_camera} conectada via {backend_name}. "
                 f"Resolução real: {frame_width}x{frame_height}."
             )
