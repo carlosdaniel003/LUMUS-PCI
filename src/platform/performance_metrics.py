@@ -88,7 +88,7 @@ class PerformanceMetricsMixin:
 
         resultado_renderizado = (
             self.operacao_total > total_antes
-            and self._operacao_resultado_after_id is not resultado_after_antes
+            and self._operacao_resultado_after_id != resultado_after_antes
         )
 
         if resultado_renderizado:
