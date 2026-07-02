@@ -36,16 +36,44 @@ def desenhar_led_selecionado(
         if "_" in id_led
         else id_led
     )
+    led_em_edicao_id = getattr(
+        self,
+        "led_em_edicao_id",
+        None,
+    )
+    esta_selecionado = (
+        led_em_edicao_id is not None
+        and str(led_em_edicao_id) == str(id_led)
+    )
+    cor_marcacao = (
+        self.COR_AMARELO
+        if esta_selecionado
+        else self.COR_AZUL
+    )
+    largura_linha = 3 if esta_selecionado else 2
 
     tags = (TAG_MARCACOES,)
+
+    if esta_selecionado:
+        margem_selecao = 5
+        self.canvas.create_oval(
+            centro_x_canvas - raio_canvas - margem_selecao,
+            centro_y_canvas - raio_canvas - margem_selecao,
+            centro_x_canvas + raio_canvas + margem_selecao,
+            centro_y_canvas + raio_canvas + margem_selecao,
+            outline=cor_marcacao,
+            width=1,
+            dash=(4, 3),
+            tags=tags,
+        )
 
     self.canvas.create_oval(
         centro_x_canvas - raio_canvas,
         centro_y_canvas - raio_canvas,
         centro_x_canvas + raio_canvas,
         centro_y_canvas + raio_canvas,
-        outline=self.COR_AZUL,
-        width=2,
+        outline=cor_marcacao,
+        width=largura_linha,
         tags=tags,
     )
 
@@ -54,7 +82,7 @@ def desenhar_led_selecionado(
         centro_y_canvas,
         centro_x_canvas + raio_canvas,
         centro_y_canvas,
-        fill=self.COR_AZUL,
+        fill=cor_marcacao,
         width=1,
         tags=tags,
     )
@@ -64,7 +92,7 @@ def desenhar_led_selecionado(
         centro_y_canvas - raio_canvas,
         centro_x_canvas,
         centro_y_canvas + raio_canvas,
-        fill=self.COR_AZUL,
+        fill=cor_marcacao,
         width=1,
         tags=tags,
     )
@@ -75,8 +103,8 @@ def desenhar_led_selecionado(
         centro_x_canvas + 8,
         centro_y_canvas + 8,
         fill="#020617",
-        outline=self.COR_AZUL,
-        width=1,
+        outline=cor_marcacao,
+        width=largura_linha,
         tags=tags,
     )
 
@@ -84,7 +112,7 @@ def desenhar_led_selecionado(
         centro_x_canvas,
         centro_y_canvas,
         text=numero_led,
-        fill=self.COR_AZUL,
+        fill=cor_marcacao,
         font=("Segoe UI", 6, "bold"),
         tags=tags,
     )
