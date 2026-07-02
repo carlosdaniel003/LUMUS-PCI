@@ -79,6 +79,13 @@ def criar_topo_profissional(self) -> None:
     self.botao_selecionar_leds.pack(side=tk.LEFT, padx=4)
 
     self.criar_botao_topo(
+        texto="Detectar LEDs automaticamente",
+        comando=self.callbacks["detectar_leds_automaticamente"],
+        cor_fundo="#3B2F0B",
+        cor_texto="#FDE68A",
+    ).pack(side=tk.LEFT, padx=4)
+
+    self.criar_botao_topo(
         texto="Carregar LEDs",
         comando=self.callbacks["carregar_leds_fixos"],
         cor_fundo="#13210F",
