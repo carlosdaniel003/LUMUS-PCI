@@ -8,6 +8,9 @@ from src.platform.camera_advanced_config import (
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
 )
+from src.platform.led_project_repository import (
+    instalar_repositorio_projetos_led,
+)
 
 
 class RaspberryPi3ProductionApp(GPIOEnabledRaspberryPi3ODINApp):
@@ -15,6 +18,7 @@ class RaspberryPi3ProductionApp(GPIOEnabledRaspberryPi3ODINApp):
 
     def __init__(self, root: tk.Tk) -> None:
         instalar_normalizacao_config_repository()
+        instalar_repositorio_projetos_led()
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
