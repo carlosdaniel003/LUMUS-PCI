@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import re
+import time
 from tkinter import messagebox
 
 from src.core.feature_extractor import validar_centro_led
-from src.core.visual_renderer import (
-    criar_imagem_mascara_visual,
-    criar_imagem_roi_debug_ampliado,
-)
 from src.models.led_selection import LedSelection
 
 
@@ -19,13 +16,14 @@ class LedMaskEditorMixin:
         "selecionar_leds_analise",
         "selecionar_leds_camera",
     )
-    EDITOR_PREVIEW_INTERVAL_MS = 90
+    EDITOR_MIRA_INTERVAL_S = 0.04
 
     def inicializar_editor_mascaras_led(self) -> None:
         self._editor_led_id: str | None = None
         self._editor_arrastando = False
         self._editor_posicao_alterada = False
-        self._editor_preview_after_id = None
+        self._editor_mira_ultimo_tempo_s = 0.0
+        self._editor_leds_carregados_explicitamente = False
 
         canvas = getattr(self.view, "canvas", None)
         if canvas is None:
@@ -48,21 +46,10 @@ class LedMaskEditorMixin:
         self._editor_led_id = str(led_id) if led_id else None
         self.view.led_em_edicao_id = self._editor_led_id
 
-    def _cancelar_preview_editor_led(self) -> None:
-        if self._editor_preview_after_id is None:
-            return
-
-        try:
-            self.root.after_cancel(self._editor_preview_after_id)
-        except Exception:
-            pass
-
-        self._editor_preview_after_id = None
-
     def _limpar_estado_editor_led(self) -> None:
-        self._cancelar_preview_editor_led()
         self._editor_arrastando = False
         self._editor_posicao_alterada = False
+        self._editor_mira_ultimo_tempo_s = 0.0
         self._definir_led_em_edicao(None)
 
     @staticmethod
@@ -160,64 +147,33 @@ class LedMaskEditorMixin:
         self.guias_leds_fixos_visiveis = False
         self.view.selecao_manual_camera_visivel = True
 
-    def _alvos_preview_editor(self) -> list[LedSelection]:
-        led_selecionado = self._obter_led_por_id(
-            self._editor_led_id
-        )
-
-        if led_selecionado is None:
-            return list(self.leds_selecionados)
-
-        return [
-            led
-            for led in self.leds_selecionados
-            if str(led.id) != str(led_selecionado.id)
-        ] + [led_selecionado]
-
-    def _atualizar_preview_editor_led_leve(self) -> None:
-        if self.imagem_original is None or not self._editor_esta_ativo():
+    def _desenhar_mira_editor_led(
+        self,
+        evento,
+        forcar: bool = False,
+    ) -> None:
+        if evento is None or not self._editor_esta_ativo():
             return
 
-        led_selecionado = self._obter_led_por_id(
-            self._editor_led_id
-        )
-        alvos = self._alvos_preview_editor()
-        canvas_mascara = getattr(self.view, "canvas_mascara", None)
-        canvas_roi_debug = getattr(self.view, "canvas_roi_debug", None)
-
-        if canvas_mascara is not None:
-            imagem_mascara = criar_imagem_mascara_visual(
-                self.imagem_original,
-                alvos,
-            )
-            self.view.exibir_imagem_em_canvas(
-                canvas=canvas_mascara,
-                imagem=imagem_mascara,
-                chave="mascara",
-            )
-
-        if canvas_roi_debug is not None and led_selecionado is not None:
-            imagem_roi = criar_imagem_roi_debug_ampliado(
-                self.imagem_original,
-                led_selecionado,
-            )
-            self.view.exibir_imagem_em_canvas(
-                canvas=canvas_roi_debug,
-                imagem=imagem_roi,
-                chave="roi_debug",
-            )
-
-    def _executar_preview_editor_led_agendado(self) -> None:
-        self._editor_preview_after_id = None
-        self._atualizar_preview_editor_led_leve()
-
-    def _agendar_preview_editor_led(self) -> None:
-        if self._editor_preview_after_id is not None:
+        agora = time.perf_counter()
+        if (
+            not forcar
+            and agora - self._editor_mira_ultimo_tempo_s
+            < self.EDITOR_MIRA_INTERVAL_S
+        ):
             return
 
-        self._editor_preview_after_id = self.root.after(
-            self.EDITOR_PREVIEW_INTERVAL_MS,
-            self._executar_preview_editor_led_agendado,
+        coordenadas = self._converter_evento_para_imagem(evento)
+        if coordenadas is None:
+            return
+
+        imagem_x, imagem_y = coordenadas
+        self._editor_mira_ultimo_tempo_s = agora
+        self.view.desenhar_lupa_canvas(
+            canvas_x=evento.x,
+            canvas_y=evento.y,
+            imagem_x=imagem_x,
+            imagem_y=imagem_y,
         )
 
     def _redesenhar_editor_led(
@@ -233,9 +189,18 @@ class LedMaskEditorMixin:
         self.view.atualizar_faixa_resultado()
 
         if atualizar_auxiliares:
-            self.atualizar_renderizacoes_visuais(
-                self._alvos_preview_editor()
+            alvos = list(self.leds_selecionados)
+            led_selecionado = self._obter_led_por_id(
+                self._editor_led_id
             )
+            if led_selecionado is not None:
+                alvos = [
+                    led
+                    for led in alvos
+                    if str(led.id) != str(led_selecionado.id)
+                ] + [led_selecionado]
+
+            self.atualizar_renderizacoes_visuais(alvos)
 
         self.atualizar_painel_inicial()
 
@@ -261,23 +226,16 @@ class LedMaskEditorMixin:
             self.camera_ativa
             and not self.selecao_manual_camera_ativa
         )
-        iniciando_imagem = (
-            not self.camera_ativa
-            and self.modo_atual != "selecionar_leds_analise"
-        )
 
-        if iniciando_camera and not self.leds_manuais_camera:
-            leds_salvos = self._carregar_mascaras_salvas_para_imagem()
+        if (
+            iniciando_camera
+            and self._editor_leds_carregados_explicitamente
+            and not self.leds_manuais_camera
+        ):
             self.leds_manuais_camera = [
                 self._copiar_led(led)
-                for led in leds_salvos
+                for led in self.leds_selecionados
             ]
-
-        if iniciando_imagem and not self.leds_selecionados:
-            self.leds_selecionados = sorted(
-                self._carregar_mascaras_salvas_para_imagem(),
-                key=self._chave_ordenacao_led,
-            )
 
         super().iniciar_selecao_led()
         self._limpar_estado_editor_led()
@@ -293,14 +251,16 @@ class LedMaskEditorMixin:
         total = len(self.leds_selecionados)
         if total:
             mensagem = (
-                f"Seleção ativa com {total} máscaras. Clique em uma máscara "
-                "para selecionar, arraste para mover, use botão direito ou "
-                "Delete para excluir e clique em uma área vazia para adicionar."
+                f"Seleção ativa com {total} máscaras atuais. Clique em uma "
+                "máscara para selecionar, arraste para mover, use botão "
+                "direito ou Delete para excluir e clique em uma área vazia "
+                "para adicionar."
             )
         else:
             mensagem = (
-                "Seleção ativa. Clique nos LEDs para criar máscaras. "
-                "As máscaras também podem ser movidas ou excluídas individualmente."
+                "Seleção ativa e vazia. Clique nos LEDs para criar máscaras. "
+                "Use Carregar LEDs somente quando quiser trazer a configuração "
+                "salva."
             )
 
         self.view.atualizar_status(mensagem)
@@ -347,7 +307,6 @@ class LedMaskEditorMixin:
         self.view.canvas.focus_set()
 
     def salvar_leds_fixos(self) -> None:
-        self._cancelar_preview_editor_led()
         if self._editor_esta_ativo():
             self._sincronizar_editor_camera()
             self.leds_selecionados.sort(
@@ -355,14 +314,23 @@ class LedMaskEditorMixin:
             )
 
         super().salvar_leds_fixos()
+        self._editor_leds_carregados_explicitamente = bool(
+            self.leds_selecionados
+        )
         self._limpar_estado_editor_led()
 
     def carregar_leds_fixos(self) -> None:
         self._limpar_estado_editor_led()
+        self._editor_leds_carregados_explicitamente = False
         super().carregar_leds_fixos()
+        self._editor_leds_carregados_explicitamente = bool(
+            self.leds_selecionados
+            and self.leds_fixos_configurados
+        )
 
     def limpar_tela(self) -> None:
         self._limpar_estado_editor_led()
+        self._editor_leds_carregados_explicitamente = False
         super().limpar_tela()
 
     def evento_clique_esquerdo(self, evento) -> None:
@@ -386,7 +354,7 @@ class LedMaskEditorMixin:
             self._editor_arrastando = True
             self._editor_posicao_alterada = False
             self._redesenhar_editor_led()
-            self._atualizar_preview_editor_led_leve()
+            self._desenhar_mira_editor_led(evento, forcar=True)
             self.view.atualizar_status(
                 f"{led_existente.id} selecionado. Arraste para mover ou "
                 "use botão direito/Delete para excluir."
@@ -418,6 +386,7 @@ class LedMaskEditorMixin:
         self._editor_arrastando = False
         self._editor_posicao_alterada = False
         self._redesenhar_editor_led(atualizar_auxiliares=True)
+        self._desenhar_mira_editor_led(evento, forcar=True)
         self.view.atualizar_status(
             f"{novo_led.id} criado. Total: {len(self.leds_selecionados)}. "
             "Arraste para ajustar ou salve a configuração."
@@ -461,18 +430,18 @@ class LedMaskEditorMixin:
             self.leds_selecionados,
             self.resultados_led_atual,
         )
-        self._agendar_preview_editor_led()
+        self._desenhar_mira_editor_led(evento)
 
-    def evento_soltar_mascara_led(self, _evento=None) -> None:
+    def evento_soltar_mascara_led(self, evento=None) -> None:
         if not self._editor_esta_ativo() or not self._editor_arrastando:
             return
 
         self._editor_arrastando = False
-        self._cancelar_preview_editor_led()
         led = self._obter_led_por_id(self._editor_led_id)
 
         if self._editor_posicao_alterada and led is not None:
             self._redesenhar_editor_led(atualizar_auxiliares=True)
+            self._desenhar_mira_editor_led(evento, forcar=True)
             self.view.atualizar_status(
                 f"{led.id} movido para X={led.centro_x}, Y={led.centro_y}. "
                 "Salve os LEDs para gravar a alteração."
