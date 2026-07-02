@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from src.platform.camera_advanced_config import (
+    instalar_normalizacao_config_repository,
+)
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
 )
@@ -9,6 +12,10 @@ from src.platform.gpio_raspberry_app import (
 
 class RaspberryPi3ProductionApp(GPIOEnabledRaspberryPi3ODINApp):
     """Perfil final do Raspberry com o acesso à produção integrado ao topo."""
+
+    def __init__(self, root: tk.Tk) -> None:
+        instalar_normalizacao_config_repository()
+        super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
         super()._instalar_tela_operacao()
