@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from src.platform.automatic_led_detection import (
+    AutomaticLedDetectionMixin,
+)
 from src.platform.camera_advanced_config import (
     instalar_normalizacao_config_repository,
 )
@@ -13,7 +16,10 @@ from src.platform.led_project_repository import (
 )
 
 
-class RaspberryPi3ProductionApp(GPIOEnabledRaspberryPi3ODINApp):
+class RaspberryPi3ProductionApp(
+    AutomaticLedDetectionMixin,
+    GPIOEnabledRaspberryPi3ODINApp,
+):
     """Perfil final do Raspberry com o acesso à produção integrado ao topo."""
 
     def __init__(self, root: tk.Tk) -> None:
