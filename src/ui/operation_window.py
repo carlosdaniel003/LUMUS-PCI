@@ -11,6 +11,8 @@ class OperationWindow:
     """Tela de produção leve com prévia persistente da câmera."""
 
     COLOR_WAITING = "#111827"
+    COLOR_WAITING_AFTER_OK = "#14532D"
+    COLOR_WAITING_AFTER_NG = "#7F1D1D"
     COLOR_POSITIONING = "#1D4ED8"
     COLOR_WAITING_REMOVAL = "#334155"
     COLOR_PROCESSING = "#F59E0B"
@@ -52,6 +54,10 @@ class OperationWindow:
         self._preview_use_ppm = True
         self._configured_led_count = 0
         self._has_led_result = False
+        self._last_result_ok: bool | None = None
+
+        preview_shell_width = self.preview_width + 28
+        preview_shell_height = self.preview_height + 78
 
         self.container = tk.Frame(
             root,
@@ -60,7 +66,9 @@ class OperationWindow:
             takefocus=True,
         )
         self.container.grid_rowconfigure(1, weight=1)
-        self.container.grid_columnconfigure(0, weight=1)
+        self.container.grid_columnconfigure(0, weight=0)
+        self.container.grid_columnconfigure(1, weight=1)
+        self.container.grid_columnconfigure(2, weight=0)
 
         self.brand_label = tk.Label(
             self.container,
@@ -74,10 +82,26 @@ class OperationWindow:
         self.brand_label.grid(
             row=0,
             column=0,
-            columnspan=2,
+            columnspan=3,
             sticky="ew",
             pady=(28, 8),
         )
+
+        self.left_balance_frame = tk.Frame(
+            self.container,
+            bg=self.COLOR_WAITING,
+            highlightthickness=0,
+            width=preview_shell_width,
+            height=preview_shell_height,
+        )
+        self.left_balance_frame.grid(
+            row=1,
+            column=0,
+            sticky="w",
+            padx=(24, 0),
+            pady=16,
+        )
+        self.left_balance_frame.grid_propagate(False)
 
         self.status_frame = tk.Frame(
             self.container,
@@ -86,9 +110,9 @@ class OperationWindow:
         )
         self.status_frame.grid(
             row=1,
-            column=0,
+            column=1,
             sticky="nsew",
-            padx=(24, 16),
+            padx=16,
             pady=16,
         )
         self.status_frame.grid_rowconfigure(0, weight=1)
@@ -119,7 +143,7 @@ class OperationWindow:
             fg="#FFFFFF",
             anchor="center",
             justify="center",
-            wraplength=620,
+            wraplength=520,
         )
         self.detail_label.grid(
             row=1,
@@ -152,12 +176,12 @@ class OperationWindow:
             bg=self.PREVIEW_BACKGROUND,
             highlightbackground=self.PREVIEW_BORDER,
             highlightthickness=2,
-            width=self.preview_width + 28,
-            height=self.preview_height + 78,
+            width=preview_shell_width,
+            height=preview_shell_height,
         )
         self.preview_frame.grid(
             row=1,
-            column=1,
+            column=2,
             sticky="e",
             padx=(0, 24),
             pady=16,
@@ -208,7 +232,7 @@ class OperationWindow:
         self.counter_label.grid(
             row=2,
             column=0,
-            columnspan=2,
+            columnspan=3,
             sticky="ew",
             pady=(4, 10),
         )
@@ -225,7 +249,7 @@ class OperationWindow:
         self.footer_label.grid(
             row=3,
             column=0,
-            columnspan=2,
+            columnspan=3,
             sticky="ew",
             pady=(0, 14),
         )
@@ -448,17 +472,27 @@ class OperationWindow:
         if led_count != self._configured_led_count:
             self._configured_led_count = led_count
             self._has_led_result = False
+            self._last_result_ok = None
 
-        if not self._has_led_result:
+        if self._has_led_result and self._last_result_ok is not None:
+            if self._last_result_ok:
+                background = self.COLOR_WAITING_AFTER_OK
+                detail = "Última placa: OK — insira uma nova placa"
+            else:
+                background = self.COLOR_WAITING_AFTER_NG
+                detail = "Última placa: NG — insira uma nova placa"
+        else:
+            background = self.COLOR_WAITING
+            detail = f"{led_count} LEDs preparados — insira uma placa"
             self.led_summary_label.configure(
                 text=f"LEDS CONFIGURADOS: {led_count}"
             )
 
         self._set_state(
-            background=self.COLOR_WAITING,
+            background=background,
             foreground="#FFFFFF",
             status="AGUARDANDO",
-            detail=f"{led_count} LEDs preparados — insira uma placa",
+            detail=detail,
         )
         self._set_counters(total, ok_count, ng_count)
 
@@ -523,6 +557,7 @@ class OperationWindow:
         lit_count = max(0, self._configured_led_count - off_count)
 
         self._has_led_result = True
+        self._last_result_ok = bool(is_ok)
         self.led_summary_label.configure(
             text=f"ACESOS: {lit_count}    APAGADOS: {off_count}"
         )
@@ -580,6 +615,7 @@ class OperationWindow:
     ) -> None:
         for widget in (
             self.container,
+            self.left_balance_frame,
             self.status_frame,
             self.brand_label,
             self.status_label,
