@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import sys
 
 import cv2
 
@@ -89,7 +90,7 @@ class RaspberryPi3CameraService(CameraService):
 
         for backend, candidate_name in (
             (cv2.CAP_V4L2, "V4L2"),
-            (cv2.CAP_ANY, "automático Linux"),
+            (cv2.CAP_ANY, "automático"),
         ):
             try:
                 candidate = cv2.VideoCapture(
@@ -173,12 +174,9 @@ class RaspberryPi3CameraService(CameraService):
             valor_lido=valor_lido,
         )
 
-    def _valor_auto_exposure(self, automatico: bool) -> float:
-        backend = str(
-            getattr(self, "_backend_name", "V4L2")
-        ).lower()
-
-        if "v4l2" in backend or "linux" in backend:
+    @staticmethod
+    def _valor_auto_exposure(automatico: bool) -> float:
+        if sys.platform.startswith("linux"):
             return 3.0 if automatico else 1.0
 
         return 0.75 if automatico else 0.25
