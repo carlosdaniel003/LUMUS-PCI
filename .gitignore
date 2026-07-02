@@ -29,3 +29,6 @@ dataconfigodin_pci_config.json
 
 # Amostrasimagens locais de LED
 dataconfigroi_samples
+
+# Logs locais de produção
+data/logs/
