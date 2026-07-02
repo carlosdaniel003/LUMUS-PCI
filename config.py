@@ -60,6 +60,26 @@ CAMERA_FPS_MIN = 0
 CAMERA_FPS_MAX = 120
 CAMERA_FORMATS = ("AUTO", "MJPG", "YUY2")
 
+CAMERA_PAN_MIN = -180
+CAMERA_PAN_MAX = 180
+CAMERA_TILT_MIN = -180
+CAMERA_TILT_MAX = 180
+CAMERA_IMAGE_CONTROL_MIN = 0
+CAMERA_IMAGE_CONTROL_MAX = 255
+CAMERA_EXPOSURE_MIN = -13
+CAMERA_EXPOSURE_MAX = 2047
+CAMERA_GAIN_MIN = 0
+CAMERA_GAIN_MAX = 255
+CAMERA_FOCUS_MIN = 0
+CAMERA_FOCUS_MAX = 255
+CAMERA_WHITE_BALANCE_MIN = 2000
+CAMERA_WHITE_BALANCE_MAX = 7500
+CAMERA_BRIGHTNESS_MIN = 0
+CAMERA_BRIGHTNESS_MAX = 255
+CAMERA_GAMMA_MIN = 1
+CAMERA_GAMMA_MAX = 500
+CAMERA_ROTATIONS = (0, 90, 180, 270)
+
 DEFAULT_CAMERA_SETTINGS = {
     "resolution_mode": "auto",
     "width": 1920,
@@ -77,16 +97,23 @@ DEFAULT_CAMERA_SETTINGS = {
     "sharpness": 128.0,
     "saturation_enabled": False,
     "saturation": 128.0,
+    "exposure_auto": True,
+    "exposure_enabled": False,
+    "exposure": 100.0,
+    "gain_enabled": False,
+    "gain": 0.0,
+    "focus_auto": True,
+    "focus_enabled": False,
+    "focus": 0.0,
+    "white_balance_auto": True,
+    "white_balance_enabled": False,
+    "white_balance": 4500.0,
+    "brightness_enabled": False,
+    "brightness": 128.0,
+    "gamma_enabled": False,
+    "gamma": 100.0,
     "rotation": 0,
 }
-
-CAMERA_PAN_MIN = -180
-CAMERA_PAN_MAX = 180
-CAMERA_TILT_MIN = -180
-CAMERA_TILT_MAX = 180
-CAMERA_IMAGE_CONTROL_MIN = 0
-CAMERA_IMAGE_CONTROL_MAX = 255
-CAMERA_ROTATIONS = (0, 90, 180, 270)
 
 MAX_DISPLAY_WIDTH = 1100
 MAX_DISPLAY_HEIGHT = 650
