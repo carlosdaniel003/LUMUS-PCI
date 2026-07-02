@@ -1,5 +1,6 @@
 
 from src.ui.main_window_parts.updates.atualizar_estado_tela_ao_vivo import atualizar_estado_tela_ao_vivo
+from src.ui.main_window_parts.updates.atualizar_metricas_desempenho import atualizar_metricas_desempenho
 from src.ui.main_window_parts.canvas.desenhar_guias_leds_camera import desenhar_guias_leds_camera
 from src.ui.main_window_parts.lifecycle.init_view import __init__ as init_view
 from src.ui.main_window_parts.lifecycle.maximizar_janela import maximizar_janela
@@ -110,6 +111,7 @@ class ODINView:
     criar_kpi = criar_kpi
     configurar_estilo_tabela = configurar_estilo_tabela
     atualizar_status = atualizar_status
+    atualizar_metricas_desempenho = atualizar_metricas_desempenho
     atualizar_estado_selecao_led = atualizar_estado_selecao_led
     atualizar_estado_tela_ao_vivo = atualizar_estado_tela_ao_vivo
     desenhar_guias_leds_camera = desenhar_guias_leds_camera
