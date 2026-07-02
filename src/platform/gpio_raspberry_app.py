@@ -5,6 +5,7 @@ import tkinter as tk
 
 from src.platform.gpio_trigger_service import GPIOTriggerService
 from src.platform.led_mask_editor import LedMaskEditorMixin
+from src.platform.performance_metrics import PerformanceMetricsMixin
 from src.platform.raspberry_pi3_profile import RaspberryPi3ODINApp
 from src.platform.raspberry_pi3_settings import (
     GPIO_EVENT_POLL_MS,
@@ -15,10 +16,11 @@ from src.platform.raspberry_pi3_settings import (
 
 
 class GPIOEnabledRaspberryPi3ODINApp(
+    PerformanceMetricsMixin,
     LedMaskEditorMixin,
     RaspberryPi3ODINApp,
 ):
-    """Adiciona gatilho por microswitch e edição de máscaras ao ODIN."""
+    """Perfil Raspberry com GPIO, editor de máscaras e métricas leves."""
 
     def __init__(self, root: tk.Tk) -> None:
         self._gpio_positioning = False
@@ -101,6 +103,9 @@ class GPIOEnabledRaspberryPi3ODINApp(
         ):
             return
 
+        # No microswitch, a medição começa na detecção física da placa. Assim,
+        # o valor inclui os dois segundos intencionais de estabilização.
+        self._iniciar_medicao_tempo_resposta()
         self._gpio_armed = False
         self._gpio_positioning = True
         self.operacao_window.show_positioning(
@@ -118,6 +123,7 @@ class GPIOEnabledRaspberryPi3ODINApp(
     def _handle_gpio_released(self) -> None:
         if self._gpio_positioning:
             self._cancel_gpio_positioning_timer()
+            self._cancelar_medicao_tempo_resposta()
             self._gpio_positioning = False
             self._gpio_armed = True
             self._show_gpio_waiting_if_possible()
@@ -134,6 +140,7 @@ class GPIOEnabledRaspberryPi3ODINApp(
         self._gpio_positioning_after_id = None
 
         if not self.operacao_ativa:
+            self._cancelar_medicao_tempo_resposta()
             self._gpio_positioning = False
             return
 
@@ -143,6 +150,7 @@ class GPIOEnabledRaspberryPi3ODINApp(
             or not service.available
             or not service.is_pressed
         ):
+            self._cancelar_medicao_tempo_resposta()
             self._gpio_positioning = False
             self._gpio_armed = True
             self._show_gpio_waiting_if_possible()
@@ -180,6 +188,7 @@ class GPIOEnabledRaspberryPi3ODINApp(
         self.operacao_window.set_preview_paused(False)
 
     def abrir_tela_operacao(self) -> None:
+        self._cancelar_medicao_tempo_resposta()
         self._cancel_gpio_positioning_timer()
         self._gpio_positioning = False
         self._gpio_waiting_removal = False
@@ -193,6 +202,7 @@ class GPIOEnabledRaspberryPi3ODINApp(
         super().abrir_tela_operacao()
 
     def fechar_tela_operacao(self) -> None:
+        self._cancelar_medicao_tempo_resposta()
         self._cancel_gpio_positioning_timer()
         self._gpio_positioning = False
         self._gpio_waiting_removal = False
@@ -273,6 +283,8 @@ class GPIOEnabledRaspberryPi3ODINApp(
     def _on_root_destroy(self, event) -> None:
         if event.widget is not self.root:
             return
+
+        self._cancelar_medicao_tempo_resposta()
 
         if self._gpio_poll_after_id is not None:
             try:
