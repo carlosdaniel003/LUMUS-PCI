@@ -5,6 +5,7 @@ import tkinter as tk
 
 from src.platform.gpio_trigger_service import GPIOTriggerService
 from src.platform.led_mask_editor import LedMaskEditorMixin
+from src.platform.led_project_manager import LedProjectManagerMixin
 from src.platform.performance_metrics import PerformanceMetricsMixin
 from src.platform.raspberry_pi3_profile import RaspberryPi3ODINApp
 from src.platform.raspberry_pi3_settings import (
@@ -17,10 +18,11 @@ from src.platform.raspberry_pi3_settings import (
 
 class GPIOEnabledRaspberryPi3ODINApp(
     PerformanceMetricsMixin,
+    LedProjectManagerMixin,
     LedMaskEditorMixin,
     RaspberryPi3ODINApp,
 ):
-    """Perfil Raspberry com GPIO, editor de máscaras e métricas leves."""
+    """Perfil Raspberry com GPIO, projetos, máscaras e métricas leves."""
 
     def __init__(self, root: tk.Tk) -> None:
         self._gpio_positioning = False
@@ -113,8 +115,6 @@ class GPIOEnabledRaspberryPi3ODINApp(
         ):
             return
 
-        # No microswitch, a medição começa na detecção física da placa. Assim,
-        # o valor inclui os dois segundos intencionais de estabilização.
         self._iniciar_medicao_tempo_resposta()
         self._gpio_armed = False
         self._gpio_positioning = True
