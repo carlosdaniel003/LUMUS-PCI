@@ -213,10 +213,6 @@ class LedProjectManagerMixin:
         )
 
     def carregar_leds_fixos(self) -> None:
-        if self.imagem_original is None:
-            super().carregar_leds_fixos()
-            return
-
         projetos = self.config_repository.listar_projetos_led()
         if not projetos:
             super().carregar_leds_fixos()
@@ -236,6 +232,19 @@ class LedProjectManagerMixin:
 
         self.projeto_led_ativo = nome
         self._atualizar_projeto_led_na_interface()
+
+        if self.imagem_original is None:
+            self.leds_fixos_configurados = (
+                self.config_repository.carregar_leds_fixos()
+            )
+            self.view.atualizar_status(
+                f"Projeto {nome} ativado com "
+                f"{len(self.leds_fixos_configurados)} LEDs. "
+                "As máscaras serão exibidas quando a câmera ou uma imagem "
+                "estiver disponível."
+            )
+            return
+
         super().carregar_leds_fixos()
 
         if self.leds_selecionados:
