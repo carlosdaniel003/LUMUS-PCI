@@ -55,12 +55,12 @@ def criar_topo_profissional(self) -> None:
     self.frame_botoes.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=18)
 
     self.botao_tela_ao_vivo = self.criar_botao_topo(
-    texto="Tela ao vivo",
-    comando=self.callbacks["alternar_tela_ao_vivo"],
-    ativo=True,
-    cor_fundo="#0F3D24",
-    cor_texto="#BBF7D0",
-)
+        texto="Tela ao vivo",
+        comando=self.callbacks["alternar_tela_ao_vivo"],
+        ativo=True,
+        cor_fundo="#0F3D24",
+        cor_texto="#BBF7D0",
+    )
     self.botao_tela_ao_vivo.pack(side=tk.LEFT, padx=4)
 
     self.criar_botao_topo(
@@ -95,7 +95,11 @@ def criar_topo_profissional(self) -> None:
         comando=self.callbacks["limpar_tela"],
     ).pack(side=tk.LEFT, padx=4)
 
-    self.frame_topo_direita = tk.Frame(self.frame_topo, bg=self.COR_TOPO, width=260)
+    self.frame_topo_direita = tk.Frame(
+        self.frame_topo,
+        bg=self.COR_TOPO,
+        width=360,
+    )
     self.frame_topo_direita.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 10))
     self.frame_topo_direita.pack_propagate(False)
 
