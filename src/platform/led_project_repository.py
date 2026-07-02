@@ -131,6 +131,7 @@ def instalar_repositorio_projetos_led() -> None:
     def definir_projeto_led_ativo(
         self: ConfigRepository,
         nome_projeto: str,
+        criar: bool = False,
     ) -> bool:
         configuracao = self.carregar_configuracao_existente_sem_alerta()
         if not configuracao:
@@ -138,12 +139,21 @@ def instalar_repositorio_projetos_led() -> None:
 
         projetos = _normalizar_projetos(configuracao)
         nome = normalizar_nome_projeto_led(nome_projeto)
+        if not nome:
+            return False
 
         if nome not in projetos:
-            return False
+            if not criar:
+                return False
+            projetos[nome] = {
+                "name": nome,
+                "fixed_leds": [],
+                "updated_at": None,
+            }
 
         settings = _obter_settings(configuracao)
         settings["active_led_project"] = nome
+        configuracao["led_projects"] = projetos
         configuracao["fixed_leds"] = list(
             projetos[nome].get("fixed_leds", [])
         )
