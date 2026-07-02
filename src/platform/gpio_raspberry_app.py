@@ -4,6 +4,7 @@ from queue import Empty, Queue
 import tkinter as tk
 
 from src.platform.gpio_trigger_service import GPIOTriggerService
+from src.platform.led_mask_editor import LedMaskEditorMixin
 from src.platform.raspberry_pi3_profile import RaspberryPi3ODINApp
 from src.platform.raspberry_pi3_settings import (
     GPIO_EVENT_POLL_MS,
@@ -13,8 +14,11 @@ from src.platform.raspberry_pi3_settings import (
 )
 
 
-class GPIOEnabledRaspberryPi3ODINApp(RaspberryPi3ODINApp):
-    """Adiciona gatilho por microswitch ao modo de operação."""
+class GPIOEnabledRaspberryPi3ODINApp(
+    LedMaskEditorMixin,
+    RaspberryPi3ODINApp,
+):
+    """Adiciona gatilho por microswitch e edição de máscaras ao ODIN."""
 
     def __init__(self, root: tk.Tk) -> None:
         self._gpio_positioning = False
@@ -26,6 +30,7 @@ class GPIOEnabledRaspberryPi3ODINApp(RaspberryPi3ODINApp):
         self.gpio_trigger_service = None
 
         super().__init__(root)
+        self.inicializar_editor_mascaras_led()
         self._initialize_gpio_trigger()
         self._schedule_gpio_event_poll()
         self.root.bind(
