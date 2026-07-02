@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import time
 
+from src.platform.production_log import ProductionLogMixin
 from src.platform.raspberry_pi3_settings import (
     OPERATION_PREVIEW_INTERVAL_MS,
 )
 
 
-class PerformanceMetricsMixin:
+class PerformanceMetricsMixin(ProductionLogMixin):
     """Mede somente o tempo percebido entre o gatilho e o resultado visível."""
 
     def __init__(self, *args, **kwargs) -> None:
