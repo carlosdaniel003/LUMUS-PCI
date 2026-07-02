@@ -9,10 +9,13 @@ from src.infra.camera_service import CameraService
 from src.platform.camera_advanced_config import (
     normalizar_controles_avancados,
 )
+from src.platform.raspberry_pi3_settings import (
+    WINDOWS_CAMERA_INDEX,
+)
 
 
 class RaspberryPi3CameraService(CameraService):
-    """CameraService para webcam USB usando V4L2 no Raspberry Pi OS."""
+    """CameraService compatível com Windows e Raspberry Pi OS."""
 
     CONTROLES_AVANCADOS = (
         "auto_exposure",
@@ -27,6 +30,11 @@ class RaspberryPi3CameraService(CameraService):
     )
 
     def __init__(self, *args, **kwargs) -> None:
+        # No notebook, a webcam integrada ocupa o índice 0 e a Logitech BRIO
+        # foi confirmada no índice 1. No Raspberry o índice recebido permanece 0.
+        if sys.platform.startswith("win") and "indice_camera" in kwargs:
+            kwargs["indice_camera"] = WINDOWS_CAMERA_INDEX
+
         super().__init__(*args, **kwargs)
 
         for nome in self.CONTROLES_AVANCADOS:
@@ -52,6 +60,23 @@ class RaspberryPi3CameraService(CameraService):
             configuracoes_camera,
         )
 
+    @staticmethod
+    def _backends_preferidos():
+        if sys.platform.startswith("win"):
+            return (
+                (cv2.CAP_DSHOW, "DirectShow"),
+                (cv2.CAP_MSMF, "Media Foundation"),
+                (cv2.CAP_ANY, "automático"),
+            )
+
+        if sys.platform.startswith("linux"):
+            return (
+                (cv2.CAP_V4L2, "V4L2"),
+                (cv2.CAP_ANY, "automático"),
+            )
+
+        return ((cv2.CAP_ANY, "automático"),)
+
     def iniciar(self) -> None:
         if self._ativo:
             return
@@ -61,7 +86,7 @@ class RaspberryPi3CameraService(CameraService):
         self._proxima_reconexao_em = 0.0
         self._definir_estado(
             self.ESTADO_CONECTANDO,
-            f"Conectando câmera {self.indice_camera} via V4L2...",
+            f"Conectando câmera {self.indice_camera}...",
         )
         self._abrir_camera()
 
@@ -80,18 +105,22 @@ class RaspberryPi3CameraService(CameraService):
 
     def _abrir_camera(self) -> bool:
         self._liberar_camera()
+        nomes_backend = ", ".join(
+            nome
+            for _backend, nome in self._backends_preferidos()
+        )
         self._definir_estado(
             self.ESTADO_ESTABILIZANDO,
-            f"Abrindo câmera {self.indice_camera} via V4L2...",
+            (
+                f"Abrindo câmera {self.indice_camera}. "
+                f"Backends: {nomes_backend}..."
+            ),
         )
 
         capture = None
-        backend_name = "V4L2"
+        backend_name = "automático"
 
-        for backend, candidate_name in (
-            (cv2.CAP_V4L2, "V4L2"),
-            (cv2.CAP_ANY, "automático"),
-        ):
+        for backend, candidate_name in self._backends_preferidos():
             try:
                 candidate = cv2.VideoCapture(
                     self.indice_camera,
@@ -114,7 +143,10 @@ class RaspberryPi3CameraService(CameraService):
         if capture is None:
             self._capture = None
             self._agendar_reconexao(
-                f"Câmera {self.indice_camera} não abriu via V4L2."
+                (
+                    f"Câmera {self.indice_camera} não abriu pelos backends "
+                    f"{nomes_backend}."
+                )
             )
             return False
 
@@ -252,17 +284,17 @@ class RaspberryPi3CameraService(CameraService):
                 float(configuracoes.get("focus", 0.0)),
             )
 
-        balanço_automatico = bool(
+        balanco_automatico = bool(
             configuracoes.get("white_balance_auto", True)
         )
         self._aplicar_controle_automatico(
             capture,
             "auto_white_balance",
             getattr(cv2, "CAP_PROP_AUTO_WB", None),
-            1.0 if balanço_automatico else 0.0,
+            1.0 if balanco_automatico else 0.0,
         )
 
-        if balanço_automatico:
+        if balanco_automatico:
             self._registrar_status_controle(
                 "white_balance",
                 "automatico",
@@ -296,7 +328,7 @@ class RaspberryPi3CameraService(CameraService):
 
     def _publicar_frame(self, frame) -> None:
         frame_height, frame_width = frame.shape[:2]
-        backend_name = getattr(self, "_backend_name", "V4L2")
+        backend_name = getattr(self, "_backend_name", "automático")
 
         with self._lock:
             self._ultimo_frame = frame.copy()
