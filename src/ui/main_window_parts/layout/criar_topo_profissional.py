@@ -37,9 +37,10 @@ def criar_topo_profissional(self) -> None:
         font=("Segoe UI", 22, "bold"),
         fg=self.COR_TEXTO,
         bg=self.COR_TOPO,
-        anchor="w",
+        anchor="center",
+        justify=tk.CENTER,
     )
-    self.label_titulo.pack(anchor="w", pady=(13, 0))
+    self.label_titulo.pack(fill=tk.X, pady=(13, 0))
 
     self.label_subtitulo = tk.Label(
         self.frame_titulo,
@@ -47,9 +48,10 @@ def criar_topo_profissional(self) -> None:
         font=("Segoe UI", 9, "bold"),
         fg=self.COR_TEXTO_3,
         bg=self.COR_TOPO,
-        anchor="w",
+        anchor="center",
+        justify=tk.CENTER,
     )
-    self.label_subtitulo.pack(anchor="w")
+    self.label_subtitulo.pack(fill=tk.X)
 
     self.frame_botoes = tk.Frame(self.frame_topo, bg=self.COR_TOPO)
     self.frame_botoes.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=18)
