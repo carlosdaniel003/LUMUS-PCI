@@ -43,7 +43,7 @@ from src.ui.main_window_parts.canvas.desenhar_placeholder import desenhar_placeh
 from src.ui.main_window_parts.state._normalizar_leds_selecionados import _normalizar_leds_selecionados
 from src.ui.main_window_parts.state._normalizar_resultados_led import _normalizar_resultados_led
 from src.ui.main_window_parts.layout.criar_topo_profissional import criar_topo_profissional
-from src.ui.main_window_parts.settings.abrir_janela_configuracoes import abrir_janela_configuracoes
+from src.ui.main_window_parts.settings.abrir_janela_configuracoes_interativa import abrir_janela_configuracoes
 from src.ui.main_window_parts.widgets.criar_botao_config import criar_botao_config
 from src.ui.main_window_parts.updates.atualizar_label_raio import atualizar_label_raio
 from src.ui.main_window_parts.updates.atualizar_faixa_resultado_multiplos import atualizar_faixa_resultado_multiplos
