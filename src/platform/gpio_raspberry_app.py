@@ -41,6 +41,16 @@ class GPIOEnabledRaspberryPi3ODINApp(
             add="+",
         )
 
+    def iniciar_tela_ao_vivo(self) -> None:
+        # Iniciar a câmera não equivale a pressionar Carregar LEDs.
+        self._editor_leds_carregados_explicitamente = False
+        super().iniciar_tela_ao_vivo()
+
+    def salvar_leds_fixos(self) -> None:
+        super().salvar_leds_fixos()
+        # Salvar não deve fazer o botão Selecionar LEDs recarregar máscaras.
+        self._editor_leds_carregados_explicitamente = False
+
     def _initialize_gpio_trigger(self) -> None:
         self.gpio_trigger_service = GPIOTriggerService(
             bcm_pin=GPIO_TRIGGER_BCM_PIN,
