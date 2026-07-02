@@ -80,7 +80,10 @@ class ProductionLogMixin:
         momento = datetime.now()
 
         try:
-            self.root.after_idle(
+            # Timer curto: a interface termina de renderizar antes da escrita.
+            # Diferente de after_idle, não é executado por update_idletasks().
+            self.root.after(
+                1,
                 lambda: self._gravar_registro_producao(
                     nome_configuracao=nome_configuracao,
                     status=status,
@@ -88,7 +91,7 @@ class ProductionLogMixin:
                     ok_count=ok_count,
                     ng_count=ng_count,
                     momento=momento,
-                )
+                ),
             )
         except tk.TclError:
             self._gravar_registro_producao(
