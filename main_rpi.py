@@ -1,13 +1,13 @@
 import tkinter as tk
 
-from src.platform.gpio_raspberry_app import (
-    GPIOEnabledRaspberryPi3ODINApp,
+from src.platform.raspberry_pi3_production_app import (
+    RaspberryPi3ProductionApp,
 )
 
 
 def main() -> None:
     root = tk.Tk()
-    GPIOEnabledRaspberryPi3ODINApp(root)
+    RaspberryPi3ProductionApp(root)
     root.mainloop()
 
 
