@@ -13,39 +13,37 @@ def criar_area_dashboard(self) -> None:
         pady=(0, 8),
     )
 
-    # A área superior recebe a maior parte da altura. A tabela continua
-    # acessível, mas não reduz a visualização da câmera e do mapa.
+    # A área superior concentra câmera, mapa e painéis auxiliares. A tabela
+    # inferior continua visível, mas não disputa altura com a imagem principal.
     self.frame_dashboard.grid_rowconfigure(
         0,
-        weight=8,
-        minsize=410,
+        weight=9,
+        minsize=470,
     )
     self.frame_dashboard.grid_rowconfigure(
         1,
-        weight=2,
-        minsize=105,
+        weight=1,
+        minsize=90,
     )
 
-    # O grupo uniforme impede que o tamanho solicitado pelos três painéis
-    # auxiliares comprima a imagem principal. As proporções dão prioridade
-    # à câmera ao vivo e, em seguida, ao mapa de intensidade.
+    # Não usar uniform aqui. Os canvases auxiliares possuem tamanho solicitado
+    # próprio e, quando agrupados como uniformes, podem forçar a câmera principal
+    # a ficar estreita. A imagem ao vivo recebe a maior parcela da largura; o
+    # mapa de intensidade vem em seguida e o painel técnico usa o espaço restante.
     self.frame_dashboard.grid_columnconfigure(
         0,
-        weight=7,
-        minsize=430,
-        uniform="dashboard_columns",
+        weight=8,
+        minsize=560,
     )
     self.frame_dashboard.grid_columnconfigure(
         1,
-        weight=4,
-        minsize=300,
-        uniform="dashboard_columns",
+        weight=5,
+        minsize=340,
     )
     self.frame_dashboard.grid_columnconfigure(
         2,
         weight=5,
-        minsize=360,
-        uniform="dashboard_columns",
+        minsize=390,
     )
 
     self.criar_painel_principal()
