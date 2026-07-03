@@ -61,11 +61,135 @@ class LedProjectManagerMixin:
 
         super().carregar_leds_fixos()
 
+    def _ativar_selecao_para_projeto_vazio(
+        self,
+        nome_projeto: str,
+    ) -> None:
+        nome = normalizar_nome_projeto_led(nome_projeto)
+        if not nome:
+            return
+
+        projetos = self.config_repository.listar_projetos_led()
+        if nome not in projetos:
+            return
+
+        if self.config_repository.carregar_leds_fixos(projeto=nome):
+            return
+
+        if not self.config_repository.definir_projeto_led_ativo(nome):
+            return
+
+        self.projeto_led_ativo = nome
+        self._atualizar_projeto_led_na_interface()
+        self.leds_fixos_configurados = []
+        self.leds_selecionados = []
+        self.resultados_led_atual = []
+        self.guias_leds_fixos_visiveis = False
+        self.selecao_manual_camera_ativa = False
+        self.leds_manuais_camera = []
+        self.view.selecao_manual_camera_visivel = False
+        self.view.atualizar_estado_selecao_led(False)
+
+        if hasattr(self, "_limpar_estado_editor_led"):
+            self._limpar_estado_editor_led()
+
+        if self.camera_ativa:
+            self.modo_atual = "tela_ao_vivo"
+        else:
+            self.modo_atual = "ocioso"
+
+        if not self.camera_ativa and self.imagem_original is None:
+            self.view.atualizar_status(
+                f"Projeto {nome} criado sem LEDs. Inicie a câmera ou carregue "
+                "uma imagem para selecionar as máscaras."
+            )
+            return
+
+        self.iniciar_selecao_led()
+        if self.modo_atual in (
+            "selecionar_leds_camera",
+            "selecionar_leds_analise",
+        ):
+            self.view.atualizar_status(
+                f"Projeto {nome} criado sem LEDs. Seleção ativada: marque os "
+                "LEDs e depois use Carregar LEDs > Salvar LEDs selecionados."
+            )
+
+    def _salvar_leds_no_projeto(
+        self,
+        nome_projeto: str,
+        parent=None,
+        confirmar_substituicao: bool = True,
+    ) -> bool:
+        nome = normalizar_nome_projeto_led(nome_projeto)
+        if not nome:
+            messagebox.showwarning(
+                "Projeto inválido",
+                "Selecione uma configuração de LEDs válida.",
+                parent=parent or self.root,
+            )
+            return False
+
+        if not self.leds_selecionados:
+            messagebox.showwarning(
+                "Nenhum LED selecionado",
+                (
+                    "Não existem máscaras selecionadas para salvar.\n\n"
+                    "Feche esta janela, selecione os LEDs e abra novamente "
+                    "Carregar LEDs."
+                ),
+                parent=parent or self.root,
+            )
+            return False
+
+        existentes = self.config_repository.listar_projetos_led()
+        if nome not in existentes:
+            messagebox.showwarning(
+                "Projeto não encontrado",
+                f"A configuração {nome} não foi encontrada.",
+                parent=parent or self.root,
+            )
+            return False
+
+        leds_salvos = self.config_repository.carregar_leds_fixos(
+            projeto=nome
+        )
+        if leds_salvos and confirmar_substituicao:
+            substituir = messagebox.askyesno(
+                "Atualizar configuração",
+                (
+                    f"A configuração {nome} já possui "
+                    f"{len(leds_salvos)} LEDs salvos.\n\n"
+                    "Deseja substituir pelas máscaras que estão atualmente "
+                    "selecionadas na tela?"
+                ),
+                parent=parent or self.root,
+            )
+            if not substituir:
+                return False
+
+        if not self.config_repository.definir_projeto_led_ativo(nome):
+            messagebox.showerror(
+                "Falha ao salvar",
+                "Não foi possível ativar a configuração selecionada.",
+                parent=parent or self.root,
+            )
+            return False
+
+        self.projeto_led_ativo = nome
+        self._atualizar_projeto_led_na_interface()
+        super().salvar_leds_fixos()
+        self.view.atualizar_status(
+            f"Projeto {nome}: {len(self.leds_fixos_configurados)} LEDs salvos."
+        )
+        return True
+
     def _selecionar_projeto_led_existente(
         self,
         projetos: list[str],
     ) -> str | None:
         resultado = {"nome": None}
+        projeto_vazio_criado = {"nome": None}
         janela = tk.Toplevel(self.root)
         janela.title("Gerenciar configurações de LEDs")
         janela.configure(bg="#07111F")
@@ -73,8 +197,8 @@ class LedProjectManagerMixin:
         janela.resizable(False, False)
         janela.grab_set()
 
-        largura = 650
-        altura = 470
+        largura = 670
+        altura = 500
         pos_x = self.root.winfo_rootx() + max(
             0,
             (self.root.winfo_width() - largura) // 2,
@@ -96,14 +220,14 @@ class LedProjectManagerMixin:
         tk.Label(
             janela,
             text=(
-                "Selecione, adicione, renomeie, remova ou reorganize os "
-                "projetos usados no modo de produção."
+                "Selecione, salve, adicione, renomeie, remova ou reorganize "
+                "os projetos usados no modo de produção."
             ),
             font=("Segoe UI", 9),
             fg="#94A3B8",
             bg="#07111F",
             justify=tk.LEFT,
-            wraplength=600,
+            wraplength=620,
         ).pack(anchor="w", padx=22, pady=(0, 10))
 
         frame_conteudo = tk.Frame(janela, bg="#07111F")
@@ -143,7 +267,7 @@ class LedProjectManagerMixin:
         lista.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=1, pady=1)
         scrollbar.configure(command=lista.yview)
 
-        frame_acoes = tk.Frame(frame_conteudo, bg="#07111F", width=185)
+        frame_acoes = tk.Frame(frame_conteudo, bg="#07111F", width=205)
         frame_acoes.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0))
         frame_acoes.pack_propagate(False)
 
@@ -169,10 +293,12 @@ class LedProjectManagerMixin:
                 or "SEM PROJETO"
             )
             quantidade = lista.size()
+            selecionados = len(self.leds_selecionados)
             label_resumo.configure(
                 text=(
                     f"Projeto ativo: {ativo}    |    "
-                    f"Configurações cadastradas: {quantidade}"
+                    f"Configurações: {quantidade}    |    "
+                    f"LEDs selecionados na tela: {selecionados}"
                 )
             )
 
@@ -180,7 +306,13 @@ class LedProjectManagerMixin:
             nomes = self.config_repository.listar_projetos_led()
             lista.delete(0, tk.END)
             for nome in nomes:
-                lista.insert(tk.END, nome)
+                quantidade_leds = len(
+                    self.config_repository.carregar_leds_fixos(
+                        projeto=nome
+                    )
+                )
+                sufixo = "  [SEM LEDs]" if quantidade_leds == 0 else ""
+                lista.insert(tk.END, f"{nome}{sufixo}")
 
             if not nomes:
                 atualizar_resumo()
@@ -193,12 +325,23 @@ class LedProjectManagerMixin:
             lista.see(indice)
             atualizar_resumo()
 
+        def obter_nome_real_selecionado() -> str | None:
+            selecao = lista.curselection()
+            if not selecao:
+                return None
+            nomes = self.config_repository.listar_projetos_led()
+            indice = int(selecao[0])
+            if indice < 0 or indice >= len(nomes):
+                return None
+            return nomes[indice]
+
         def adicionar() -> None:
             nome_digitado = simpledialog.askstring(
                 "Adicionar configuração",
                 (
                     "Informe o nome do novo modelo/projeto.\n\n"
-                    "A nova configuração será criada sem máscaras."
+                    "A nova configuração será criada sem máscaras. Ao fechar "
+                    "esta janela, a seleção de LEDs será ativada."
                 ),
                 parent=janela,
             )
@@ -230,11 +373,32 @@ class LedProjectManagerMixin:
                 )
                 return
 
+            self.config_repository.definir_projeto_led_ativo(nome)
             self._sincronizar_projeto_ativo_apos_gestao()
+            projeto_vazio_criado["nome"] = nome
             recarregar_lista(nome)
 
+        def salvar_selecionados() -> None:
+            nome = obter_nome_real_selecionado()
+            if nome is None:
+                messagebox.showwarning(
+                    "Seleção necessária",
+                    "Selecione a configuração que receberá os LEDs.",
+                    parent=janela,
+                )
+                return
+
+            if self._salvar_leds_no_projeto(
+                nome,
+                parent=janela,
+                confirmar_substituicao=True,
+            ):
+                if projeto_vazio_criado["nome"] == nome:
+                    projeto_vazio_criado["nome"] = None
+                recarregar_lista(nome)
+
         def renomear() -> None:
-            atual = obter_selecionado()
+            atual = obter_nome_real_selecionado()
             if atual is None:
                 messagebox.showwarning(
                     "Seleção necessária",
@@ -281,11 +445,13 @@ class LedProjectManagerMixin:
                 )
                 return
 
+            if projeto_vazio_criado["nome"] == atual:
+                projeto_vazio_criado["nome"] = novo
             self._sincronizar_projeto_ativo_apos_gestao()
             recarregar_lista(novo)
 
         def remover() -> None:
-            nome = obter_selecionado()
+            nome = obter_nome_real_selecionado()
             if nome is None:
                 messagebox.showwarning(
                     "Seleção necessária",
@@ -320,6 +486,8 @@ class LedProjectManagerMixin:
                 )
                 return
 
+            if projeto_vazio_criado["nome"] == nome:
+                projeto_vazio_criado["nome"] = None
             self._sincronizar_projeto_ativo_apos_gestao(
                 carregar_mascaras=era_ativo
             )
@@ -340,7 +508,7 @@ class LedProjectManagerMixin:
             if indice_novo < 0 or indice_novo >= lista.size():
                 return
 
-            nomes = [str(lista.get(i)) for i in range(lista.size())]
+            nomes = self.config_repository.listar_projetos_led()
             nomes[indice_atual], nomes[indice_novo] = (
                 nomes[indice_novo],
                 nomes[indice_atual],
@@ -357,7 +525,7 @@ class LedProjectManagerMixin:
             recarregar_lista(nomes[indice_novo])
 
         def confirmar(_evento=None) -> str:
-            nome = obter_selecionado()
+            nome = obter_nome_real_selecionado()
             if nome is None:
                 messagebox.showwarning(
                     "Nenhuma configuração",
@@ -400,6 +568,12 @@ class LedProjectManagerMixin:
             adicionar,
             cor_fundo="#0F3D24",
             cor_texto="#BBF7D0",
+        )
+        criar_botao_acao(
+            "✓  Salvar LEDs selecionados",
+            salvar_selecionados,
+            cor_fundo="#0B2742",
+            cor_texto="#BAE6FD",
         )
         criar_botao_acao("✎  Renomear", renomear)
         criar_botao_acao(
@@ -454,6 +628,7 @@ class LedProjectManagerMixin:
         lista.bind("<Double-Button-1>", confirmar)
         lista.bind("<Return>", confirmar)
         janela.bind("<Escape>", cancelar)
+        janela.protocol("WM_DELETE_WINDOW", cancelar)
         recarregar_lista(
             self.projeto_led_ativo
             if self.projeto_led_ativo in projetos
@@ -461,6 +636,22 @@ class LedProjectManagerMixin:
         )
         lista.focus_force()
         self.root.wait_window(janela)
+
+        pendente = projeto_vazio_criado["nome"]
+        if resultado["nome"] is None and pendente:
+            if (
+                pendente in self.config_repository.listar_projetos_led()
+                and not self.config_repository.carregar_leds_fixos(
+                    projeto=pendente
+                )
+            ):
+                self.root.after(
+                    10,
+                    lambda nome=pendente: (
+                        self._ativar_selecao_para_projeto_vazio(nome)
+                    ),
+                )
+
         return resultado["nome"]
 
     def salvar_leds_fixos(self) -> None:
@@ -492,28 +683,13 @@ class LedProjectManagerMixin:
             )
             return
 
-        if nome in projetos:
-            substituir = messagebox.askyesno(
-                "Atualizar projeto",
-                (
-                    f"O projeto {nome} já existe.\n\n"
-                    "Deseja substituir as máscaras salvas pelas posições "
-                    "que estão atualmente na tela?"
-                ),
-                parent=self.root,
-            )
-            if not substituir:
-                return
+        if nome not in projetos:
+            self.config_repository.adicionar_projeto_led(nome)
 
-        self.config_repository.definir_projeto_led_ativo(
+        self._salvar_leds_no_projeto(
             nome,
-            criar=True,
-        )
-        self.projeto_led_ativo = nome
-        super().salvar_leds_fixos()
-        self._atualizar_projeto_led_na_interface()
-        self.view.atualizar_status(
-            f"Projeto {nome}: {len(self.leds_fixos_configurados)} LEDs salvos."
+            parent=self.root,
+            confirmar_substituicao=True,
         )
 
     def carregar_leds_fixos(self) -> None:
@@ -532,11 +708,19 @@ class LedProjectManagerMixin:
 
         self.projeto_led_ativo = nome
         self._atualizar_projeto_led_na_interface()
+        leds_do_projeto = self.config_repository.carregar_leds_fixos(
+            projeto=nome
+        )
+
+        if not leds_do_projeto:
+            self.root.after(
+                10,
+                lambda: self._ativar_selecao_para_projeto_vazio(nome),
+            )
+            return
 
         if self.imagem_original is None:
-            self.leds_fixos_configurados = (
-                self.config_repository.carregar_leds_fixos()
-            )
+            self.leds_fixos_configurados = leds_do_projeto
             self.view.atualizar_status(
                 f"Projeto {nome} ativado com "
                 f"{len(self.leds_fixos_configurados)} LEDs. "
