@@ -12,7 +12,7 @@ def criar_barra_metadados(self) -> None:
         padx=10,
         pady=(0, 8),
     )
-    self.frame_metadados.pack_propagate(False)
+    self.frame_metadados.grid_propagate(False)
 
     self._indice_metadado = 0
     for coluna in range(4):
