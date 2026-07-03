@@ -13,38 +13,31 @@ def criar_area_dashboard(self) -> None:
         pady=(0, 8),
     )
 
-    # A área superior concentra câmera, mapa e painéis auxiliares. A tabela
-    # inferior continua visível, mas não disputa altura com a imagem principal.
+    # A primeira linha concentra os dois elementos críticos da operação:
+    # câmera ao vivo e mapa de intensidade. As visualizações auxiliares e o
+    # histórico usam faixas compactas com altura previsível.
     self.frame_dashboard.grid_rowconfigure(
         0,
-        weight=9,
-        minsize=470,
+        weight=1,
+        minsize=260,
     )
     self.frame_dashboard.grid_rowconfigure(
         1,
-        weight=1,
-        minsize=90,
+        weight=0,
+        minsize=128,
+    )
+    self.frame_dashboard.grid_rowconfigure(
+        2,
+        weight=0,
+        minsize=72,
     )
 
-    # Não usar uniform aqui. Os canvases auxiliares possuem tamanho solicitado
-    # próprio e, quando agrupados como uniformes, podem forçar a câmera principal
-    # a ficar estreita. A imagem ao vivo recebe a maior parcela da largura; o
-    # mapa de intensidade vem em seguida e o painel técnico usa o espaço restante.
-    self.frame_dashboard.grid_columnconfigure(
-        0,
-        weight=8,
-        minsize=560,
-    )
-    self.frame_dashboard.grid_columnconfigure(
-        1,
-        weight=5,
-        minsize=340,
-    )
-    self.frame_dashboard.grid_columnconfigure(
-        2,
-        weight=5,
-        minsize=390,
-    )
+    # Não usar larguras mínimas rígidas nem uniform. Isso evita que a soma dos
+    # tamanhos solicitados ultrapasse a resolução disponível no Raspberry Pi.
+    # A câmera recebe a maior parcela, seguida do mapa e do resultado técnico.
+    self.frame_dashboard.grid_columnconfigure(0, weight=7)
+    self.frame_dashboard.grid_columnconfigure(1, weight=4)
+    self.frame_dashboard.grid_columnconfigure(2, weight=2)
 
     self.criar_painel_principal()
     self.criar_painel_central()
