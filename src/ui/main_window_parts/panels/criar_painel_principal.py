@@ -9,14 +9,10 @@ def criar_painel_principal(self) -> None:
         row=0,
         column=0,
         sticky="nsew",
-        padx=(0, 6),
-        pady=(0, 6),
+        padx=(0, 4),
+        pady=(0, 4),
     )
-    self.frame_painel_principal.grid_rowconfigure(
-        1,
-        weight=1,
-        minsize=390,
-    )
+    self.frame_painel_principal.grid_rowconfigure(1, weight=1)
     self.frame_painel_principal.grid_columnconfigure(0, weight=1)
 
     self.criar_titulo_card(
@@ -26,10 +22,12 @@ def criar_painel_principal(self) -> None:
         row=0,
         column=0,
         sticky="ew",
-        padx=12,
-        pady=(8, 4),
+        padx=10,
+        pady=(6, 3),
     )
 
+    # O Canvas não solicita uma dimensão fixa. Ele acompanha integralmente o
+    # espaço real do grid, impedindo que uma resolução menor corte a imagem.
     self.canvas = tk.Canvas(
         self.frame_painel_principal,
         bg="#020617",
@@ -37,15 +35,15 @@ def criar_painel_principal(self) -> None:
         highlightbackground=self.COR_BORDA,
         cursor="crosshair",
         bd=0,
-        width=640,
-        height=420,
+        width=1,
+        height=1,
     )
     self.canvas.grid(
         row=1,
         column=0,
         sticky="nsew",
-        padx=8,
-        pady=(0, 6),
+        padx=6,
+        pady=(0, 4),
     )
     self.canvas.bind(
         "<Button-1>",
@@ -58,8 +56,8 @@ def criar_painel_principal(self) -> None:
     self.canvas.bind("<Motion>", self.atualizar_lupa_canvas)
     self.canvas.bind("<Leave>", self.limpar_lupa_canvas)
 
-    # Informações compactas para preservar altura da câmera. Elas continuam
-    # acessíveis, mas deixam de ocupar dois grandes blocos abaixo da imagem.
+    # Informações compactas preservam a altura útil da câmera sem remover
+    # parâmetros ou o resumo da análise.
     self.frame_parametros = tk.Frame(
         self.frame_painel_principal,
         bg=self.COR_CARD,
@@ -68,8 +66,8 @@ def criar_painel_principal(self) -> None:
         row=2,
         column=0,
         sticky="ew",
-        padx=8,
-        pady=(0, 8),
+        padx=6,
+        pady=(0, 6),
     )
     self.frame_parametros.grid_columnconfigure(
         0,
@@ -90,7 +88,7 @@ def criar_painel_principal(self) -> None:
         row=0,
         column=0,
         sticky="nsew",
-        padx=(0, 3),
+        padx=(0, 2),
     )
 
     self.label_parametros = tk.Label(
@@ -108,8 +106,8 @@ def criar_painel_principal(self) -> None:
     self.label_parametros.pack(
         fill=tk.BOTH,
         expand=True,
-        padx=8,
-        pady=5,
+        padx=6,
+        pady=3,
     )
 
     self.frame_resumo = tk.Frame(
@@ -120,7 +118,7 @@ def criar_painel_principal(self) -> None:
         row=0,
         column=1,
         sticky="nsew",
-        padx=(3, 0),
+        padx=(2, 0),
     )
 
     self.label_resumo = tk.Label(
@@ -138,6 +136,6 @@ def criar_painel_principal(self) -> None:
     self.label_resumo.pack(
         fill=tk.BOTH,
         expand=True,
-        padx=8,
-        pady=5,
+        padx=6,
+        pady=3,
     )
