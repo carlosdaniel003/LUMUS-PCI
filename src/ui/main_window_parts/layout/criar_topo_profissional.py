@@ -13,21 +13,21 @@ def criar_topo_profissional(self) -> None:
         pady=(8, 4),
     )
     self.frame_topo.grid_propagate(False)
-    self.frame_topo.grid_columnconfigure(0, weight=0, minsize=220)
+    self.frame_topo.grid_columnconfigure(0, weight=0, minsize=205)
     self.frame_topo.grid_columnconfigure(1, weight=1)
-    self.frame_topo.grid_columnconfigure(2, weight=0, minsize=330)
+    self.frame_topo.grid_columnconfigure(2, weight=0, minsize=365)
     self.frame_topo.grid_rowconfigure(0, weight=1)
 
     self.frame_marca = tk.Frame(
         self.frame_topo,
         bg=self.COR_TOPO,
-        width=220,
+        width=205,
     )
     self.frame_marca.grid(
         row=0,
         column=0,
         sticky="nsew",
-        padx=(10, 8),
+        padx=(10, 6),
     )
     self.frame_marca.pack_propagate(False)
 
@@ -38,7 +38,7 @@ def criar_topo_profissional(self) -> None:
         fg=self.COR_VERDE_CLARO,
         bg=self.COR_TOPO,
     )
-    self.label_icone.pack(side=tk.LEFT, padx=(0, 7))
+    self.label_icone.pack(side=tk.LEFT, padx=(0, 6))
 
     self.frame_titulo = tk.Frame(
         self.frame_marca,
@@ -75,13 +75,13 @@ def criar_topo_profissional(self) -> None:
     self.frame_topo_direita = tk.Frame(
         self.frame_topo,
         bg=self.COR_TOPO,
-        width=330,
+        width=365,
     )
     self.frame_topo_direita.grid(
         row=0,
         column=2,
         sticky="nsew",
-        padx=(6, 10),
+        padx=(6, 8),
     )
     self.frame_topo_direita.pack_propagate(False)
 
@@ -100,7 +100,7 @@ def criar_topo_profissional(self) -> None:
     )
     self.botao_configuracoes.pack(
         side=tk.RIGHT,
-        padx=(6, 0),
+        padx=(5, 0),
         pady=18,
     )
 
@@ -121,7 +121,7 @@ def criar_topo_profissional(self) -> None:
     )
     self.botao_toggle_relogio.pack(
         side=tk.RIGHT,
-        padx=(0, 6),
+        padx=(0, 5),
         pady=22,
     )
 
