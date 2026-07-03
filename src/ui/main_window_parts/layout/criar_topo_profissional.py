@@ -12,7 +12,7 @@ def criar_topo_profissional(self) -> None:
         padx=10,
         pady=(8, 4),
     )
-    self.frame_topo.pack_propagate(False)
+    self.frame_topo.grid_propagate(False)
     self.frame_topo.grid_columnconfigure(0, weight=0, minsize=220)
     self.frame_topo.grid_columnconfigure(1, weight=1)
     self.frame_topo.grid_columnconfigure(2, weight=0, minsize=330)
@@ -72,8 +72,6 @@ def criar_topo_profissional(self) -> None:
     )
     self.label_subtitulo.pack(fill=tk.X)
 
-    # A área fixa da direita é criada antes dos botões centrais para impedir
-    # que o toolbar expansível esconda o botão PRODUÇÃO.
     self.frame_topo_direita = tk.Frame(
         self.frame_topo,
         bg=self.COR_TOPO,
