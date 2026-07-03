@@ -15,7 +15,7 @@ def criar_painel_principal(self) -> None:
     self.frame_painel_principal.grid_rowconfigure(
         1,
         weight=1,
-        minsize=300,
+        minsize=390,
     )
     self.frame_painel_principal.grid_columnconfigure(0, weight=1)
 
@@ -27,7 +27,7 @@ def criar_painel_principal(self) -> None:
         column=0,
         sticky="ew",
         padx=12,
-        pady=(9, 5),
+        pady=(8, 4),
     )
 
     self.canvas = tk.Canvas(
@@ -37,13 +37,15 @@ def criar_painel_principal(self) -> None:
         highlightbackground=self.COR_BORDA,
         cursor="crosshair",
         bd=0,
+        width=640,
+        height=420,
     )
     self.canvas.grid(
         row=1,
         column=0,
         sticky="nsew",
-        padx=10,
-        pady=(0, 7),
+        padx=8,
+        pady=(0, 6),
     )
     self.canvas.bind(
         "<Button-1>",
@@ -56,6 +58,8 @@ def criar_painel_principal(self) -> None:
     self.canvas.bind("<Motion>", self.atualizar_lupa_canvas)
     self.canvas.bind("<Leave>", self.limpar_lupa_canvas)
 
+    # Informações compactas para preservar altura da câmera. Elas continuam
+    # acessíveis, mas deixam de ocupar dois grandes blocos abaixo da imagem.
     self.frame_parametros = tk.Frame(
         self.frame_painel_principal,
         bg=self.COR_CARD,
@@ -64,8 +68,8 @@ def criar_painel_principal(self) -> None:
         row=2,
         column=0,
         sticky="ew",
-        padx=10,
-        pady=(0, 9),
+        padx=8,
+        pady=(0, 8),
     )
     self.frame_parametros.grid_columnconfigure(
         0,
@@ -86,17 +90,14 @@ def criar_painel_principal(self) -> None:
         row=0,
         column=0,
         sticky="nsew",
-        padx=(0, 4),
+        padx=(0, 3),
     )
 
     self.label_parametros = tk.Label(
         self.frame_parametros_analise,
         text=(
-            "Parâmetros\n"
-            "Método: ref. aceso/apagado\n"
-            f"ROI: manual • raio {self.raio_atual_px}px\n"
-            "Região: LEDs selecionados\n"
-            "Modo: múltiplos LEDs"
+            "Parâmetros  •  ref. aceso/apagado\n"
+            f"ROI manual  •  raio {self.raio_atual_px}px  •  múltiplos LEDs"
         ),
         font=("Consolas", 8),
         fg=self.COR_TEXTO_2,
@@ -108,7 +109,7 @@ def criar_painel_principal(self) -> None:
         fill=tk.BOTH,
         expand=True,
         padx=8,
-        pady=6,
+        pady=5,
     )
 
     self.frame_resumo = tk.Frame(
@@ -119,17 +120,14 @@ def criar_painel_principal(self) -> None:
         row=0,
         column=1,
         sticky="nsew",
-        padx=(4, 0),
+        padx=(3, 0),
     )
 
     self.label_resumo = tk.Label(
         self.frame_resumo,
         text=(
-            "Resumo do LED\n"
-            "Status: sem análise\n"
-            "Confiança: --\n"
-            "Posição: --\n"
-            "Valor binário: --"
+            "Resumo  •  sem análise\n"
+            "Confiança --  •  posição --  •  binário --"
         ),
         font=("Consolas", 8),
         fg=self.COR_TEXTO_2,
@@ -141,5 +139,5 @@ def criar_painel_principal(self) -> None:
         fill=tk.BOTH,
         expand=True,
         padx=8,
-        pady=6,
+        pady=5,
     )
