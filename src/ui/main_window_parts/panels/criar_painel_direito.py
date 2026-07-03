@@ -48,14 +48,60 @@ def _criar_card_visual(
     return card, canvas
 
 
+def _criar_card_texto(
+    self,
+    parent,
+    titulo: str,
+    atributo_texto: str,
+    texto_inicial: str = "",
+):
+    card = self.criar_card(parent)
+    card.grid_rowconfigure(1, weight=1)
+    card.grid_columnconfigure(0, weight=1)
+
+    self.criar_titulo_card(
+        card,
+        titulo,
+    ).grid(
+        row=0,
+        column=0,
+        sticky="ew",
+        padx=12,
+        pady=(10, 6),
+    )
+
+    texto = tk.Text(
+        card,
+        bg="#020617",
+        fg=self.COR_TEXTO_2,
+        insertbackground=self.COR_TEXTO,
+        font=("Consolas", 9),
+        relief=tk.FLAT,
+        wrap=tk.WORD,
+        height=7,
+        bd=0,
+    )
+    texto.grid(
+        row=1,
+        column=0,
+        sticky="nsew",
+        padx=12,
+        pady=(0, 12),
+    )
+
+    if texto_inicial:
+        texto.insert(tk.END, texto_inicial)
+
+    setattr(self, atributo_texto, texto)
+    return card, texto
+
+
 def criar_painel_direito(self) -> None:
     """
     Cria o painel lateral direito.
 
-    Os três painéis visuais ficam lado a lado para que cada Canvas tenha
-    altura suficiente para exibir o frame completo da câmera sem virar uma
-    faixa horizontal minúscula. O debug técnico permanece abaixo deles,
-    ocupando toda a largura.
+    Os três painéis visuais ficam lado a lado. Na faixa inferior, o debug
+    técnico e o resumo das dez últimas análises ficam lado a lado.
     """
     self.frame_direito = tk.Frame(
         self.frame_dashboard,
@@ -69,7 +115,6 @@ def criar_painel_direito(self) -> None:
         pady=(0, 6),
     )
 
-    # Área superior para as três imagens e área inferior para o texto.
     self.frame_direito.grid_rowconfigure(
         0,
         weight=3,
@@ -156,52 +201,52 @@ def criar_painel_direito(self) -> None:
         padx=(4, 0),
     )
 
-    self.frame_debug = self.criar_card(
-        self.frame_direito
+    self.frame_textos_direita = tk.Frame(
+        self.frame_direito,
+        bg=self.COR_FUNDO_APP,
     )
-    self.frame_debug.grid(
+    self.frame_textos_direita.grid(
         row=1,
         column=0,
         sticky="nsew",
         pady=(6, 0),
     )
-    self.frame_debug.grid_rowconfigure(
-        1,
-        weight=1,
-    )
-    self.frame_debug.grid_columnconfigure(
+    self.frame_textos_direita.grid_rowconfigure(0, weight=1)
+    self.frame_textos_direita.grid_columnconfigure(
         0,
         weight=1,
+        uniform="cards_texto_direita",
+    )
+    self.frame_textos_direita.grid_columnconfigure(
+        1,
+        weight=1,
+        uniform="cards_texto_direita",
     )
 
-    self.criar_titulo_card(
-        self.frame_debug,
+    self.frame_debug, self.texto_resultados = _criar_card_texto(
+        self,
+        self.frame_textos_direita,
         "Debug técnico",
-    ).grid(
+        "texto_resultados",
+    )
+    self.frame_debug.grid(
         row=0,
         column=0,
-        sticky="ew",
-        padx=12,
-        pady=(10, 6),
+        sticky="nsew",
+        padx=(0, 4),
     )
 
-    # O height reduzido evita que o tamanho solicitado pelo Text roube
-    # espaço dos três painéis de imagem.
-    self.texto_resultados = tk.Text(
-        self.frame_debug,
-        bg="#020617",
-        fg=self.COR_TEXTO_2,
-        insertbackground=self.COR_TEXTO,
-        font=("Consolas", 9),
-        relief=tk.FLAT,
-        wrap=tk.WORD,
-        height=7,
-        bd=0,
+    self.frame_log_producao, self.texto_log_producao = _criar_card_texto(
+        self,
+        self.frame_textos_direita,
+        "Log produção",
+        "texto_log_producao",
+        "Nenhuma análise de produção registrada.",
     )
-    self.texto_resultados.grid(
-        row=1,
-        column=0,
+    self.frame_log_producao.grid(
+        row=0,
+        column=1,
         sticky="nsew",
-        padx=12,
-        pady=(0, 12),
+        padx=(4, 0),
     )
+    self.texto_log_producao.configure(state=tk.DISABLED)
