@@ -18,8 +18,8 @@ def _criar_card_visual(
         row=0,
         column=0,
         sticky="ew",
-        padx=10,
-        pady=(8, 5),
+        padx=9,
+        pady=(7, 4),
     )
 
     canvas = tk.Canvas(
@@ -29,15 +29,15 @@ def _criar_card_visual(
         highlightbackground=self.COR_BORDA,
         bd=0,
         relief=tk.FLAT,
-        width=180,
-        height=150,
+        width=120,
+        height=88,
     )
     canvas.grid(
         row=1,
         column=0,
         sticky="nsew",
-        padx=10,
-        pady=(0, 10),
+        padx=8,
+        pady=(0, 8),
     )
 
     self.desenhar_placeholder(
@@ -66,8 +66,8 @@ def _criar_card_texto(
         row=0,
         column=0,
         sticky="ew",
-        padx=12,
-        pady=(10, 6),
+        padx=10,
+        pady=(8, 4),
     )
 
     texto = tk.Text(
@@ -75,18 +75,18 @@ def _criar_card_texto(
         bg="#020617",
         fg=self.COR_TEXTO_2,
         insertbackground=self.COR_TEXTO,
-        font=("Consolas", 9),
+        font=("Consolas", 8),
         relief=tk.FLAT,
         wrap=tk.WORD,
-        height=7,
+        height=6,
         bd=0,
     )
     texto.grid(
         row=1,
         column=0,
         sticky="nsew",
-        padx=12,
-        pady=(0, 12),
+        padx=10,
+        pady=(0, 9),
     )
 
     if texto_inicial:
@@ -98,10 +98,11 @@ def _criar_card_texto(
 
 def criar_painel_direito(self) -> None:
     """
-    Cria o painel lateral direito.
+    Cria o painel lateral direito sem obrigar três cards largos na mesma linha.
 
-    Os três painéis visuais ficam lado a lado. Na faixa inferior, o debug
-    técnico e o resumo das dez últimas análises ficam lado a lado.
+    A imagem de teste ocupa a largura superior. Máscara e ROI ficam abaixo,
+    enquanto Debug e Log dividem a faixa inferior. Essa composição reduz a
+    largura mínima do painel e devolve espaço para a câmera principal.
     """
     self.frame_direito = tk.Frame(
         self.frame_dashboard,
@@ -123,12 +124,9 @@ def criar_painel_direito(self) -> None:
     self.frame_direito.grid_rowconfigure(
         1,
         weight=2,
-        minsize=150,
+        minsize=145,
     )
-    self.frame_direito.grid_columnconfigure(
-        0,
-        weight=1,
-    )
+    self.frame_direito.grid_columnconfigure(0, weight=1)
 
     self.frame_visuais_direita = tk.Frame(
         self.frame_direito,
@@ -138,20 +136,28 @@ def criar_painel_direito(self) -> None:
         row=0,
         column=0,
         sticky="nsew",
-        pady=(0, 6),
+        pady=(0, 5),
     )
     self.frame_visuais_direita.grid_rowconfigure(
         0,
-        weight=1,
+        weight=3,
+        minsize=110,
     )
-
-    for coluna in range(3):
-        self.frame_visuais_direita.grid_columnconfigure(
-            coluna,
-            weight=1,
-            uniform="cards_visuais_direita",
-            minsize=150,
-        )
+    self.frame_visuais_direita.grid_rowconfigure(
+        1,
+        weight=2,
+        minsize=95,
+    )
+    self.frame_visuais_direita.grid_columnconfigure(
+        0,
+        weight=1,
+        uniform="visuais_direita",
+    )
+    self.frame_visuais_direita.grid_columnconfigure(
+        1,
+        weight=1,
+        uniform="visuais_direita",
+    )
 
     (
         self.frame_imagem_teste,
@@ -159,14 +165,15 @@ def criar_painel_direito(self) -> None:
     ) = _criar_card_visual(
         self,
         self.frame_visuais_direita,
-        "Imagem de Teste - Canal V",
+        "Imagem de teste • Canal V",
         "Imagem processada\nEtapa 2",
     )
     self.frame_imagem_teste.grid(
         row=0,
         column=0,
+        columnspan=2,
         sticky="nsew",
-        padx=(0, 4),
+        pady=(0, 4),
     )
 
     (
@@ -175,14 +182,15 @@ def criar_painel_direito(self) -> None:
     ) = _criar_card_visual(
         self,
         self.frame_visuais_direita,
-        "Máscara / ROI selecionado",
+        "Máscara / ROI",
         "Máscara visual\nEtapa 2",
     )
     self.frame_mascara.grid(
-        row=0,
-        column=1,
+        row=1,
+        column=0,
         sticky="nsew",
-        padx=4,
+        padx=(0, 4),
+        pady=(4, 0),
     )
 
     (
@@ -191,14 +199,15 @@ def criar_painel_direito(self) -> None:
     ) = _criar_card_visual(
         self,
         self.frame_visuais_direita,
-        "ROI debug ampliado",
+        "ROI ampliado",
         "ROI debug\nEtapa 2",
     )
     self.frame_roi_debug.grid(
-        row=0,
-        column=2,
+        row=1,
+        column=1,
         sticky="nsew",
         padx=(4, 0),
+        pady=(4, 0),
     )
 
     self.frame_textos_direita = tk.Frame(
@@ -209,7 +218,7 @@ def criar_painel_direito(self) -> None:
         row=1,
         column=0,
         sticky="nsew",
-        pady=(6, 0),
+        pady=(5, 0),
     )
     self.frame_textos_direita.grid_rowconfigure(0, weight=1)
     self.frame_textos_direita.grid_columnconfigure(
