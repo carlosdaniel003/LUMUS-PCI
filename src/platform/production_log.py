@@ -15,6 +15,7 @@ class ProductionLogMixin:
         self.production_log_repository = ProductionLogRepository()
         self.ultimo_erro_log_producao: str | None = None
         super().__init__(*args, **kwargs)
+        self._atualizar_painel_log_producao()
 
     def _obter_nome_configuracao_log(self) -> str:
         nome = str(
@@ -33,6 +34,15 @@ class ProductionLogMixin:
 
         return nome or "SEM PROJETO"
 
+    def _atualizar_painel_log_producao(self) -> None:
+        try:
+            registros = (
+                self.production_log_repository.obter_ultimas_inspecoes(10)
+            )
+            self.view.atualizar_log_producao(registros)
+        except Exception:
+            pass
+
     def _gravar_registro_producao(
         self,
         nome_configuracao: str,
@@ -40,6 +50,7 @@ class ProductionLogMixin:
         total: int,
         ok_count: int,
         ng_count: int,
+        leds_apagados: tuple[str, ...],
         momento: datetime,
     ) -> None:
         try:
@@ -49,9 +60,11 @@ class ProductionLogMixin:
                 total=total,
                 ok_count=ok_count,
                 ng_count=ng_count,
+                leds_apagados=leds_apagados,
                 momento=momento,
             )
             self.ultimo_erro_log_producao = None
+            self._atualizar_painel_log_producao()
         except Exception as erro:
             # Uma falha de escrita nunca pode interromper a inspeção.
             self.ultimo_erro_log_producao = (
@@ -73,6 +86,14 @@ class ProductionLogMixin:
             if int(self.operacao_ok) > ok_anterior
             else "NG"
         )
+        resultado = getattr(
+            self,
+            "ultimo_resultado_operacao",
+            None,
+        )
+        leds_apagados = tuple(
+            getattr(resultado, "failed_led_ids", ()) or ()
+        )
         nome_configuracao = self._obter_nome_configuracao_log()
         total = int(self.operacao_total)
         ok_count = int(self.operacao_ok)
@@ -90,6 +111,7 @@ class ProductionLogMixin:
                     total=total,
                     ok_count=ok_count,
                     ng_count=ng_count,
+                    leds_apagados=leds_apagados,
                     momento=momento,
                 ),
             )
@@ -100,5 +122,6 @@ class ProductionLogMixin:
                 total=total,
                 ok_count=ok_count,
                 ng_count=ng_count,
+                leds_apagados=leds_apagados,
                 momento=momento,
             )
