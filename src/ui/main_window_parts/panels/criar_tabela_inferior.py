@@ -5,12 +5,12 @@ from tkinter import ttk
 def criar_tabela_inferior(self) -> None:
     self.frame_tabela = self.criar_card(self.frame_dashboard)
     self.frame_tabela.grid(
-        row=1,
+        row=2,
         column=0,
         columnspan=3,
         sticky="nsew",
         padx=0,
-        pady=(2, 0),
+        pady=(0, 0),
     )
     self.frame_tabela.grid_rowconfigure(1, weight=1)
     self.frame_tabela.grid_columnconfigure(0, weight=1)
@@ -22,8 +22,8 @@ def criar_tabela_inferior(self) -> None:
         row=0,
         column=0,
         sticky="ew",
-        padx=12,
-        pady=(6, 3),
+        padx=10,
+        pady=(3, 1),
     )
 
     colunas = (
@@ -40,7 +40,7 @@ def criar_tabela_inferior(self) -> None:
         self.frame_tabela,
         columns=colunas,
         show="headings",
-        height=3,
+        height=2,
     )
 
     titulos = {
@@ -79,6 +79,6 @@ def criar_tabela_inferior(self) -> None:
         row=1,
         column=0,
         sticky="nsew",
-        padx=10,
-        pady=(0, 8),
+        padx=8,
+        pady=(0, 4),
     )
