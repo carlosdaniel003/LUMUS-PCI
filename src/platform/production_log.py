@@ -14,8 +14,26 @@ class ProductionLogMixin:
     def __init__(self, *args, **kwargs) -> None:
         self.production_log_repository = ProductionLogRepository()
         self.ultimo_erro_log_producao: str | None = None
+        self.ultimo_resultado_operacao = None
         super().__init__(*args, **kwargs)
+        self._instalar_captura_resultado_operacao()
         self._atualizar_painel_log_producao()
+
+    def _instalar_captura_resultado_operacao(self) -> None:
+        engine = getattr(self, "operacao_engine", None)
+        analisar_original = getattr(engine, "analyze", None)
+        if not callable(analisar_original):
+            return
+        if getattr(engine, "_odin_log_wrapper_instalado", False):
+            return
+
+        def analisar_e_memorizar(frame):
+            resultado = analisar_original(frame)
+            self.ultimo_resultado_operacao = resultado
+            return resultado
+
+        engine.analyze = analisar_e_memorizar
+        engine._odin_log_wrapper_instalado = True
 
     def _obter_nome_configuracao_log(self) -> str:
         nome = str(
@@ -75,6 +93,7 @@ class ProductionLogMixin:
         total_anterior = int(self.operacao_total)
         ok_anterior = int(self.operacao_ok)
         ng_anterior = int(self.operacao_ng)
+        self.ultimo_resultado_operacao = None
 
         super().disparar_inspecao_operacao()
 
@@ -86,11 +105,7 @@ class ProductionLogMixin:
             if int(self.operacao_ok) > ok_anterior
             else "NG"
         )
-        resultado = getattr(
-            self,
-            "ultimo_resultado_operacao",
-            None,
-        )
+        resultado = self.ultimo_resultado_operacao
         leds_apagados = tuple(
             getattr(resultado, "failed_led_ids", ()) or ()
         )
