@@ -14,6 +14,14 @@ from src.models.led_selection import LedSelection
 MAX_AUTOMATIC_LEDS = 50
 MAX_PROCESSING_DIMENSION = 1280
 
+# A detecção automática deve privilegiar precisão. Reflexos, textos claros da
+# serigrafia e pontos metálicos podem atingir 255, mas normalmente não possuem
+# o núcleo emissivo concentrado e o gradiente radial característico de um LED.
+MIN_INNER_V_MEAN = 225.0
+MIN_CENTER_TO_RING_V = 40.0
+MIN_GLOW_SCORE = 112.0
+MIN_RADIAL_BRIGHTNESS_RATIO = 1.20
+
 
 @dataclass(frozen=True)
 class AutomaticLedDetectionResult:
@@ -24,26 +32,35 @@ class AutomaticLedDetectionResult:
 
 
 def _matches_pattern(features) -> bool:
+    ring_v_mean = max(1.0, float(features.ring_v_mean))
+    radial_brightness_ratio = float(features.inner_v_mean) / ring_v_mean
+
+    has_compact_emissive_core = (
+        features.inner_v_mean >= MIN_INNER_V_MEAN
+        and features.center_to_ring_v >= MIN_CENTER_TO_RING_V
+        and features.glow_score >= MIN_GLOW_SCORE
+        and radial_brightness_ratio >= MIN_RADIAL_BRIGHTNESS_RATIO
+    )
+
     return (
         features.v_max >= 250.0
         and features.v_p95 >= 245.0
         and features.percent_hot_235 >= 0.06
         and features.percent_hot_245 >= 0.045
-        and features.inner_v_mean >= 205.0
-        and features.center_to_ring_v >= 18.0
-        and features.glow_score >= 85.0
+        and has_compact_emissive_core
     )
 
 
 def _score(features, fill_ratio: float) -> float:
     return (
-        min(1.0, features.v_p95 / 255.0) * 0.18
-        + min(1.0, features.percent_hot_235 / 0.15) * 0.20
-        + min(1.0, max(0.0, features.center_to_ring_v) / 55.0) * 0.20
-        + min(1.0, features.glow_score / 125.0) * 0.20
-        + min(1.0, features.v_std / 35.0) * 0.10
-        + min(1.0, features.s_mean / 70.0) * 0.05
-        + min(1.0, fill_ratio / 0.55) * 0.07
+        min(1.0, features.v_p95 / 255.0) * 0.12
+        + min(1.0, features.percent_hot_235 / 0.15) * 0.15
+        + min(1.0, max(0.0, features.center_to_ring_v) / 55.0) * 0.25
+        + min(1.0, features.glow_score / 125.0) * 0.22
+        + min(1.0, features.inner_v_mean / 245.0) * 0.12
+        + min(1.0, features.v_std / 35.0) * 0.06
+        + min(1.0, features.s_mean / 70.0) * 0.03
+        + min(1.0, fill_ratio / 0.55) * 0.05
     )
 
 
