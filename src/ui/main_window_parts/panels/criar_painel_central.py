@@ -16,12 +16,12 @@ def criar_painel_central(self) -> None:
     self.frame_central.grid_rowconfigure(
         0,
         weight=2,
-        minsize=190,
+        minsize=155,
     )
     self.frame_central.grid_rowconfigure(
         1,
-        weight=3,
-        minsize=220,
+        weight=5,
+        minsize=310,
     )
     self.frame_central.grid_columnconfigure(0, weight=1)
 
@@ -42,13 +42,13 @@ def criar_painel_central(self) -> None:
         column=0,
         sticky="ew",
         padx=10,
-        pady=(8, 0),
+        pady=(7, 0),
     )
 
     self.label_resultado_grande = tk.Label(
         self.frame_resultado,
         text="SEM ANÁLISE",
-        font=("Segoe UI", 18, "bold"),
+        font=("Segoe UI", 16, "bold"),
         fg=self.COR_TEXTO_3,
         bg=self.COR_CARD,
         anchor="w",
@@ -57,8 +57,8 @@ def criar_painel_central(self) -> None:
         row=1,
         column=0,
         sticky="ew",
-        padx=14,
-        pady=(5, 0),
+        padx=12,
+        pady=(3, 0),
     )
 
     self.label_confianca = tk.Label(
@@ -74,13 +74,13 @@ def criar_painel_central(self) -> None:
         row=2,
         column=0,
         sticky="ew",
-        padx=14,
+        padx=12,
         pady=(0, 1),
     )
 
     self.canvas_barra_confianca = tk.Canvas(
         self.frame_resultado,
-        height=10,
+        height=8,
         bg=self.COR_CARD,
         highlightthickness=0,
         bd=0,
@@ -89,8 +89,8 @@ def criar_painel_central(self) -> None:
         row=3,
         column=0,
         sticky="ew",
-        padx=14,
-        pady=(0, 5),
+        padx=12,
+        pady=(0, 4),
     )
     self.desenhar_barra_confianca(0.0, self.COR_NEUTRO)
 
@@ -102,8 +102,8 @@ def criar_painel_central(self) -> None:
         row=4,
         column=0,
         sticky="ew",
-        padx=8,
-        pady=(0, 8),
+        padx=7,
+        pady=(0, 6),
     )
     for coluna in range(3):
         self.frame_kpis.grid_columnconfigure(
@@ -117,78 +117,42 @@ def criar_painel_central(self) -> None:
         "Valor binário",
         "--",
     )
-    self.card_binario.grid(
-        row=0,
-        column=0,
-        sticky="ew",
-        padx=2,
-        pady=2,
-    )
+    self.card_binario.grid(row=0, column=0, sticky="ew", padx=2, pady=2)
 
     self.card_v_mean = self.criar_kpi(
         self.frame_kpis,
         "v_mean",
         "--",
     )
-    self.card_v_mean.grid(
-        row=0,
-        column=1,
-        sticky="ew",
-        padx=2,
-        pady=2,
-    )
+    self.card_v_mean.grid(row=0, column=1, sticky="ew", padx=2, pady=2)
 
     self.card_v_max = self.criar_kpi(
         self.frame_kpis,
         "v_max",
         "--",
     )
-    self.card_v_max.grid(
-        row=0,
-        column=2,
-        sticky="ew",
-        padx=2,
-        pady=2,
-    )
+    self.card_v_max.grid(row=0, column=2, sticky="ew", padx=2, pady=2)
 
     self.card_dist_on = self.criar_kpi(
         self.frame_kpis,
         "Dist. aceso",
         "--",
     )
-    self.card_dist_on.grid(
-        row=1,
-        column=0,
-        sticky="ew",
-        padx=2,
-        pady=2,
-    )
+    self.card_dist_on.grid(row=1, column=0, sticky="ew", padx=2, pady=2)
 
     self.card_dist_off = self.criar_kpi(
         self.frame_kpis,
         "Dist. apagado",
         "--",
     )
-    self.card_dist_off.grid(
-        row=1,
-        column=1,
-        sticky="ew",
-        padx=2,
-        pady=2,
-    )
+    self.card_dist_off.grid(row=1, column=1, sticky="ew", padx=2, pady=2)
 
     self.card_glow = self.criar_kpi(
         self.frame_kpis,
         "Glow score",
         "--",
     )
-    self.card_glow.grid(
-        row=1,
-        column=2,
-        sticky="ew",
-        padx=2,
-        pady=2,
-    )
+    self.card_glow.grid(row=1, column=2, sticky="ew", padx=2, pady=2)
 
     self.frame_mapa = self.criar_card(self.frame_central)
     self.frame_mapa.grid(
@@ -208,7 +172,7 @@ def criar_painel_central(self) -> None:
         column=0,
         sticky="ew",
         padx=10,
-        pady=(8, 5),
+        pady=(7, 4),
     )
 
     self.canvas_mapa_intensidade = tk.Canvas(
@@ -217,13 +181,15 @@ def criar_painel_central(self) -> None:
         highlightthickness=1,
         highlightbackground=self.COR_BORDA,
         bd=0,
+        width=360,
+        height=300,
     )
     self.canvas_mapa_intensidade.grid(
         row=1,
         column=0,
         sticky="nsew",
-        padx=9,
-        pady=(0, 9),
+        padx=8,
+        pady=(0, 8),
     )
     self.desenhar_placeholder(
         self.canvas_mapa_intensidade,
