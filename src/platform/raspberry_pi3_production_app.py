@@ -21,12 +21,14 @@ from src.platform.raspberry_pi3_settings import (
     OPERATION_PREVIEW_HEIGHT,
     OPERATION_PREVIEW_WIDTH,
 )
-from src.ui.operation_window_raspberry import (
-    RaspberryOperationWindow,
+from src.platform.raspberry_runtime_fixes import (
+    RaspberryRuntimeFixesMixin,
+    StableRaspberryOperationWindow,
 )
 
 
 class RaspberryPi3ProductionApp(
+    RaspberryRuntimeFixesMixin,
     RaspberryEnterTriggerMixin,
     AutomaticLedDetectionMixin,
     GPIOEnabledRaspberryPi3ODINApp,
@@ -40,9 +42,9 @@ class RaspberryPi3ProductionApp(
 
     def _instalar_tela_operacao(self) -> None:
         # O perfil final usa uma janela própria: metade para o resultado e
-        # metade para a câmera responsiva. Não instancia a janela compacta do
-        # perfil-base, evitando criar e destruir widgets desnecessariamente.
-        self.operacao_window = RaspberryOperationWindow(
+        # metade para a câmera responsiva. A variante estável também garante
+        # que nenhum foco, grab ou callback visual bloqueie a tela principal.
+        self.operacao_window = StableRaspberryOperationWindow(
             root=self.root,
             on_trigger=self.disparar_inspecao_operacao,
             on_close=self.fechar_tela_operacao,
