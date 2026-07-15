@@ -17,6 +17,13 @@ from src.platform.led_project_repository import (
 from src.platform.raspberry_enter_trigger import (
     RaspberryEnterTriggerMixin,
 )
+from src.platform.raspberry_pi3_settings import (
+    OPERATION_PREVIEW_HEIGHT,
+    OPERATION_PREVIEW_WIDTH,
+)
+from src.ui.operation_window_raspberry import (
+    RaspberryOperationWindow,
+)
 
 
 class RaspberryPi3ProductionApp(
@@ -32,14 +39,22 @@ class RaspberryPi3ProductionApp(
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
-        super()._instalar_tela_operacao()
+        # O perfil final usa uma janela própria: metade para o resultado e
+        # metade para a câmera responsiva. Não instancia a janela compacta do
+        # perfil-base, evitando criar e destruir widgets desnecessariamente.
+        self.operacao_window = RaspberryOperationWindow(
+            root=self.root,
+            on_trigger=self.disparar_inspecao_operacao,
+            on_close=self.fechar_tela_operacao,
+            preview_width=OPERATION_PREVIEW_WIDTH,
+            preview_height=OPERATION_PREVIEW_HEIGHT,
+        )
 
-        botao_anterior = self.botao_operacao
-        try:
-            botao_anterior.place_forget()
-            botao_anterior.destroy()
-        except tk.TclError:
-            pass
+        self.root.bind(
+            "<F2>",
+            lambda _event: self.abrir_tela_operacao(),
+            add="+",
+        )
 
         parent = getattr(
             self.view,
@@ -70,6 +85,7 @@ class RaspberryPi3ProductionApp(
                 y=16,
                 anchor="ne",
             )
+            self.botao_operacao.lift()
         else:
             self.botao_operacao.pack(
                 side=tk.RIGHT,
