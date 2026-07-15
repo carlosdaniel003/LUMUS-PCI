@@ -7,6 +7,9 @@ from src.models.led_selection import LedSelection
 from src.ui.operation_window_raspberry import RaspberryOperationWindow
 
 
+RASPBERRY_CAMERA_FPS = 30
+
+
 class StableRaspberryOperationWindow(RaspberryOperationWindow):
     """Janela de produção que devolve completamente o controle à tela principal."""
 
@@ -51,6 +54,40 @@ class StableRaspberryOperationWindow(RaspberryOperationWindow):
 
 class RaspberryRuntimeFixesMixin:
     """Correções de interação, projetos e rotação exclusivas do Raspberry."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._fixar_camera_em_30_fps()
+
+    def _fixar_camera_em_30_fps(self) -> None:
+        """Migra configurações antigas em AUTO/15 FPS para 30 FPS manual."""
+        configuracoes = dict(getattr(self, "configuracoes_camera", {}) or {})
+        alterado = (
+            str(configuracoes.get("fps_mode", "")).lower() != "manual"
+            or int(configuracoes.get("fps", 0) or 0) != RASPBERRY_CAMERA_FPS
+        )
+        configuracoes["fps_mode"] = "manual"
+        configuracoes["fps"] = RASPBERRY_CAMERA_FPS
+        self.configuracoes_camera = configuracoes
+
+        if not alterado:
+            return
+
+        try:
+            self.configuracao_atual = (
+                self.config_repository.salvar_configuracoes_sistema(
+                    salvar_resultados_analise=self.salvar_resultados_analise,
+                    raio_atual_px=self.raio_atual_px,
+                    configuracoes_camera=configuracoes,
+                )
+            )
+            self.configuracoes_camera = (
+                self.config_repository.obter_configuracoes_camera()
+            )
+        except Exception:
+            # A câmera ainda será aberta em 30 FPS pelo perfil Raspberry mesmo
+            # se o arquivo estiver temporariamente sem permissão de escrita.
+            self.configuracoes_camera = configuracoes
 
     @staticmethod
     def _copiar_led(led: LedSelection) -> LedSelection:
@@ -241,8 +278,11 @@ class RaspberryRuntimeFixesMixin:
                 0,
             )
         )
+        configuracoes_camera = dict(configuracoes_camera or {})
+        configuracoes_camera["fps_mode"] = "manual"
+        configuracoes_camera["fps"] = RASPBERRY_CAMERA_FPS
         rotacao_solicitada = int(
-            (configuracoes_camera or {}).get(
+            configuracoes_camera.get(
                 "rotation",
                 rotacao_anterior,
             )
