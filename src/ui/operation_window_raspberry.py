@@ -256,14 +256,13 @@ class RaspberryOperationWindow:
         )
 
         # Mantido para compatibilidade com qualquer integração que ainda leia
-        # diretamente o rótulo antigo de contadores.
+        # diretamente o rótulo antigo de contadores. Ele não participa do layout.
         self.counter_label = tk.Label(
             self.analysis_panel,
             text="TOTAL 0    OK 0    NG 0",
             bg=self.COLOR_WAITING,
             fg="#FFFFFF",
         )
-        self.counter_label.grid_remove()
 
         self.preview_frame = tk.Frame(
             self.body_frame,
@@ -480,7 +479,13 @@ class RaspberryOperationWindow:
 
         self._latest_frame = frame.copy()
         self._latest_leds = tuple(leds or ())
-        return self._render_latest_preview()
+        rendered = self._render_latest_preview()
+        if rendered:
+            self.set_preview_status(
+                "Ao vivo • atualização otimizada",
+                "#86EFAC",
+            )
+        return rendered
 
     def _render_latest_preview(self) -> bool:
         self._preview_resize_after_id = None
@@ -537,7 +542,6 @@ class RaspberryOperationWindow:
         )
         self.preview_canvas.tag_lower("preview_image")
         self.preview_canvas.tag_raise("preview_guide")
-        self.set_preview_status("Ao vivo • atualização otimizada", "#86EFAC")
         return True
 
     def _create_preview_image(self, preview):
