@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from tkinter import messagebox
 
 from config import MIN_RADIUS_PX
@@ -10,9 +11,6 @@ from src.core.automatic_led_detector import (
 from src.models.led_selection import LedSelection
 
 
-# O raio padrão de 15 px foi definido usando imagens próximas de 1280 px de
-# largura. No perfil Raspberry a câmera trabalha em 640x480 para preservar
-# desempenho; portanto, a detecção precisa adaptar o raio à resolução real.
 CAMERA_RADIUS_REFERENCE_DIMENSION = 1280
 
 
@@ -34,9 +32,6 @@ class AutomaticLedDetectionMixin:
             if service is None or self.camera_desconectada:
                 return None
 
-            # Solicita um frame novo diretamente ao serviço em vez de depender
-            # apenas do último frame desenhado pela pré-visualização, que no
-            # Raspberry é propositalmente atualizada em frequência reduzida.
             snapshot = service.obter_snapshot(self.camera_ultimo_frame_id)
             self.camera_estado_anterior = snapshot.estado
 
@@ -58,11 +53,11 @@ class AutomaticLedDetectionMixin:
 
         return self.imagem_original.copy()
 
-    def _obter_raio_deteccao_automatica(self, frame) -> int:
+    def _obter_raios_deteccao_automatica(self, frame) -> tuple[int, ...]:
         raio_configurado = max(MIN_RADIUS_PX, int(self.raio_atual_px))
 
         if not getattr(self, "_deteccao_automatica_usando_camera", False):
-            return raio_configurado
+            return (raio_configurado,)
 
         altura, largura = frame.shape[:2]
         maior_dimensao = max(1, int(largura), int(altura))
@@ -70,11 +65,24 @@ class AutomaticLedDetectionMixin:
             1.0,
             maior_dimensao / float(CAMERA_RADIUS_REFERENCE_DIMENSION),
         )
-
-        return max(
+        raio_escalado = max(
             MIN_RADIUS_PX,
             int(round(raio_configurado * escala)),
         )
+        raio_intermediario = max(
+            MIN_RADIUS_PX,
+            int(round((raio_escalado + raio_configurado) / 2.0)),
+        )
+
+        raios = []
+        for raio in (
+            raio_escalado,
+            raio_intermediario,
+            raio_configurado,
+        ):
+            if raio not in raios:
+                raios.append(raio)
+        return tuple(raios)
 
     @staticmethod
     def _copiar_leds_detectados(leds) -> list[LedSelection]:
@@ -87,6 +95,30 @@ class AutomaticLedDetectionMixin:
             )
             for led in leds
         ]
+
+    def _detectar_em_multiplas_escalas(self, frame, camera_ao_vivo: bool):
+        raios = self._obter_raios_deteccao_automatica(frame)
+        perfil = "camera" if camera_ao_vivo else "strict"
+        raio_configurado = max(MIN_RADIUS_PX, int(self.raio_atual_px))
+        tentativas = []
+
+        for raio in raios:
+            resultado = detect_lit_leds(
+                image=frame,
+                radius=raio,
+                max_leds=MAX_AUTOMATIC_LEDS,
+                profile=perfil,
+            )
+            tentativas.append((resultado, raio))
+
+        return max(
+            tentativas,
+            key=lambda item: (
+                len(item[0].leds),
+                item[0].candidate_count,
+                -abs(item[1] - raio_configurado),
+            ),
+        )
 
     def detectar_leds_automaticamente(self) -> None:
         if getattr(self, "operacao_ativa", False):
@@ -108,8 +140,6 @@ class AutomaticLedDetectionMixin:
                 return
 
         if camera_ao_vivo:
-            # Impede que o loop de pré-visualização substitua a imagem e as
-            # máscaras enquanto o frame atual está sendo processado.
             self.camera_em_pausa_analise = True
 
         try:
@@ -133,35 +163,18 @@ class AutomaticLedDetectionMixin:
                 return
 
             self.view.atualizar_status(
-                "Capturando frame e detectando LEDs acesos..."
+                "Analisando o frame ao vivo em múltiplas escalas..."
                 if camera_ao_vivo
                 else "Detectando LEDs acesos automaticamente..."
             )
             self.root.update_idletasks()
 
-            raio_deteccao = self._obter_raio_deteccao_automatica(frame)
-            resultado = detect_lit_leds(
-                image=frame,
-                radius=raio_deteccao,
-                max_leds=MAX_AUTOMATIC_LEDS,
+            inicio = time.perf_counter()
+            resultado, raio_deteccao = self._detectar_em_multiplas_escalas(
+                frame,
+                camera_ao_vivo,
             )
-
-            # A escala automática atende ao perfil 640x480. Caso uma câmera
-            # negocie outra área útil ou enquadramento, mantém-se uma tentativa
-            # de compatibilidade com o raio configurado, somente se a primeira
-            # passagem não encontrar nenhum LED.
-            raio_configurado = max(MIN_RADIUS_PX, int(self.raio_atual_px))
-            if (
-                camera_ao_vivo
-                and not resultado.leds
-                and raio_deteccao != raio_configurado
-            ):
-                resultado = detect_lit_leds(
-                    image=frame,
-                    radius=raio_configurado,
-                    max_leds=MAX_AUTOMATIC_LEDS,
-                )
-                raio_deteccao = raio_configurado
+            tempo_total = time.perf_counter() - inicio
 
             if not resultado.leds:
                 messagebox.showwarning(
@@ -190,10 +203,6 @@ class AutomaticLedDetectionMixin:
                 self.selecao_manual_camera_ativa = True
                 self.modo_atual = "selecionar_leds_camera"
                 self.view.selecao_manual_camera_visivel = True
-
-                # O loop da câmera reconstrói leds_selecionados a partir desta
-                # lista a cada frame. Sem esta cópia, as máscaras detectadas
-                # desapareciam imediatamente na pré-visualização ao vivo.
                 self.leds_manuais_camera = self._copiar_leds_detectados(
                     resultado.leds
                 )
@@ -227,7 +236,7 @@ class AutomaticLedDetectionMixin:
             self.view.atualizar_status(
                 f"Detecção automática{origem_texto}: "
                 f"{len(self.leds_selecionados)} LEDs selecionados com raio "
-                f"{raio_deteccao}px em {resultado.elapsed_seconds:.3f} s."
+                f"{raio_deteccao}px em {tempo_total:.3f} s."
                 f"{limite_texto} Revise as máscaras antes de salvar o projeto."
             )
         finally:
