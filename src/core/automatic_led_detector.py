@@ -14,13 +14,19 @@ from src.models.led_selection import LedSelection
 MAX_AUTOMATIC_LEDS = 50
 MAX_PROCESSING_DIMENSION = 1280
 
-# A detecção automática deve privilegiar precisão. Reflexos, textos claros da
-# serigrafia e pontos metálicos podem atingir 255, mas normalmente não possuem
-# o núcleo emissivo concentrado e o gradiente radial característico de um LED.
+# Perfil rigoroso usado em imagens estáticas e capturas com boa resolução.
 MIN_INNER_V_MEAN = 225.0
 MIN_CENTER_TO_RING_V = 40.0
 MIN_GLOW_SCORE = 112.0
 MIN_RADIAL_BRIGHTNESS_RATIO = 1.20
+
+# A câmera do Raspberry opera em 640x480 e pode entregar LEDs com brilho abaixo
+# de 245 por causa da exposição. O perfil ao vivo relaxa somente os valores
+# absolutos e preserva um contraste radial maior que o observado em J39/J40.
+CAMERA_MIN_INNER_V_MEAN = 185.0
+CAMERA_MIN_CENTER_TO_RING_V = 34.0
+CAMERA_MIN_GLOW_SCORE = 78.0
+CAMERA_MIN_RADIAL_BRIGHTNESS_RATIO = 1.14
 
 
 @dataclass(frozen=True)
@@ -31,9 +37,24 @@ class AutomaticLedDetectionResult:
     truncated: bool
 
 
-def _matches_pattern(features) -> bool:
+def _matches_pattern(features, profile: str) -> bool:
     ring_v_mean = max(1.0, float(features.ring_v_mean))
     radial_brightness_ratio = float(features.inner_v_mean) / ring_v_mean
+
+    if profile == "camera":
+        has_compact_emissive_core = (
+            features.inner_v_mean >= CAMERA_MIN_INNER_V_MEAN
+            and features.center_to_ring_v >= CAMERA_MIN_CENTER_TO_RING_V
+            and features.glow_score >= CAMERA_MIN_GLOW_SCORE
+            and radial_brightness_ratio >= CAMERA_MIN_RADIAL_BRIGHTNESS_RATIO
+        )
+        return (
+            features.v_max >= 225.0
+            and features.v_p95 >= 205.0
+            and features.percent_on >= 0.08
+            and features.percent_hot_220 >= 0.02
+            and has_compact_emissive_core
+        )
 
     has_compact_emissive_core = (
         features.inner_v_mean >= MIN_INNER_V_MEAN
@@ -41,7 +62,6 @@ def _matches_pattern(features) -> bool:
         and features.glow_score >= MIN_GLOW_SCORE
         and radial_brightness_ratio >= MIN_RADIAL_BRIGHTNESS_RATIO
     )
-
     return (
         features.v_max >= 250.0
         and features.v_p95 >= 245.0
@@ -95,11 +115,13 @@ def detect_lit_leds(
     image,
     radius: int,
     max_leds: int = MAX_AUTOMATIC_LEDS,
+    profile: str = "strict",
 ) -> AutomaticLedDetectionResult:
     started_at = time.perf_counter()
     if image is None or getattr(image, "size", 0) == 0:
         return AutomaticLedDetectionResult((), 0, 0.0, False)
 
+    profile = "camera" if str(profile).lower() == "camera" else "strict"
     original_height, original_width = image.shape[:2]
     radius = max(3, int(radius))
     max_leds = max(1, min(MAX_AUTOMATIC_LEDS, int(max_leds)))
@@ -129,12 +151,19 @@ def detect_lit_leds(
         sigmaX=max(3.0, work_radius * 0.85),
     )
     contrast = cv2.subtract(value_blurred, background)
-    mask = np.where(
-        ((value_blurred >= 220) & (contrast >= 12))
-        | ((value_blurred >= 245) & (contrast >= 6)),
-        255,
-        0,
-    ).astype(np.uint8)
+
+    if profile == "camera":
+        candidate_mask = (
+            ((value_blurred >= 180) & (contrast >= 10))
+            | ((value_blurred >= 205) & (contrast >= 5))
+        )
+    else:
+        candidate_mask = (
+            ((value_blurred >= 220) & (contrast >= 12))
+            | ((value_blurred >= 245) & (contrast >= 6))
+        )
+
+    mask = np.where(candidate_mask, 255, 0).astype(np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
@@ -180,11 +209,12 @@ def detect_lit_leds(
             center_y,
             radius,
         )
-        if not _matches_pattern(features):
+        if not _matches_pattern(features, profile):
             continue
 
         candidate_score = _score(features, fill_ratio)
-        if candidate_score >= 0.66:
+        minimum_score = 0.54 if profile == "camera" else 0.66
+        if candidate_score >= minimum_score:
             candidates.append((center_x, center_y, candidate_score))
 
     selected: list[tuple[int, int, float]] = []
