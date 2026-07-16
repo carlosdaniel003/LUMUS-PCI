@@ -19,8 +19,8 @@ DEFAULT_SAVE_ANALYSIS_RESULTS = False
 CAMERA_RESOLUTION_PRESETS = {
     "auto": {
         "label": "Automática recomendada",
-        "width": 1920,
-        "height": 1080,
+        "width": 3840,
+        "height": 2160,
     },
     "hd": {
         "label": "1280x720",
@@ -44,8 +44,8 @@ CAMERA_RESOLUTION_PRESETS = {
     },
     "custom": {
         "label": "Personalizada",
-        "width": 1920,
-        "height": 1080,
+        "width": 3840,
+        "height": 2160,
     },
 }
 
@@ -81,12 +81,12 @@ CAMERA_GAMMA_MAX = 500
 CAMERA_ROTATIONS = (0, 90, 180, 270)
 
 DEFAULT_CAMERA_SETTINGS = {
-    "resolution_mode": "auto",
-    "width": 1920,
-    "height": 1080,
+    "resolution_mode": "uhd",
+    "width": 3840,
+    "height": 2160,
     "fps_mode": "manual",
     "fps": 30,
-    "format": "AUTO",
+    "format": "MJPG",
     "pan_enabled": False,
     "pan": 0.0,
     "tilt_enabled": False,
