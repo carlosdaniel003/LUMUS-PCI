@@ -18,15 +18,15 @@ from src.platform.gpio_raspberry_app import (
 from src.platform.led_project_repository import (
     instalar_repositorio_projetos_led,
 )
+from src.platform.native_threaded_camera_service import (
+    NativeResolutionThreadedCameraService,
+)
 from src.platform.raspberry_enter_trigger import (
     RaspberryEnterTriggerMixin,
 )
 from src.platform.raspberry_pi3_settings import (
     OPERATION_PREVIEW_HEIGHT,
     OPERATION_PREVIEW_WIDTH,
-)
-from src.platform.threaded_camera_service import (
-    ThreadedRaspberryPi3CameraService,
 )
 from src.platform.raspberry_runtime_fixes import (
     RaspberryRuntimeFixesMixin,
@@ -44,11 +44,10 @@ class RaspberryPi3ProductionApp(
     """Perfil final do Raspberry com o acesso à produção integrado ao topo."""
 
     def __init__(self, root: tk.Tk) -> None:
-        # O método iniciar_tela_ao_vivo consulta esta referência global em tempo
-        # de execução. Substituí-la antes do super mantém o restante do perfil
-        # compatível e limita a nova arquitetura ao aplicativo de produção.
+        # O perfil usa captura contínua UHD com fallback automático de resolução,
+        # mantendo a mesma interface pública esperada pelo restante do sistema.
         raspberry_pi3_profile.RaspberryPi3CameraService = (
-            ThreadedRaspberryPi3CameraService
+            NativeResolutionThreadedCameraService
         )
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
