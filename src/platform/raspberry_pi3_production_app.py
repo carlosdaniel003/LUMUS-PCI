@@ -21,6 +21,9 @@ from src.platform.gpio_raspberry_app import (
 from src.platform.led_project_repository import (
     instalar_repositorio_projetos_led,
 )
+from src.platform.native_resolution_config import (
+    NativeResolutionConfigMixin,
+)
 from src.platform.native_threaded_camera_service import (
     NativeResolutionThreadedCameraService,
 )
@@ -37,6 +40,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 
 class RaspberryPi3ProductionApp(
+    NativeResolutionConfigMixin,
     RaspberryCameraStabilityMixin,
     RaspberryRuntimeFixesMixin,
     RaspberryEnterTriggerMixin,
