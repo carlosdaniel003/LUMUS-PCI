@@ -15,6 +15,7 @@ class ProductionLogMixin:
         self.production_log_repository = ProductionLogRepository()
         self.ultimo_erro_log_producao: str | None = None
         self.ultimo_resultado_operacao = None
+        self.ultimo_frame_operacao = None
         super().__init__(*args, **kwargs)
         self._instalar_captura_resultado_operacao()
         self._atualizar_painel_log_producao()
@@ -30,6 +31,9 @@ class ProductionLogMixin:
         def analisar_e_memorizar(frame):
             resultado = analisar_original(frame)
             self.ultimo_resultado_operacao = resultado
+            # O frame recebido pelo motor já é uma cópia exclusiva da inspeção.
+            # Manter apenas a referência evita uma segunda cópia no caminho crítico.
+            self.ultimo_frame_operacao = frame
             return resultado
 
         engine.analyze = analisar_e_memorizar
@@ -89,11 +93,42 @@ class ProductionLogMixin:
                 f"{type(erro).__name__}: {erro}"
             )
 
+    def _enfileirar_foto_ng_producao(
+        self,
+        resultado,
+        nome_configuracao: str,
+        momento: datetime,
+    ) -> None:
+        if resultado is None or bool(getattr(resultado, "ok", True)):
+            return
+        if not bool(getattr(self, "salvar_resultados_analise", False)):
+            return
+
+        frame = self.ultimo_frame_operacao
+        if frame is None or getattr(frame, "size", 0) == 0:
+            return
+
+        try:
+            self.result_repository.salvar_foto_ng_assincrona(
+                imagem_original=frame,
+                resultados_led=tuple(
+                    getattr(resultado, "results", ()) or ()
+                ),
+                salvar_resultados_analise=True,
+                origem="producao_f2",
+                projeto=nome_configuracao,
+                momento=momento,
+            )
+        except Exception:
+            # O salvamento é diagnóstico e nunca pode afetar a produção.
+            pass
+
     def disparar_inspecao_operacao(self) -> None:
         total_anterior = int(self.operacao_total)
         ok_anterior = int(self.operacao_ok)
         ng_anterior = int(self.operacao_ng)
         self.ultimo_resultado_operacao = None
+        self.ultimo_frame_operacao = None
 
         super().disparar_inspecao_operacao()
 
@@ -114,6 +149,15 @@ class ProductionLogMixin:
         ok_count = int(self.operacao_ok)
         ng_count = int(self.operacao_ng)
         momento = datetime.now()
+
+        # Apenas coloca a tarefa em uma fila limitada. Codificação JPEG e escrita
+        # em disco acontecem em uma thread daemon separada.
+        if status == "NG":
+            self._enfileirar_foto_ng_producao(
+                resultado=resultado,
+                nome_configuracao=nome_configuracao,
+                momento=momento,
+            )
 
         try:
             # Timer curto: a interface termina de renderizar antes da escrita.
