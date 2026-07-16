@@ -5,6 +5,13 @@ from src.platform.raspberry_runtime_fixes import (
 )
 
 
+def substituir_texto_marcacao_azul(texto: str) -> str:
+    return str(texto).replace(
+        "Marcados em vermelho na câmera",
+        "Marcados em azul na câmera",
+    )
+
+
 class BlueRaspberryOperationWindow(StableRaspberryOperationWindow):
     """Tela F2 com todas as referências visuais de NG em azul."""
 
@@ -31,8 +38,5 @@ class BlueRaspberryOperationWindow(StableRaspberryOperationWindow):
         if not is_ok:
             texto = str(self.detail_label.cget("text"))
             self.detail_label.configure(
-                text=texto.replace(
-                    "Marcados em vermelho na câmera",
-                    "Marcados em azul na câmera",
-                )
+                text=substituir_texto_marcacao_azul(texto)
             )
