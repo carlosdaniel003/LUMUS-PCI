@@ -6,6 +6,9 @@ import src.platform.raspberry_pi3_profile as raspberry_pi3_profile
 from src.platform.automatic_led_detection import (
     AutomaticLedDetectionMixin,
 )
+from src.platform.blue_operation_window import (
+    BlueRaspberryOperationWindow,
+)
 from src.platform.camera_advanced_config import (
     instalar_normalizacao_config_repository,
 )
@@ -30,7 +33,6 @@ from src.platform.raspberry_pi3_settings import (
 )
 from src.platform.raspberry_runtime_fixes import (
     RaspberryRuntimeFixesMixin,
-    StableRaspberryOperationWindow,
 )
 
 
@@ -55,9 +57,9 @@ class RaspberryPi3ProductionApp(
 
     def _instalar_tela_operacao(self) -> None:
         # O perfil final usa uma janela própria: metade para o resultado e
-        # metade para a câmera responsiva. A variante estável também garante
-        # que nenhum foco, grab ou callback visual bloqueie a tela principal.
-        self.operacao_window = StableRaspberryOperationWindow(
+        # metade para a câmera responsiva. A variante azul também garante que
+        # nenhum foco, grab ou callback visual bloqueie a tela principal.
+        self.operacao_window = BlueRaspberryOperationWindow(
             root=self.root,
             on_trigger=self.disparar_inspecao_operacao,
             on_close=self.fechar_tela_operacao,
