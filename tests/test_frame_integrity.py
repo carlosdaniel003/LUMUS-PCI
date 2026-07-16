@@ -46,6 +46,19 @@ class FrameIntegrityValidatorTests(unittest.TestCase):
         self.assertEqual("bandas_horizontais", resultado.motivo)
         self.assertGreaterEqual(resultado.grupos_horizontais, 2)
 
+    def test_movimento_vertical_da_placa_nao_e_corrupcao(self):
+        validador = FrameIntegrityValidator()
+        validador.avaliar(self.base)
+        matriz = np.float32([[1, 0, 0], [0, 1, 20]])
+        deslocado = cv2.warpAffine(
+            self.base,
+            matriz,
+            (640, 480),
+            borderMode=cv2.BORDER_REFLECT,
+        )
+        resultado = validador.avaliar(deslocado)
+        self.assertTrue(resultado.valido, resultado)
+
     def test_validador_nao_aprende_com_frame_rejeitado(self):
         validador = FrameIntegrityValidator()
         validador.avaliar(self.base)
