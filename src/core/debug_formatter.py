@@ -58,7 +58,7 @@ def formatar_painel_inicial(
     linhas.append("")
     linhas.append(f"Raio atual: {raio_atual_px}px")
     linhas.append(
-        "Salvar resultados: "
+        "Salvar fotos NG: "
         + ("ativado" if salvar_resultados_analise else "desativado")
     )
     linhas.append("")
@@ -153,16 +153,18 @@ def formatar_resultado_textual_multiplos(resultados_led: list[LedAnalysisResult]
         _adicionar_debug_led(linhas, resultado_led)
 
     linhas.append("")
-    linhas.append("ARQUIVOS GERADOS")
+    linhas.append("SALVAMENTO DE FOTOS NG")
     linhas.append("=" * 42)
 
-    if output_paths.tem_arquivos_salvos():
+    if output_paths.caminho_resultado_imagem is not None:
+        linhas.append("Fotografia NG enfileirada para gravação em segundo plano:")
         linhas.append(str(output_paths.caminho_resultado_imagem))
-        linhas.append(str(output_paths.caminho_mascara))
-        linhas.append(str(output_paths.caminho_roi_debug))
-        linhas.append(str(output_paths.caminho_resultado_json))
+    elif leds_apagados == 0:
+        linhas.append("Resultado OK: nenhuma fotografia foi gravada.")
     else:
-        linhas.append("Salvamento automático desativado nas configurações.")
-        linhas.append("As renderizações continuam disponíveis somente na interface.")
+        linhas.append(
+            "Nenhuma fotografia foi enfileirada. Ative o salvamento "
+            "automático nas configurações."
+        )
 
     return "\n".join(linhas)
