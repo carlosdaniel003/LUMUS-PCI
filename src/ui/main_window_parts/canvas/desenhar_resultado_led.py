@@ -4,6 +4,8 @@ from src.models.analysis_result import LedAnalysisResult
 
 
 TAG_MARCACOES = "marcacoes_canvas"
+COR_NG_AZUL = "#3B82F6"
+FUNDO_NG_AZUL = "#061A33"
 
 
 def desenhar_resultado_led(
@@ -13,7 +15,7 @@ def desenhar_resultado_led(
     cor = (
         self.COR_VERDE_CLARO
         if resultado_led_atual.valor_binario == 1
-        else self.COR_VERMELHO_CLARO
+        else COR_NG_AZUL
     )
 
     centro_x_canvas = (
@@ -88,7 +90,7 @@ def desenhar_resultado_led(
     y_label = centro_y_canvas - raio_visual - 4
 
     if resultado_led_atual.valor_binario == 0:
-        texto = f"{numero_led} OFF"
+        texto = f"{numero_led} NG"
         fonte = ("Segoe UI", 8, "bold")
         padding_x = 4
         padding_y = 2
@@ -100,7 +102,7 @@ def desenhar_resultado_led(
             y_label - altura_aproximada,
             x_label + largura_aproximada,
             y_label + padding_y,
-            fill="#1F0505",
+            fill=FUNDO_NG_AZUL,
             outline=cor,
             width=1,
             tags=tags,
