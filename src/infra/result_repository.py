@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from queue import Empty, Full, Queue
+from queue import Full, Queue
 import re
 import threading
 
@@ -29,6 +29,10 @@ class ResultRepository:
         self._worker_lock = threading.Lock()
         self.ultimo_erro_salvamento_ng: str | None = None
         self.fotos_ng_descartadas = 0
+
+        # O worker nasce na inicialização e fica bloqueado na fila, sem polling.
+        # Assim, o primeiro NG também executa apenas um put_nowait no fluxo crítico.
+        self._garantir_worker_fotos_ng()
 
     @staticmethod
     def _resultado_eh_ng(resultado) -> bool:
@@ -143,11 +147,7 @@ class ResultRepository:
 
     def _processar_fila_fotos_ng(self) -> None:
         while True:
-            try:
-                tarefa = self._fila_fotos_ng.get(timeout=1.0)
-            except Empty:
-                continue
-
+            tarefa = self._fila_fotos_ng.get()
             caminho, imagem_original, resultados_led = tarefa
             try:
                 caminho.parent.mkdir(parents=True, exist_ok=True)
