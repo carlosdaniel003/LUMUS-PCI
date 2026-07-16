@@ -1,17 +1,17 @@
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
+CAMERA_WIDTH = 1920
+CAMERA_HEIGHT = 1080
 CAMERA_FPS = 30
 WINDOWS_PREFERRED_CAMERA_INDEX = 1
 CAMERA_SCAN_MAX_INDEX = 3
 
-# 30 FPS corresponde a aproximadamente 33,3 ms por quadro. O mesmo intervalo
-# é usado na parametrização e na produção para não limitar visualmente o fluxo
-# que a câmera já entrega a 30 FPS.
+# A captura continua em até 30 FPS. A interface redesenha em 20 FPS para reduzir
+# cópias, conversões e redimensionamentos de frames Full HD no Raspberry Pi 3,
+# sem limitar o frame mais recente usado pela inspeção.
 FRAME_INTERVAL_MS = 33
-PARAMETERIZATION_PREVIEW_INTERVAL_MS = 33
-OPERATION_PREVIEW_WIDTH = 320
-OPERATION_PREVIEW_HEIGHT = 240
-OPERATION_PREVIEW_INTERVAL_MS = 33
+PARAMETERIZATION_PREVIEW_INTERVAL_MS = 50
+OPERATION_PREVIEW_WIDTH = 480
+OPERATION_PREVIEW_HEIGHT = 270
+OPERATION_PREVIEW_INTERVAL_MS = 50
 OPERATION_RESULT_DISPLAY_MS = 3000
 GPIO_TRIGGER_BCM_PIN = 27
 GPIO_TRIGGER_BOUNCE_S = 0.08
