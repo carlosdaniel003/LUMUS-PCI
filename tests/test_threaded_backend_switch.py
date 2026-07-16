@@ -52,23 +52,27 @@ class CameraServiceTeste(ThreadedRaspberryPi3CameraService):
         )
         self._candidatos_teste = (
             LinuxCameraBackendCandidate(
-                key="gstreamer:teste:MJPG",
-                nome="GStreamer MJPG",
+                key="gstreamer:teste:MJPG:640x480",
+                nome="GStreamer MJPG 640x480",
                 tipo="gstreamer",
                 origem="pipeline",
                 backend=cv2.CAP_GSTREAMER,
                 dispositivo="/dev/video0",
                 formato="MJPG",
+                largura=640,
+                altura=480,
                 indice=0,
             ),
             LinuxCameraBackendCandidate(
-                key="v4l2:0:YUY2",
-                nome="V4L2 YUY2",
+                key="v4l2:0:YUY2:640x480",
+                nome="V4L2 YUY2 640x480",
                 tipo="v4l2",
                 origem=0,
                 backend=cv2.CAP_V4L2,
                 dispositivo="/dev/video0",
                 formato="YUY2",
+                largura=640,
+                altura=480,
                 indice=0,
             ),
         )
@@ -89,7 +93,10 @@ class ThreadedBackendSwitchTests(unittest.TestCase):
             "linux",
         ):
             self.assertTrue(service._abrir_camera())
-            self.assertEqual("GStreamer MJPG", service._backend_name)
+            self.assertEqual(
+                "GStreamer MJPG 640x480",
+                service._backend_name,
+            )
 
             service._ultimo_frame = np.zeros(
                 (4, 4, 3),
@@ -103,7 +110,10 @@ class ThreadedBackendSwitchTests(unittest.TestCase):
             )
             self.assertEqual(1, service._backend_linux_cursor)
             self.assertTrue(service._abrir_camera())
-            self.assertEqual("V4L2 YUY2", service._backend_name)
+            self.assertEqual(
+                "V4L2 YUY2 640x480",
+                service._backend_name,
+            )
 
 
 if __name__ == "__main__":
