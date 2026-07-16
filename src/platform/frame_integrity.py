@@ -83,6 +83,44 @@ class FrameIntegrityValidator:
                 dentro = False
         return grupos
 
+    @staticmethod
+    def _parece_translacao_global(
+        anterior: np.ndarray,
+        atual: np.ndarray,
+        media_diferenca: float,
+    ) -> bool:
+        """Distingue movimento da placa de blocos realmente corrompidos."""
+        try:
+            (deslocamento_x, deslocamento_y), resposta = cv2.phaseCorrelate(
+                anterior.astype(np.float32),
+                atual.astype(np.float32),
+            )
+        except Exception:
+            return False
+
+        deslocamento_relevante = (
+            abs(float(deslocamento_x)) >= 0.8
+            or abs(float(deslocamento_y)) >= 0.8
+        )
+        if not deslocamento_relevante or float(resposta) < 0.35:
+            return False
+
+        matriz = np.float32(
+            [
+                [1.0, 0.0, -float(deslocamento_x)],
+                [0.0, 1.0, -float(deslocamento_y)],
+            ]
+        )
+        alinhado = cv2.warpAffine(
+            atual,
+            matriz,
+            (atual.shape[1], atual.shape[0]),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REFLECT,
+        )
+        residuo = float(cv2.absdiff(anterior, alinhado).mean())
+        return residuo <= max(2.5, float(media_diferenca) * 0.35)
+
     def avaliar(self, frame) -> FrameIntegrityResult:
         atual = self._preparar_cinza(frame)
         if atual is None:
@@ -137,6 +175,13 @@ class FrameIntegrityValidator:
             and cobertura <= self.COBERTURA_VERTICAL_MAXIMA
             and pico_relativo >= self.PICO_RELATIVO_MINIMO
         )
+
+        if corrompido and self._parece_translacao_global(
+            anterior,
+            atual,
+            media_movimento,
+        ):
+            corrompido = False
 
         if corrompido:
             # Não aprende com o frame rejeitado. Assim, uma sequência de quadros
