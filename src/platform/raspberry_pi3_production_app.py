@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import tkinter as tk
 
+import src.platform.raspberry_pi3_profile as raspberry_pi3_profile
 from src.platform.automatic_led_detection import (
     AutomaticLedDetectionMixin,
 )
 from src.platform.camera_advanced_config import (
     instalar_normalizacao_config_repository,
+)
+from src.platform.camera_stability_runtime import (
+    RaspberryCameraStabilityMixin,
 )
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
@@ -21,6 +25,9 @@ from src.platform.raspberry_pi3_settings import (
     OPERATION_PREVIEW_HEIGHT,
     OPERATION_PREVIEW_WIDTH,
 )
+from src.platform.threaded_camera_service import (
+    ThreadedRaspberryPi3CameraService,
+)
 from src.platform.raspberry_runtime_fixes import (
     RaspberryRuntimeFixesMixin,
     StableRaspberryOperationWindow,
@@ -28,6 +35,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 
 class RaspberryPi3ProductionApp(
+    RaspberryCameraStabilityMixin,
     RaspberryRuntimeFixesMixin,
     RaspberryEnterTriggerMixin,
     AutomaticLedDetectionMixin,
@@ -36,6 +44,12 @@ class RaspberryPi3ProductionApp(
     """Perfil final do Raspberry com o acesso à produção integrado ao topo."""
 
     def __init__(self, root: tk.Tk) -> None:
+        # O método iniciar_tela_ao_vivo consulta esta referência global em tempo
+        # de execução. Substituí-la antes do super mantém o restante do perfil
+        # compatível e limita a nova arquitetura ao aplicativo de produção.
+        raspberry_pi3_profile.RaspberryPi3CameraService = (
+            ThreadedRaspberryPi3CameraService
+        )
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
         super().__init__(root)
