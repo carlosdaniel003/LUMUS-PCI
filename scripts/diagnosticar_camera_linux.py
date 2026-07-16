@@ -12,6 +12,12 @@ from src.platform.linux_camera_backend import (
     descobrir_dispositivos_video,
     opencv_tem_gstreamer,
 )
+from src.platform.raspberry_pi3_settings import (
+    CAMERA_FPS,
+    CAMERA_HEIGHT,
+    CAMERA_RESOLUTION_FALLBACKS,
+    CAMERA_WIDTH,
+)
 
 
 def main() -> int:
@@ -26,6 +32,10 @@ def main() -> int:
     print(f"OpenCV: {cv2.__version__}")
     print(f"OpenCV path: {cv2.__file__}")
     print(f"GStreamer no OpenCV: {opencv_tem_gstreamer()}")
+    print(
+        f"Resolução preferida: {CAMERA_WIDTH}x{CAMERA_HEIGHT} "
+        f"@ {CAMERA_FPS} FPS"
+    )
 
     dispositivos = descobrir_dispositivos_video(0, None, 7)
     print("Dispositivos:")
@@ -34,16 +44,23 @@ def main() -> int:
 
     candidatos = construir_candidatos_linux(
         dispositivos,
-        largura=640,
-        altura=480,
-        fps=30,
+        largura=CAMERA_WIDTH,
+        altura=CAMERA_HEIGHT,
+        fps=CAMERA_FPS,
         gstreamer_disponivel=opencv_tem_gstreamer(),
+        resolucoes_preferidas=CAMERA_RESOLUTION_FALLBACKS,
     )
     print("Pipelines disponíveis:")
     for posicao, candidato in enumerate(candidatos, start=1):
+        resolucao = (
+            f"{candidato.largura}x{candidato.altura}"
+            if candidato.largura > 0 and candidato.altura > 0
+            else "negociação automática"
+        )
         print(
             f"  {posicao}. {candidato.nome} | "
-            f"{candidato.dispositivo} | {candidato.formato}"
+            f"{candidato.dispositivo} | {candidato.formato} | "
+            f"{resolucao}"
         )
 
     if not args.testar:
@@ -74,6 +91,20 @@ def main() -> int:
                 capture.release()
             continue
 
+        if candidato.tipo == "v4l2":
+            try:
+                capture.set(
+                    cv2.CAP_PROP_FOURCC,
+                    cv2.VideoWriter_fourcc(
+                        *("MJPG" if candidato.formato == "MJPG" else "YUYV")
+                    ),
+                )
+                capture.set(cv2.CAP_PROP_FRAME_WIDTH, candidato.largura)
+                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, candidato.altura)
+                capture.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+            except Exception:
+                pass
+
         validos = 0
         resolucao = None
         for _ in range(total_frames):
@@ -90,7 +121,7 @@ def main() -> int:
         print(
             f"  frames válidos: {validos}/{total_frames} | "
             f"FPS medido: {validos / duracao:.2f} | "
-            f"resolução: {resolucao}"
+            f"resolução real: {resolucao}"
         )
 
     return 0
