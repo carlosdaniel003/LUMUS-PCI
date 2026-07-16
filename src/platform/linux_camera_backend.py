@@ -17,6 +17,8 @@ class LinuxCameraBackendCandidate:
     backend: int
     dispositivo: str
     formato: str
+    largura: int
+    altura: int
     indice: int | None = None
 
 
@@ -134,62 +136,121 @@ def construir_pipeline_gstreamer(
     return f"{origem} ! {caps} ! {fila} ! {destino}"
 
 
+def _normalizar_resolucoes(
+    largura: int,
+    altura: int,
+    resolucoes_preferidas: tuple[tuple[int, int], ...] | None,
+) -> tuple[tuple[int, int], ...]:
+    resultado: list[tuple[int, int]] = []
+
+    def adicionar(valor_largura: int, valor_altura: int) -> None:
+        resolucao = (
+            max(1, int(valor_largura)),
+            max(1, int(valor_altura)),
+        )
+        if resolucao not in resultado:
+            resultado.append(resolucao)
+
+    adicionar(largura, altura)
+    for item in resolucoes_preferidas or ():
+        if len(item) >= 2:
+            adicionar(item[0], item[1])
+
+    for resolucao in (
+        (3840, 2160),
+        (2560, 1440),
+        (1920, 1080),
+        (1280, 720),
+        (640, 480),
+    ):
+        if resolucao[0] <= int(largura) and resolucao[1] <= int(altura):
+            adicionar(*resolucao)
+
+    return tuple(resultado)
+
+
 def construir_candidatos_linux(
     dispositivos: tuple[tuple[str, int | None], ...],
     largura: int,
     altura: int,
     fps: int,
     gstreamer_disponivel: bool,
+    resolucoes_preferidas: tuple[tuple[int, int], ...] | None = None,
 ) -> tuple[LinuxCameraBackendCandidate, ...]:
     candidatos: list[LinuxCameraBackendCandidate] = []
     formatos = ("MJPG", "YUY2")
+    resolucoes = _normalizar_resolucoes(
+        largura,
+        altura,
+        resolucoes_preferidas,
+    )
 
-    for dispositivo, indice in dispositivos:
-        identificador = os.path.realpath(dispositivo)
-        if gstreamer_disponivel:
-            for formato in formatos:
-                pipeline = construir_pipeline_gstreamer(
-                    dispositivo,
-                    largura,
-                    altura,
-                    fps,
-                    formato,
-                )
-                candidatos.append(
-                    LinuxCameraBackendCandidate(
-                        key=f"gstreamer:{identificador}:{formato}",
-                        nome=f"GStreamer {formato}",
-                        tipo="gstreamer",
-                        origem=pipeline,
-                        backend=cv2.CAP_GSTREAMER,
-                        dispositivo=dispositivo,
-                        formato=formato,
-                        indice=indice,
+    if gstreamer_disponivel:
+        for largura_atual, altura_atual in resolucoes:
+            for dispositivo, indice in dispositivos:
+                identificador = os.path.realpath(dispositivo)
+                for formato in formatos:
+                    pipeline = construir_pipeline_gstreamer(
+                        dispositivo,
+                        largura_atual,
+                        altura_atual,
+                        fps,
+                        formato,
                     )
-                )
+                    candidatos.append(
+                        LinuxCameraBackendCandidate(
+                            key=(
+                                f"gstreamer:{identificador}:{formato}:"
+                                f"{largura_atual}x{altura_atual}"
+                            ),
+                            nome=(
+                                f"GStreamer {formato} "
+                                f"{largura_atual}x{altura_atual}"
+                            ),
+                            tipo="gstreamer",
+                            origem=pipeline,
+                            backend=cv2.CAP_GSTREAMER,
+                            dispositivo=dispositivo,
+                            formato=formato,
+                            largura=largura_atual,
+                            altura=altura_atual,
+                            indice=indice,
+                        )
+                    )
 
     indices_vistos: set[int] = set()
+    dispositivos_por_indice: list[tuple[str, int]] = []
     for dispositivo, indice in dispositivos:
         if indice is None or indice in indices_vistos:
             continue
         indices_vistos.add(indice)
-        for formato in formatos:
-            candidatos.append(
-                LinuxCameraBackendCandidate(
-                    key=f"v4l2:{indice}:{formato}",
-                    nome=f"V4L2 {formato}",
-                    tipo="v4l2",
-                    origem=indice,
-                    backend=cv2.CAP_V4L2,
-                    dispositivo=dispositivo,
-                    formato=formato,
-                    indice=indice,
-                )
-            )
+        dispositivos_por_indice.append((dispositivo, indice))
 
-    for dispositivo, indice in dispositivos:
-        if indice is None:
-            continue
+    for largura_atual, altura_atual in resolucoes:
+        for dispositivo, indice in dispositivos_por_indice:
+            for formato in formatos:
+                candidatos.append(
+                    LinuxCameraBackendCandidate(
+                        key=(
+                            f"v4l2:{indice}:{formato}:"
+                            f"{largura_atual}x{altura_atual}"
+                        ),
+                        nome=(
+                            f"V4L2 {formato} "
+                            f"{largura_atual}x{altura_atual}"
+                        ),
+                        tipo="v4l2",
+                        origem=indice,
+                        backend=cv2.CAP_V4L2,
+                        dispositivo=dispositivo,
+                        formato=formato,
+                        largura=largura_atual,
+                        altura=altura_atual,
+                        indice=indice,
+                    )
+                )
+
+    for dispositivo, indice in dispositivos_por_indice:
         candidatos.append(
             LinuxCameraBackendCandidate(
                 key=f"auto:{indice}",
@@ -199,6 +260,8 @@ def construir_candidatos_linux(
                 backend=cv2.CAP_ANY,
                 dispositivo=dispositivo,
                 formato="AUTO",
+                largura=0,
+                altura=0,
                 indice=indice,
             )
         )
