@@ -13,6 +13,15 @@ RASPBERRY_CAMERA_FPS = 30
 class StableRaspberryOperationWindow(RaspberryOperationWindow):
     """Janela de produção que devolve completamente o controle à tela principal."""
 
+    PREVIEW_FAILED = "#2563EB"
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.preview_legend.configure(
+            text="CÍRCULO AZUL: LED APAGADO",
+            fg=self.PREVIEW_FAILED,
+        )
+
     def _widget_pertence_ao_painel(self, widget) -> bool:
         atual = widget
         while atual is not None:
@@ -56,6 +65,7 @@ class RaspberryRuntimeFixesMixin:
     """Correções de interação, projetos e rotação exclusivas do Raspberry."""
 
     def __init__(self, *args, **kwargs) -> None:
+        self._renderizando_resultado_azul = False
         super().__init__(*args, **kwargs)
         self._fixar_camera_em_30_fps()
 
@@ -88,6 +98,100 @@ class RaspberryRuntimeFixesMixin:
             # A câmera ainda será aberta em 30 FPS pelo perfil Raspberry mesmo
             # se o arquivo estiver temporariamente sem permissão de escrita.
             self.configuracoes_camera = configuracoes
+
+    @staticmethod
+    def _iterar_widgets(widget):
+        yield widget
+        try:
+            filhos = widget.winfo_children()
+        except tk.TclError:
+            filhos = ()
+        for filho in filhos:
+            yield from RaspberryRuntimeFixesMixin._iterar_widgets(filho)
+
+    def abrir_configuracoes(self) -> None:
+        super().abrir_configuracoes()
+
+        # Mantém o nome da configuração alinhado ao comportamento real: somente
+        # fotografias NG, tanto no desenvolvimento quanto na Produção F2.
+        try:
+            for janela in self.root.winfo_children():
+                if not isinstance(janela, tk.Toplevel):
+                    continue
+                try:
+                    if janela.title() != "Configurações - ODIN":
+                        continue
+                except tk.TclError:
+                    continue
+
+                for widget in self._iterar_widgets(janela):
+                    if isinstance(widget, tk.Checkbutton):
+                        try:
+                            texto = str(widget.cget("text"))
+                        except tk.TclError:
+                            continue
+                        if texto == "Salvar resultados da análise automaticamente":
+                            widget.configure(
+                                text=(
+                                    "Salvar fotos de placas NG automaticamente "
+                                    "(Produção F2 e desenvolvimento)"
+                                )
+                            )
+                    elif isinstance(widget, tk.Label):
+                        try:
+                            texto = str(widget.cget("text"))
+                        except tk.TclError:
+                            continue
+                        if texto.startswith("Com a opção desativada"):
+                            widget.configure(
+                                text=(
+                                    "Quando ativado, somente placas NG geram uma "
+                                    "fotografia em data/resultados/ng. Placas OK "
+                                    "não são gravadas."
+                                )
+                            )
+                break
+        except tk.TclError:
+            pass
+
+    def analisar_led_selecionado(self) -> None:
+        # O fluxo base cria uma visualização vermelha. No perfil Raspberry ela é
+        # substituída, após a análise, pela mesma placa com os pontos NG em azul.
+        if self._renderizando_resultado_azul:
+            return super().analisar_led_selecionado()
+
+        resultados_antes = getattr(self, "resultados_led_atual", None)
+        self._renderizando_resultado_azul = True
+        try:
+            retorno = super().analisar_led_selecionado()
+        finally:
+            self._renderizando_resultado_azul = False
+
+        resultados = getattr(self, "resultados_led_atual", None)
+        imagem_original = getattr(self, "imagem_original", None)
+        resultado_novo = resultados is not resultados_antes and bool(resultados)
+
+        if (
+            resultado_novo
+            and imagem_original is not None
+            and getattr(imagem_original, "size", 0) > 0
+        ):
+            try:
+                imagem_visual = (
+                    self.result_repository.criar_visualizacao_ng(
+                        imagem_original,
+                        resultados,
+                    )
+                )
+                self.view.preparar_imagem_para_exibicao(imagem_visual)
+                self.view.desenhar_canvas(
+                    self.leds_selecionados,
+                    resultados,
+                )
+            except Exception:
+                pass
+
+        return retorno
 
     @staticmethod
     def _copiar_led(led: LedSelection) -> LedSelection:
