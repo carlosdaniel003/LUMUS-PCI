@@ -1,4 +1,3 @@
-
 import tkinter as tk
 
 
@@ -33,8 +32,16 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self.lupa_tk = None
 
     self.root.title("ODIN - Observador Digital Inteligente")
-    self.root.geometry("1600x900")
-    self.root.minsize(1280, 760)
+
+    largura_tela = max(800, int(self.root.winfo_screenwidth()))
+    altura_tela = max(600, int(self.root.winfo_screenheight()))
+    largura_inicial = min(1600, largura_tela)
+    altura_inicial = min(900, altura_tela)
+    largura_minima = min(1280, largura_tela)
+    altura_minima = min(760, altura_tela)
+
+    self.root.geometry(f"{largura_inicial}x{altura_inicial}")
+    self.root.minsize(largura_minima, altura_minima)
     self.root.configure(bg=self.COR_FUNDO_APP)
 
     self.configurar_atalhos_tela()
@@ -42,4 +49,6 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self.criar_layout()
     self.iniciar_relogio_sistema()
 
-    self.root.after(120, self.maximizar_janela)
+    # A janela abre em tela cheia no monitor atual. F11 usa o mesmo método para
+    # alternar entre tela cheia e a janela maximizada responsiva.
+    self.root.after(120, self.alternar_tela_cheia)
