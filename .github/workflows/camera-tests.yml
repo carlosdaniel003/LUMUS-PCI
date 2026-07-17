@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install opencv-python-headless numpy gpiozero
 
-      - name: Compile changed camera modules
+      - name: Compile changed camera and display modules
         run: |
           python -m py_compile \
             src/platform/camera_performance_profile.py \
@@ -34,9 +34,11 @@ jobs:
             src/platform/adaptive_camera_service.py \
             src/platform/native_resolution_config.py \
             src/platform/led_mask_resolution_sync.py \
-            src/platform/raspberry_pi3_production_app.py
+            src/platform/display_awake_runtime.py \
+            src/platform/raspberry_pi3_production_app.py \
+            src/ui/main_window_parts/lifecycle/init_view.py
 
-      - name: Run camera tests
+      - name: Run camera and display tests
         run: |
           python -m unittest \
             tests.test_camera_performance_profile \
@@ -48,4 +50,5 @@ jobs:
             tests.test_frame_integrity \
             tests.test_camera_stability_runtime \
             tests.test_led_mask_resolution_sync \
+            tests.test_display_awake_runtime \
             -v
