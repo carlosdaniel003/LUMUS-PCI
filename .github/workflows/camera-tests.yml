@@ -29,21 +29,18 @@ jobs:
       - name: Compile changed camera and display modules
         run: |
           python -m py_compile \
-            src/platform/camera_performance_profile.py \
-            src/platform/native_threaded_camera_service.py \
-            src/platform/adaptive_camera_service.py \
+            src/platform/threaded_camera_service.py \
+            src/platform/fixed_full_hd_camera_service.py \
             src/platform/native_resolution_config.py \
             src/platform/led_mask_resolution_sync.py \
             src/platform/display_awake_runtime.py \
             src/platform/raspberry_pi3_production_app.py \
             src/ui/main_window_parts/lifecycle/init_view.py
 
-      - name: Run camera and display tests
+      - name: Run fixed camera and display tests
         run: |
           python -m unittest \
-            tests.test_camera_performance_profile \
             tests.test_native_resolution_camera \
-            tests.test_adaptive_camera_service \
             tests.test_threaded_backend_switch \
             tests.test_linux_camera_backend \
             tests.test_v4l2_controls \
