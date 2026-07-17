@@ -50,8 +50,9 @@ class RaspberryPi3ProductionApp(
     """Perfil final do Raspberry com o acesso à produção integrado ao topo."""
 
     def __init__(self, root: tk.Tk) -> None:
-        # O perfil usa captura contínua UHD com fallback automático de resolução,
-        # mantendo a mesma interface pública esperada pelo restante do sistema.
+        # O perfil mede fluidez, corrupção, cintilação e regularidade do fluxo.
+        # 1080p30 é a referência; resoluções maiores só vencem quando mantêm a
+        # mesma estabilidade, e resoluções menores assumem quando necessário.
         raspberry_pi3_profile.RaspberryPi3CameraService = (
             NativeResolutionThreadedCameraService
         )
