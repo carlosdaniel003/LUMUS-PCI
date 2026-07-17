@@ -3,9 +3,6 @@ from __future__ import annotations
 import tkinter as tk
 
 import src.platform.raspberry_pi3_profile as raspberry_pi3_profile
-from src.platform.adaptive_camera_service import (
-    BalancedAdaptiveCameraService,
-)
 from src.platform.automatic_led_detection import (
     AutomaticLedDetectionMixin,
 )
@@ -20,6 +17,9 @@ from src.platform.camera_stability_runtime import (
 )
 from src.platform.display_awake_runtime import (
     LinuxDisplayAwakeMixin,
+)
+from src.platform.fixed_full_hd_camera_service import (
+    FixedFullHdCameraService,
 )
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
@@ -58,11 +58,11 @@ class RaspberryPi3ProductionApp(
     """Perfil final do Raspberry com o acesso à produção integrado ao topo."""
 
     def __init__(self, root: tk.Tk) -> None:
-        # O perfil mede fluidez, corrupção, cintilação e regularidade do fluxo.
-        # 1080p30 é a referência; resoluções maiores só vencem quando mantêm a
-        # mesma estabilidade, e o fluxo reduz automaticamente quando necessário.
+        # O perfil final não negocia resolução automaticamente: desenvolvimento
+        # e Produção F2 usam sempre 1920x1080 a 20 FPS. Em falhas, somente o
+        # backend/formato pode ser alternado, mantendo a geometria da imagem.
         raspberry_pi3_profile.RaspberryPi3CameraService = (
-            BalancedAdaptiveCameraService
+            FixedFullHdCameraService
         )
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
