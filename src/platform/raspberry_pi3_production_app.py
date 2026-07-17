@@ -18,6 +18,9 @@ from src.platform.camera_advanced_config import (
 from src.platform.camera_stability_runtime import (
     RaspberryCameraStabilityMixin,
 )
+from src.platform.display_awake_runtime import (
+    LinuxDisplayAwakeMixin,
+)
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
 )
@@ -43,6 +46,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 
 class RaspberryPi3ProductionApp(
+    LinuxDisplayAwakeMixin,
     ResolutionSynchronizedLedMasksMixin,
     NativeResolutionConfigMixin,
     RaspberryCameraStabilityMixin,
