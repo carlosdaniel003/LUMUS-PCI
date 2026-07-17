@@ -36,11 +36,8 @@ def canonicalize_led_mask(
     if led.possui_coordenadas_normalizadas():
         return _copy_led(led), False
 
-    base_width = int(led.largura_base or reference_width)
-    base_height = int(led.altura_base or reference_height)
-    base_width = max(1, base_width)
-    base_height = max(1, base_height)
-
+    base_width = max(1, int(led.largura_base or reference_width))
+    base_height = max(1, int(led.altura_base or reference_height))
     canonical = LedSelection(
         id=str(led.id),
         centro_x=int(led.centro_x),
@@ -107,7 +104,7 @@ class ResolutionSynchronizedLedMasksMixin:
 
     def __init__(self, *args, **kwargs) -> None:
         self._mask_resolution_active: tuple[int, int] | None = None
-        self._mask_legacy_migration_done = False
+        self._mask_legacy_migrated_projects: set[str] = set()
         self._mask_resolution_syncing = False
         super().__init__(*args, **kwargs)
 
@@ -120,37 +117,48 @@ class ResolutionSynchronizedLedMasksMixin:
             return None
         return int(width), int(height)
 
+    def _active_mask_project(self) -> tuple[str, object | None]:
+        repository = getattr(self, "config_repository", None)
+        project = "__DEFAULT__"
+        get_active = getattr(repository, "obter_projeto_led_ativo", None)
+        if callable(get_active):
+            try:
+                active = str(get_active() or "").strip()
+                if active:
+                    project = active
+            except Exception:
+                pass
+        return project, repository
+
     def _persist_migrated_masks(
         self,
         canonical_leds: tuple[LedSelection, ...],
     ) -> None:
-        if self._mask_legacy_migration_done or not canonical_leds:
+        if not canonical_leds:
             return
 
-        repository = getattr(self, "config_repository", None)
+        project, repository = self._active_mask_project()
+        if project in self._mask_legacy_migrated_projects:
+            return
+
         save = getattr(repository, "salvar_leds_fixos", None)
         if not callable(save):
             return
 
-        project = None
-        get_active = getattr(repository, "obter_projeto_led_ativo", None)
-        if callable(get_active):
-            try:
-                project = get_active()
-            except Exception:
-                project = None
-
         try:
-            if project:
+            if project != "__DEFAULT__":
                 save(list(canonical_leds), projeto=project)
             else:
                 save(list(canonical_leds))
         except TypeError:
-            save(list(canonical_leds))
+            try:
+                save(list(canonical_leds))
+            except Exception:
+                return
         except Exception:
             return
 
-        self._mask_legacy_migration_done = True
+        self._mask_legacy_migrated_projects.add(project)
 
     def _adapt_masks(
         self,
@@ -212,7 +220,11 @@ class ResolutionSynchronizedLedMasksMixin:
         )
         return list(adaptation.adapted_leds)
 
-    def _synchronize_masks_with_current_frame(self, force: bool = False) -> None:
+    def _synchronize_masks_with_current_frame(
+        self,
+        force: bool = False,
+        schedule_operation_prepare: bool = True,
+    ) -> None:
         if self._mask_resolution_syncing:
             return
 
@@ -277,11 +289,7 @@ class ResolutionSynchronizedLedMasksMixin:
                 int(getattr(operation_engine, "_frame_width", 0) or 0),
                 int(getattr(operation_engine, "_frame_height", 0) or 0),
             )
-            resolution_changed_for_engine = (
-                engine_resolution != resolution
-                and engine_resolution != (0, 0)
-            )
-            if resolution_changed_for_engine:
+            if engine_resolution not in ((0, 0), resolution):
                 invalidate = getattr(operation_engine, "invalidate", None)
                 if callable(invalidate):
                     invalidate()
@@ -293,7 +301,10 @@ class ResolutionSynchronizedLedMasksMixin:
                 if callable(update_preview):
                     update_preview(frame, adapted_fixed)
 
-                if not bool(getattr(self, "operacao_processando", False)):
+                if (
+                    schedule_operation_prepare
+                    and not bool(getattr(self, "operacao_processando", False))
+                ):
                     pending_id = getattr(
                         self,
                         "_operacao_preparo_after_id",
@@ -325,11 +336,17 @@ class ResolutionSynchronizedLedMasksMixin:
         self._synchronize_masks_with_current_frame()
 
     def preparar_tela_operacao(self) -> None:
-        self._synchronize_masks_with_current_frame(force=True)
+        self._synchronize_masks_with_current_frame(
+            force=True,
+            schedule_operation_prepare=False,
+        )
         super().preparar_tela_operacao()
 
     def disparar_inspecao_operacao(self) -> None:
-        self._synchronize_masks_with_current_frame(force=True)
+        self._synchronize_masks_with_current_frame(
+            force=True,
+            schedule_operation_prepare=False,
+        )
         super().disparar_inspecao_operacao()
 
     def selecionar_led_para_analise(self, canvas_x: int, canvas_y: int) -> None:
