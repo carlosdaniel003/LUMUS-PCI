@@ -135,6 +135,28 @@ class BalancedAdaptiveCameraService(
             except Exception:
                 pass
 
+    def _avaliar_grupo(
+        self,
+        candidatos: list[LinuxCameraBackendCandidate],
+        limite: int,
+        resultados: list[CameraPerformanceResult],
+    ) -> None:
+        pixels_alvo = CAMERA_WIDTH * CAMERA_HEIGHT
+        for candidato in candidatos[:max(1, int(limite))]:
+            self._definir_estado(
+                self.ESTADO_ESTABILIZANDO,
+                f"Avaliando {candidato.nome}: fluidez e estabilidade...",
+            )
+            resultado = self._avaliar_candidato(candidato)
+            resultados.append(resultado)
+
+            pixels_resultado = resultado.width * resultado.height
+            if pixels_resultado > pixels_alvo:
+                if resultado.excellent:
+                    break
+            elif resultado.comfortable:
+                break
+
     def _abrir_camera(self) -> bool:
         abriu = super()._abrir_camera()
         if abriu:
