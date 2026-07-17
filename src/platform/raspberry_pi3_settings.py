@@ -1,19 +1,20 @@
-CAMERA_WIDTH = 3840
-CAMERA_HEIGHT = 2160
+CAMERA_WIDTH = 1920
+CAMERA_HEIGHT = 1080
 CAMERA_FPS = 30
 CAMERA_RESOLUTION_FALLBACKS = (
-    (3840, 2160),
-    (2560, 1440),
     (1920, 1080),
+    (2560, 1440),
+    (3840, 2160),
     (1280, 720),
     (640, 480),
 )
 WINDOWS_PREFERRED_CAMERA_INDEX = 1
 CAMERA_SCAN_MAX_INDEX = 3
 
-# A captura prioriza a resolução nativa UHD e mantém fallback automático para
-# modos menores realmente suportados pelo driver. A interface redesenha em
-# 20 FPS para preservar fluidez sem limitar o frame usado na inspeção.
+# 1080p30 é o ponto de equilíbrio. O serviço mede estabilidade e FPS antes de
+# subir para 1440p/4K e reduz para 720p/480p quando 1080p não estiver confortável.
+# A captura continua em até 30 FPS e a interface redesenha em 20 FPS para reduzir
+# conversões no Raspberry Pi 3 sem limitar o frame mais recente da inspeção.
 FRAME_INTERVAL_MS = 33
 PARAMETERIZATION_PREVIEW_INTERVAL_MS = 50
 OPERATION_PREVIEW_WIDTH = 480
