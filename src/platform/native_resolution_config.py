@@ -8,29 +8,37 @@ from src.platform.raspberry_pi3_settings import (
 
 
 class NativeResolutionConfigMixin:
-    """Mantém 1080p30 como base e deixa o serviço escolher o melhor perfil."""
+    """Mantém toda a aplicação fixa em 1920x1080 a 20 FPS."""
+
+    @staticmethod
+    def _aplicar_perfil_camera_fixo(
+        configuracoes_camera: dict | None,
+    ) -> dict:
+        configuracoes = dict(configuracoes_camera or {})
+        configuracoes.update(
+            {
+                "resolution_mode": "full_hd",
+                "width": CAMERA_WIDTH,
+                "height": CAMERA_HEIGHT,
+                "fps_mode": "manual",
+                "fps": CAMERA_FPS,
+                "format": "MJPG",
+            }
+        )
+        return configuracoes
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._fixar_configuracao_camera_equilibrada()
+        self._fixar_configuracao_camera()
 
-    def _fixar_configuracao_camera_equilibrada(self) -> None:
-        configuracoes = dict(
+    def _fixar_configuracao_camera(self) -> None:
+        configuracoes_atuais = dict(
             getattr(self, "configuracoes_camera", {}) or {}
         )
-        desejadas = {
-            "resolution_mode": "full_hd",
-            "width": CAMERA_WIDTH,
-            "height": CAMERA_HEIGHT,
-            "fps_mode": "manual",
-            "fps": CAMERA_FPS,
-            "format": "MJPG",
-        }
-        alterado = any(
-            configuracoes.get(chave) != valor
-            for chave, valor in desejadas.items()
+        configuracoes = self._aplicar_perfil_camera_fixo(
+            configuracoes_atuais
         )
-        configuracoes.update(desejadas)
+        alterado = configuracoes != configuracoes_atuais
         self.configuracoes_camera = configuracoes
 
         if not alterado:
@@ -50,6 +58,23 @@ class NativeResolutionConfigMixin:
                 self.config_repository.obter_configuracoes_camera()
             )
         except Exception:
-            # O perfil em memória continua válido mesmo quando a configuração
-            # local estiver temporariamente sem permissão de escrita.
+            # O perfil em memória continua fixo mesmo quando a configuração local
+            # estiver temporariamente sem permissão de escrita.
             self.configuracoes_camera = configuracoes
+
+    def salvar_configuracoes_sistema(
+        self,
+        salvar_resultados_analise: bool,
+        raio_configurado_px: int | None = None,
+        configuracoes_camera: dict | None = None,
+    ):
+        configuracoes = self._aplicar_perfil_camera_fixo(
+            configuracoes_camera
+            if configuracoes_camera is not None
+            else getattr(self, "configuracoes_camera", {})
+        )
+        return super().salvar_configuracoes_sistema(
+            salvar_resultados_analise=salvar_resultados_analise,
+            raio_configurado_px=raio_configurado_px,
+            configuracoes_camera=configuracoes,
+        )
