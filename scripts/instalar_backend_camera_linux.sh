@@ -8,7 +8,9 @@ sudo apt install -y \
   gstreamer1.0-tools \
   gstreamer1.0-plugins-base \
   gstreamer1.0-plugins-good \
-  gstreamer1.0-libav
+  gstreamer1.0-libav \
+  xdg-utils \
+  x11-xserver-utils
 
 python3 scripts/diagnosticar_camera_linux.py
 
@@ -25,4 +27,8 @@ No Raspberry, use o Python do sistema ou recrie a venv com:
 Depois execute novamente:
 
   python scripts/diagnosticar_camera_linux.py --testar
+
+Os pacotes xdg-utils e x11-xserver-utils permitem que o ODIN suspenda o
+screensaver e o desligamento DPMS enquanto estiver aberto. As configurações
+anteriores são restauradas ao fechar o programa.
 EOF
