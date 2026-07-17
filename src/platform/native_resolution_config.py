@@ -31,19 +31,8 @@ class NativeResolutionConfigMixin:
         super().__init__(*args, **kwargs)
         self._fixar_configuracao_camera()
 
-    def _fixar_configuracao_camera(self) -> None:
-        configuracoes_atuais = dict(
-            getattr(self, "configuracoes_camera", {}) or {}
-        )
-        configuracoes = self._aplicar_perfil_camera_fixo(
-            configuracoes_atuais
-        )
-        alterado = configuracoes != configuracoes_atuais
-        self.configuracoes_camera = configuracoes
-
-        if not alterado:
-            return
-
+    def _persistir_perfil_camera_fixo(self, configuracoes: dict) -> None:
+        self.configuracoes_camera = dict(configuracoes)
         try:
             self.configuracao_atual = (
                 self.config_repository.salvar_configuracoes_sistema(
@@ -60,7 +49,19 @@ class NativeResolutionConfigMixin:
         except Exception:
             # O perfil em memória continua fixo mesmo quando a configuração local
             # estiver temporariamente sem permissão de escrita.
+            self.configuracoes_camera = dict(configuracoes)
+
+    def _fixar_configuracao_camera(self) -> None:
+        configuracoes_atuais = dict(
+            getattr(self, "configuracoes_camera", {}) or {}
+        )
+        configuracoes = self._aplicar_perfil_camera_fixo(
+            configuracoes_atuais
+        )
+        if configuracoes == configuracoes_atuais:
             self.configuracoes_camera = configuracoes
+            return
+        self._persistir_perfil_camera_fixo(configuracoes)
 
     def salvar_configuracoes_sistema(
         self,
@@ -73,8 +74,17 @@ class NativeResolutionConfigMixin:
             if configuracoes_camera is not None
             else getattr(self, "configuracoes_camera", {})
         )
-        return super().salvar_configuracoes_sistema(
+        resultado = super().salvar_configuracoes_sistema(
             salvar_resultados_analise=salvar_resultados_analise,
             raio_configurado_px=raio_configurado_px,
             configuracoes_camera=configuracoes,
         )
+
+        # Alguns mixins legados ainda normalizam FPS ao salvar. O perfil fixo é
+        # reaplicado por último para que arquivo, memória e próxima abertura
+        # permaneçam obrigatoriamente em 1920x1080 a 20 FPS.
+        configuracoes_finais = self._aplicar_perfil_camera_fixo(
+            getattr(self, "configuracoes_camera", configuracoes)
+        )
+        self._persistir_perfil_camera_fixo(configuracoes_finais)
+        return resultado
