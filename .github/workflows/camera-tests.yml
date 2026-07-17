@@ -35,7 +35,9 @@ jobs:
             src/platform/led_mask_resolution_sync.py \
             src/platform/display_awake_runtime.py \
             src/platform/raspberry_pi3_production_app.py \
-            src/ui/main_window_parts/lifecycle/init_view.py
+            src/ui/main_window_parts/lifecycle/init_view.py \
+            src/ui/main_window_parts/lifecycle/alternar_tela_cheia.py \
+            src/ui/main_window_parts/lifecycle/sair_tela_cheia.py
 
       - name: Run fixed camera and display tests
         run: |
@@ -48,4 +50,5 @@ jobs:
             tests.test_camera_stability_runtime \
             tests.test_led_mask_resolution_sync \
             tests.test_display_awake_runtime \
+            tests.test_fullscreen_native \
             -v
