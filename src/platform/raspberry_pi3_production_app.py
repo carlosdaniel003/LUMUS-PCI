@@ -3,6 +3,9 @@ from __future__ import annotations
 import tkinter as tk
 
 import src.platform.raspberry_pi3_profile as raspberry_pi3_profile
+from src.platform.adaptive_camera_service import (
+    BalancedAdaptiveCameraService,
+)
 from src.platform.automatic_led_detection import (
     AutomaticLedDetectionMixin,
 )
@@ -23,9 +26,6 @@ from src.platform.led_project_repository import (
 )
 from src.platform.native_resolution_config import (
     NativeResolutionConfigMixin,
-)
-from src.platform.native_threaded_camera_service import (
-    NativeResolutionThreadedCameraService,
 )
 from src.platform.raspberry_enter_trigger import (
     RaspberryEnterTriggerMixin,
@@ -52,9 +52,9 @@ class RaspberryPi3ProductionApp(
     def __init__(self, root: tk.Tk) -> None:
         # O perfil mede fluidez, corrupção, cintilação e regularidade do fluxo.
         # 1080p30 é a referência; resoluções maiores só vencem quando mantêm a
-        # mesma estabilidade, e resoluções menores assumem quando necessário.
+        # mesma estabilidade, e o fluxo reduz automaticamente quando necessário.
         raspberry_pi3_profile.RaspberryPi3CameraService = (
-            NativeResolutionThreadedCameraService
+            BalancedAdaptiveCameraService
         )
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
