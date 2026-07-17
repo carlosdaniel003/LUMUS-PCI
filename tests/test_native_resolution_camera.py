@@ -10,6 +10,7 @@ from src.platform.native_threaded_camera_service import (
     NativeResolutionThreadedCameraService,
 )
 from src.platform.raspberry_pi3_settings import (
+    CAMERA_FPS,
     CAMERA_HEIGHT,
     CAMERA_RESOLUTION_FALLBACKS,
     CAMERA_WIDTH,
@@ -26,17 +27,19 @@ class FakeCapture:
 
 
 class NativeResolutionCameraTests(unittest.TestCase):
-    def test_perfil_prioriza_uhd(self):
-        self.assertEqual((3840, 2160), (CAMERA_WIDTH, CAMERA_HEIGHT))
-        self.assertEqual((3840, 2160), CAMERA_RESOLUTION_FALLBACKS[0])
-        self.assertIn((1920, 1080), CAMERA_RESOLUTION_FALLBACKS)
+    def test_perfil_equilibrio_e_1080p30(self):
+        self.assertEqual((1920, 1080), (CAMERA_WIDTH, CAMERA_HEIGHT))
+        self.assertEqual(30, CAMERA_FPS)
+        self.assertEqual((1920, 1080), CAMERA_RESOLUTION_FALLBACKS[0])
+        self.assertIn((2560, 1440), CAMERA_RESOLUTION_FALLBACKS)
+        self.assertIn((3840, 2160), CAMERA_RESOLUTION_FALLBACKS)
         self.assertEqual((640, 480), CAMERA_RESOLUTION_FALLBACKS[-1])
 
-    def test_candidatos_comecam_em_uhd_e_mantem_fallback(self):
+    def test_candidatos_comecam_em_1080p_e_mantem_maiores_e_menores(self):
         candidatos = construir_candidatos_linux(
             (("/dev/video0", 0),),
-            largura=3840,
-            altura=2160,
+            largura=1920,
+            altura=1080,
             fps=30,
             gstreamer_disponivel=True,
             resolucoes_preferidas=CAMERA_RESOLUTION_FALLBACKS,
@@ -44,37 +47,38 @@ class NativeResolutionCameraTests(unittest.TestCase):
         primeiro = candidatos[0]
         self.assertEqual("gstreamer", primeiro.tipo)
         self.assertEqual("MJPG", primeiro.formato)
-        self.assertEqual((3840, 2160), (primeiro.largura, primeiro.altura))
-        self.assertTrue(
-            any(
-                (item.largura, item.altura) == (1920, 1080)
-                for item in candidatos
-            )
-        )
+        self.assertEqual((1920, 1080), (primeiro.largura, primeiro.altura))
+        resolucoes = {
+            (item.largura, item.altura)
+            for item in candidatos
+            if item.largura > 0 and item.altura > 0
+        }
+        self.assertIn((3840, 2160), resolucoes)
+        self.assertIn((1280, 720), resolucoes)
 
     def test_v4l2_aplica_resolucao_do_fallback_escolhido(self):
         service = object.__new__(NativeResolutionThreadedCameraService)
-        service.largura = 3840
-        service.altura = 2160
+        service.largura = 1920
+        service.altura = 1080
         service.fps = 30
         capture = FakeCapture()
         candidato = LinuxCameraBackendCandidate(
-            key="v4l2:0:MJPG:1920x1080",
-            nome="V4L2 MJPG 1920x1080",
+            key="v4l2:0:MJPG:1280x720",
+            nome="V4L2 MJPG 1280x720",
             tipo="v4l2",
             origem=0,
             backend=cv2.CAP_V4L2,
             dispositivo="/dev/video0",
             formato="MJPG",
-            largura=1920,
-            altura=1080,
+            largura=1280,
+            altura=720,
             indice=0,
         )
 
         service._configurar_capture_direto(capture, candidato)
         definicoes = dict(capture.definicoes)
-        self.assertEqual(1920, definicoes[cv2.CAP_PROP_FRAME_WIDTH])
-        self.assertEqual(1080, definicoes[cv2.CAP_PROP_FRAME_HEIGHT])
+        self.assertEqual(1280, definicoes[cv2.CAP_PROP_FRAME_WIDTH])
+        self.assertEqual(720, definicoes[cv2.CAP_PROP_FRAME_HEIGHT])
         self.assertEqual(30, definicoes[cv2.CAP_PROP_FPS])
 
 
