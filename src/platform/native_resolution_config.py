@@ -8,18 +8,18 @@ from src.platform.raspberry_pi3_settings import (
 
 
 class NativeResolutionConfigMixin:
-    """Mantém desenvolvimento e Produção F2 no mesmo perfil de captura UHD."""
+    """Mantém 1080p30 como base e deixa o serviço escolher o melhor perfil."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._fixar_configuracao_camera_nativa()
+        self._fixar_configuracao_camera_equilibrada()
 
-    def _fixar_configuracao_camera_nativa(self) -> None:
+    def _fixar_configuracao_camera_equilibrada(self) -> None:
         configuracoes = dict(
             getattr(self, "configuracoes_camera", {}) or {}
         )
         desejadas = {
-            "resolution_mode": "uhd",
+            "resolution_mode": "full_hd",
             "width": CAMERA_WIDTH,
             "height": CAMERA_HEIGHT,
             "fps_mode": "manual",
