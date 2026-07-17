@@ -21,6 +21,9 @@ from src.platform.camera_stability_runtime import (
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
 )
+from src.platform.led_mask_resolution_sync import (
+    ResolutionSynchronizedLedMasksMixin,
+)
 from src.platform.led_project_repository import (
     instalar_repositorio_projetos_led,
 )
@@ -40,6 +43,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 
 class RaspberryPi3ProductionApp(
+    ResolutionSynchronizedLedMasksMixin,
     NativeResolutionConfigMixin,
     RaspberryCameraStabilityMixin,
     RaspberryRuntimeFixesMixin,
