@@ -33,6 +33,7 @@ jobs:
             src/platform/native_threaded_camera_service.py \
             src/platform/adaptive_camera_service.py \
             src/platform/native_resolution_config.py \
+            src/platform/led_mask_resolution_sync.py \
             src/platform/raspberry_pi3_production_app.py
 
       - name: Run camera tests
@@ -46,4 +47,5 @@ jobs:
             tests.test_v4l2_controls \
             tests.test_frame_integrity \
             tests.test_camera_stability_runtime \
+            tests.test_led_mask_resolution_sync \
             -v
