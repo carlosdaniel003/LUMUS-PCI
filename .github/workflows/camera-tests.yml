@@ -34,6 +34,7 @@ jobs:
             src/platform/native_resolution_config.py \
             src/platform/led_mask_resolution_sync.py \
             src/platform/bulk_roi_editor.py \
+            src/platform/area_roi_editor.py \
             src/platform/display_awake_runtime.py \
             src/platform/raspberry_pi3_production_app.py \
             src/ui/main_window_parts/lifecycle/init_view.py \
@@ -53,4 +54,5 @@ jobs:
             tests.test_display_awake_runtime \
             tests.test_fullscreen_native \
             tests.test_bulk_roi_editor \
+            tests.test_area_roi_editor \
             -v
