@@ -35,6 +35,7 @@ jobs:
             src/platform/led_mask_resolution_sync.py \
             src/platform/bulk_roi_editor.py \
             src/platform/area_roi_editor.py \
+            src/platform/area_roi_editor_v2.py \
             src/platform/display_awake_runtime.py \
             src/platform/raspberry_pi3_production_app.py \
             src/ui/main_window_parts/lifecycle/init_view.py \
