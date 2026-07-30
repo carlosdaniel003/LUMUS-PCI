@@ -26,20 +26,21 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install opencv-python-headless numpy gpiozero
 
-      - name: Compile changed camera and display modules
+      - name: Compile changed camera, display and ROI modules
         run: |
           python -m py_compile \
             src/platform/threaded_camera_service.py \
             src/platform/fixed_full_hd_camera_service.py \
             src/platform/native_resolution_config.py \
             src/platform/led_mask_resolution_sync.py \
+            src/platform/bulk_roi_editor.py \
             src/platform/display_awake_runtime.py \
             src/platform/raspberry_pi3_production_app.py \
             src/ui/main_window_parts/lifecycle/init_view.py \
             src/ui/main_window_parts/lifecycle/alternar_tela_cheia.py \
             src/ui/main_window_parts/lifecycle/sair_tela_cheia.py
 
-      - name: Run fixed camera and display tests
+      - name: Run fixed camera, display and ROI tests
         run: |
           python -m unittest \
             tests.test_native_resolution_camera \
@@ -51,4 +52,5 @@ jobs:
             tests.test_led_mask_resolution_sync \
             tests.test_display_awake_runtime \
             tests.test_fullscreen_native \
+            tests.test_bulk_roi_editor \
             -v
