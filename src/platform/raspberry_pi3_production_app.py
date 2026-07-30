@@ -9,6 +9,7 @@ from src.platform.automatic_led_detection import (
 from src.platform.blue_operation_window import (
     BlueRaspberryOperationWindow,
 )
+from src.platform.bulk_roi_editor import BulkRoiEditorMixin
 from src.platform.camera_advanced_config import (
     instalar_normalizacao_config_repository,
 )
@@ -47,6 +48,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
+    BulkRoiEditorMixin,
     ResolutionSynchronizedLedMasksMixin,
     NativeResolutionConfigMixin,
     RaspberryCameraStabilityMixin,
