@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 
 import src.platform.raspberry_pi3_profile as raspberry_pi3_profile
-from src.platform.area_roi_editor_v2 import AreaRoiEditorV2Mixin
+from src.platform.area_roi_editor_v3 import AreaRoiEditorV3Mixin
 from src.platform.automatic_led_detection import (
     AutomaticLedDetectionMixin,
 )
@@ -48,7 +48,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
-    AreaRoiEditorV2Mixin,
+    AreaRoiEditorV3Mixin,
     ResolutionSynchronizedLedMasksMixin,
     NativeResolutionConfigMixin,
     RaspberryCameraStabilityMixin,
