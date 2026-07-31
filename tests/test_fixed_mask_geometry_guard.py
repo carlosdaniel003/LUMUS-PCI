@@ -25,6 +25,7 @@ class FakeFrame:
 class FakeRepository:
     def __init__(self):
         self.active = "PLACA A"
+        self.active_reads = 0
         self.projects = {
             "PLACA A": [
                 LedSelection(
@@ -46,6 +47,7 @@ class FakeRepository:
         }
 
     def obter_projeto_led_ativo(self):
+        self.active_reads += 1
         return self.active
 
     def carregar_leds_fixos(self):
@@ -162,8 +164,9 @@ class FixedMaskGeometryGuardTests(unittest.TestCase):
                 assinatura_geometria(app.leds_fixos_configurados),
             )
 
-    def test_repeticao_de_frames_nao_produz_deriva_por_arredondamento(self):
+    def test_repeticao_de_frames_nao_produz_deriva_nem_leitura_do_json(self):
         app = GuardedFakeApp()
+        leituras_iniciais = app.config_repository.active_reads
 
         for indice in range(500):
             largura, altura = (
@@ -181,6 +184,10 @@ class FixedMaskGeometryGuardTests(unittest.TestCase):
         self.assertEqual(
             self.ASSINATURA_A,
             assinatura_geometria(app.operacao_leds_preview),
+        )
+        self.assertEqual(
+            leituras_iniciais,
+            app.config_repository.active_reads,
         )
 
     def test_mutacao_fora_do_seletor_e_restaurada_antes_da_producao(self):
@@ -227,11 +234,11 @@ class FixedMaskGeometryGuardTests(unittest.TestCase):
             assinatura_geometria(app.config_repository.projects["PLACA A"]),
         )
 
-    def test_troca_de_projeto_carrega_geometria_exata_do_projeto(self):
+    def test_troca_de_projeto_carrega_geometria_exata_antes_da_producao(self):
         app = GuardedFakeApp()
         app.config_repository.active = "PLACA B"
 
-        app._mask_guard_enforce()
+        app.preparar_tela_operacao()
 
         self.assertEqual(
             (("LED_101", 300, 250, 14),),
