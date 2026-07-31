@@ -17,10 +17,6 @@ class AreaRoiEditorV4Mixin(AreaRoiEditorV3Mixin):
         "Right": (MOVIMENTO_TECLADO_PX, 0, "direita"),
         "Up": (0, -MOVIMENTO_TECLADO_PX, "cima"),
         "Down": (0, MOVIMENTO_TECLADO_PX, "baixo"),
-        "KP_Left": (-MOVIMENTO_TECLADO_PX, 0, "esquerda"),
-        "KP_Right": (MOVIMENTO_TECLADO_PX, 0, "direita"),
-        "KP_Up": (0, -MOVIMENTO_TECLADO_PX, "cima"),
-        "KP_Down": (0, MOVIMENTO_TECLADO_PX, "baixo"),
     }
 
     def __init__(self, *args, **kwargs) -> None:
@@ -37,10 +33,6 @@ class AreaRoiEditorV4Mixin(AreaRoiEditorV3Mixin):
             "<Right>",
             "<Up>",
             "<Down>",
-            "<KP_Left>",
-            "<KP_Right>",
-            "<KP_Up>",
-            "<KP_Down>",
         ):
             canvas.bind(
                 sequencia,
