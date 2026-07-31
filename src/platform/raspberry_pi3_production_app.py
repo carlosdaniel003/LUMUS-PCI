@@ -22,6 +22,10 @@ from src.platform.display_awake_runtime import (
 from src.platform.fixed_full_hd_camera_service import (
     FixedFullHdCameraService,
 )
+from src.platform.fixed_mask_geometry_guard import (
+    FixedMaskGeometryGuardMixin,
+    instalar_repositorio_mascaras_absolutas,
+)
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
 )
@@ -48,6 +52,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
+    FixedMaskGeometryGuardMixin,
     AreaRoiEditorV4Mixin,
     ResolutionSynchronizedLedMasksMixin,
     NativeResolutionConfigMixin,
@@ -68,6 +73,9 @@ class RaspberryPi3ProductionApp(
         )
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
+        # Deve ser instalado depois do repositório de projetos. A partir daqui,
+        # máscaras são persistidas e carregadas somente em pixels absolutos.
+        instalar_repositorio_mascaras_absolutas()
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
