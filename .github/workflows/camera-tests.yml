@@ -33,6 +33,7 @@ jobs:
             src/platform/fixed_full_hd_camera_service.py \
             src/platform/native_resolution_config.py \
             src/platform/led_mask_resolution_sync.py \
+            src/platform/fixed_mask_geometry_guard.py \
             src/platform/bulk_roi_editor.py \
             src/platform/area_roi_editor.py \
             src/platform/area_roi_editor_v2.py \
@@ -59,4 +60,5 @@ jobs:
             tests.test_bulk_roi_editor \
             tests.test_area_roi_editor \
             tests.test_area_roi_keyboard \
+            tests.test_fixed_mask_geometry_guard \
             -v
