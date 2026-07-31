@@ -145,9 +145,10 @@ class FixedMaskGeometryGuardMixin:
         self,
         force: bool = False,
         source: Iterable[LedSelection] | None = None,
+        project: str | None = None,
     ) -> None:
         with self._mask_guard_lock:
-            projeto = self._mask_guard_active_project()
+            projeto = str(project or self._mask_guard_active_project())
             if not force and projeto == self._mask_guard_project:
                 return
 
@@ -159,6 +160,12 @@ class FixedMaskGeometryGuardMixin:
             self._mask_guard_project = projeto
             self._mask_guard_snapshot = tuple(mascaras)
 
+    def _mask_guard_refresh_project(self) -> None:
+        """Consulta o projeto somente em eventos de carga/produção, nunca por frame."""
+        projeto = self._mask_guard_active_project()
+        if projeto != self._mask_guard_project:
+            self._mask_guard_capture(force=True, project=projeto)
+
     def _mask_guard_snapshot_copy(self) -> list[LedSelection]:
         return copiar_mascaras_absolutas(self._mask_guard_snapshot)
 
@@ -168,8 +175,7 @@ class FixedMaskGeometryGuardMixin:
     def _mask_guard_enforce(self) -> list[LedSelection]:
         """Restaura a última geometria salva sem efetuar escala ou arredondamento."""
         with self._mask_guard_lock:
-            projeto = self._mask_guard_active_project()
-            if projeto != self._mask_guard_project:
+            if not self._mask_guard_project:
                 self._mask_guard_capture(force=True)
 
             esperado = self._mask_guard_snapshot_copy()
@@ -254,14 +260,17 @@ class FixedMaskGeometryGuardMixin:
         self._mask_guard_enforce()
 
     def abrir_tela_operacao(self) -> None:
+        self._mask_guard_refresh_project()
         self._mask_guard_enforce()
         super().abrir_tela_operacao()
 
     def preparar_tela_operacao(self) -> None:
+        self._mask_guard_refresh_project()
         self._mask_guard_enforce()
         super().preparar_tela_operacao()
         self._mask_guard_enforce()
 
     def disparar_inspecao_operacao(self) -> None:
+        self._mask_guard_refresh_project()
         self._mask_guard_enforce()
         super().disparar_inspecao_operacao()
