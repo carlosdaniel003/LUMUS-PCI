@@ -26,6 +26,9 @@ from src.platform.fixed_mask_geometry_guard import (
     FixedMaskGeometryGuardMixin,
     instalar_repositorio_mascaras_absolutas,
 )
+from src.platform.fullscreen_led_selection import (
+    FullscreenLedSelectionMixin,
+)
 from src.platform.gpio_raspberry_app import (
     GPIOEnabledRaspberryPi3ODINApp,
 )
@@ -52,6 +55,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
+    FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
     AreaRoiEditorV4Mixin,
     ResolutionSynchronizedLedMasksMixin,
