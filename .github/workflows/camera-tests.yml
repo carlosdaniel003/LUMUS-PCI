@@ -39,6 +39,7 @@ jobs:
             src/platform/area_roi_editor_v2.py \
             src/platform/area_roi_editor_v3.py \
             src/platform/area_roi_editor_v4.py \
+            src/platform/fullscreen_led_selection.py \
             src/platform/display_awake_runtime.py \
             src/platform/raspberry_pi3_production_app.py \
             src/ui/main_window_parts/lifecycle/init_view.py \
@@ -61,4 +62,5 @@ jobs:
             tests.test_area_roi_editor \
             tests.test_area_roi_keyboard \
             tests.test_fixed_mask_geometry_guard \
+            tests.test_fullscreen_led_selection \
             -v
