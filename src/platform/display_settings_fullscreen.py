@@ -3,19 +3,34 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from src.platform.display_settings_ux import (
+    aplicar_ux_configuracoes_display,
+)
 
-_PATCH_OPEN = "_odin_display_settings_fullscreen_open"
-_PATCH_THEME = "_odin_display_settings_fullscreen_theme"
+
+_PATCH_OPEN = "_odin_display_settings_fullscreen_estavel"
+
+_SECTION_TITLES = {
+    "Referências fixas",
+    "LEDs fixos",
+    "Raio de seleção dos LEDs",
+    "Armazenamento",
+    "Estado da câmera",
+    "Perfil de captura",
+    "Controles de imagem e posição",
+    "Controles avançados da câmera",
+    "Rotação da imagem",
+}
 
 
 def calcular_margem_responsiva(largura: int) -> int:
-    """Centraliza o conteúdo sem desperdiçar espaço em telas menores."""
+    """Retorna uma margem segura sem comprimir os controles."""
     largura = max(0, int(largura))
     if largura < 1100:
-        return 18
+        return 14
     if largura < 1500:
-        return 42
-    return min(220, max(70, int((largura - 1320) / 2)))
+        return 24
+    return min(72, max(32, int((largura - 1500) / 8)))
 
 
 def _percorrer_widgets(widget):
@@ -56,6 +71,7 @@ def _encontrar_janela(root, anteriores=()):
         filhos = tuple(root.winfo_children())
     except Exception:
         filhos = ()
+
     for widget in filhos:
         if not isinstance(widget, tk.Toplevel):
             continue
@@ -64,16 +80,11 @@ def _encontrar_janela(root, anteriores=()):
                 candidatas.append(widget)
         except Exception:
             continue
+
     novas = [janela for janela in candidatas if janela not in anteriores]
     if novas:
         return novas[-1]
     return candidatas[-1] if candidatas else None
-
-
-def _janelas_configuracoes(root):
-    janela = _encontrar_janela(root)
-    if janela is not None:
-        yield janela
 
 
 def _notebook(janela):
@@ -97,47 +108,15 @@ def _canvases_rolagem(janela):
     return resultado
 
 
-def _labels_secao(janela):
-    titulos = {
-        "Referências fixas",
-        "LEDs fixos",
-        "Raio de seleção dos LEDs",
-        "Armazenamento",
-        "Estado da câmera",
-        "Perfil de captura",
-        "Controles de imagem e posição",
-        "Controles avançados da câmera",
-        "Rotação da imagem",
-    }
-    for widget in _percorrer_widgets(janela):
-        if isinstance(widget, tk.Label) and _texto(widget) in titulos:
-            yield widget
-
-
-def _card_da_label(label):
-    atual = getattr(label, "master", None)
-    candidato = atual
-    for _ in range(7):
-        if atual is None:
-            break
-        try:
-            espessura = int(atual.cget("highlightthickness") or 0)
-        except Exception:
-            espessura = 0
-        if espessura > 0:
-            return atual
-        candidato = atual
-        atual = getattr(atual, "master", None)
-    return candidato
-
-
 def _ativar_tela_cheia(janela) -> None:
     if getattr(janela, "_display_settings_fullscreen_active", False):
         return
+
     try:
-        janela.withdraw()
+        janela.overrideredirect(False)
     except Exception:
         pass
+
     try:
         janela.attributes("-fullscreen", True)
     except Exception:
@@ -150,35 +129,29 @@ def _ativar_tela_cheia(janela) -> None:
                 janela.geometry(f"{largura}x{altura}+0+0")
             except Exception:
                 pass
+
     try:
-        janela.overrideredirect(False)
-    except Exception:
-        pass
-    try:
-        janela.deiconify()
         janela.lift()
         janela.focus_force()
     except Exception:
         pass
+
     janela._display_settings_fullscreen_active = True
 
 
 def _estilizar_notebook(janela, notebook, cores) -> None:
     if notebook is None:
         return
+
     try:
         estilo = ttk.Style(janela)
         estilo.theme_use("clam")
-        estilo.layout(
-            "Odin.TNotebook",
-            [("Notebook.client", {"sticky": "nswe"})],
-        )
         estilo.configure(
             "Odin.TNotebook",
             background=cores.DISPLAY_DARK,
             borderwidth=0,
             relief="flat",
-            tabmargins=(0, 0, 0, 8),
+            tabmargins=(0, 0, 0, 6),
             lightcolor=cores.DISPLAY_DARK,
             darkcolor=cores.DISPLAY_DARK,
             bordercolor=cores.DISPLAY_DARK,
@@ -198,168 +171,356 @@ def _estilizar_notebook(janela, notebook, cores) -> None:
         estilo.map(
             "Odin.TNotebook.Tab",
             background=[
-                ("selected", cores.DISPLAY_DARK_CARD),
+                ("selected", cores.DISPLAY_YELLOW_DARK),
                 ("active", cores.DISPLAY_DARK_HOVER),
             ],
             foreground=[
-                ("selected", cores.DISPLAY_YELLOW),
+                ("selected", cores.DISPLAY_INK),
                 ("active", cores.DISPLAY_WHITE),
             ],
-            lightcolor=[("selected", cores.DISPLAY_DARK_CARD)],
-            darkcolor=[("selected", cores.DISPLAY_DARK_CARD)],
-            bordercolor=[("selected", cores.DISPLAY_DARK_CARD)],
+            lightcolor=[
+                ("selected", cores.DISPLAY_YELLOW_DARK),
+                ("active", cores.DISPLAY_DARK_HOVER),
+            ],
+            darkcolor=[
+                ("selected", cores.DISPLAY_YELLOW_DARK),
+                ("active", cores.DISPLAY_DARK_HOVER),
+            ],
+            bordercolor=[
+                ("selected", cores.DISPLAY_YELLOW_DARK),
+                ("active", cores.DISPLAY_DARK_HOVER),
+            ],
         )
         notebook.configure(style="Odin.TNotebook", takefocus=True)
     except Exception:
         pass
 
 
-def _limpar_bordas_brancas(janela, cores) -> None:
-    for widget in _percorrer_widgets(janela):
-        classe = _classe(widget)
-        if classe in {"Frame", "Canvas", "LabelFrame", "TFrame"}:
-            _configurar(widget, bd=0, relief=tk.FLAT)
+def _card_da_label(label):
+    atual = getattr(label, "master", None)
+    candidato = atual
+    for _ in range(6):
+        if atual is None:
+            break
+        try:
+            espessura = int(atual.cget("highlightthickness") or 0)
+        except Exception:
+            espessura = 0
+        if espessura > 0:
+            return atual
+        candidato = atual
+        atual = getattr(atual, "master", None)
+    return candidato
+
+
+def _ocultar_faixa_original(card) -> None:
+    if getattr(card, "_display_settings_stripe_hidden", False):
+        return
+    try:
+        filhos = tuple(card.winfo_children())
+    except Exception:
+        filhos = ()
+
+    for filho in filhos:
+        if not isinstance(filho, tk.Frame):
+            continue
+        try:
+            altura = int(filho.cget("height") or 0)
+        except Exception:
+            altura = 0
+        if 2 <= altura <= 4:
             try:
-                espessura = int(widget.cget("highlightthickness") or 0)
+                filho.pack_forget()
             except Exception:
-                espessura = 0
-            if espessura > 0:
-                _configurar(
-                    widget,
-                    highlightbackground=cores.DISPLAY_BORDER,
-                    highlightcolor=cores.DISPLAY_BORDER,
-                )
-        elif classe in {"Entry", "Spinbox", "Text", "Listbox"}:
+                _configurar(filho, height=1)
+            break
+
+    card._display_settings_stripe_hidden = True
+
+
+def _estilizar_cards(janela, cores) -> None:
+    processados = set()
+    for widget in _percorrer_widgets(janela):
+        if not isinstance(widget, tk.Label):
+            continue
+        titulo = _texto(widget)
+        if titulo not in _SECTION_TITLES:
+            continue
+
+        card = _card_da_label(widget)
+        if card is None or card in processados:
+            continue
+        processados.add(card)
+
+        _ocultar_faixa_original(card)
+        _configurar(
+            card,
+            background=cores.DISPLAY_DARK_RAISED,
+            highlightthickness=0,
+            bd=0,
+            relief=tk.FLAT,
+        )
+        try:
+            card.pack_configure(fill=tk.X, padx=(0, 8), pady=(0, 12))
+        except Exception:
+            pass
+
+        _configurar(
+            widget,
+            foreground=cores.DISPLAY_WHITE,
+            background=cores.DISPLAY_DARK_RAISED,
+            font=("Segoe UI", 11, "bold"),
+        )
+        try:
+            widget.pack_configure(padx=16, pady=(14, 6))
+        except Exception:
+            pass
+
+        for descendente in _percorrer_widgets(card):
+            if descendente is card:
+                continue
+            classe = _classe(descendente)
+            if classe in {
+                "Frame",
+                "Label",
+                "Checkbutton",
+                "Radiobutton",
+                "Scale",
+            }:
+                _configurar(descendente, background=cores.DISPLAY_DARK_RAISED)
+
+            if isinstance(descendente, tk.Label) and descendente is not widget:
+                texto = _texto(descendente)
+                if texto and texto not in _SECTION_TITLES:
+                    try:
+                        fonte = str(descendente.cget("font"))
+                    except Exception:
+                        fonte = ""
+                    if "bold" not in fonte.lower():
+                        _configurar(descendente, foreground=cores.DISPLAY_MUTED)
+
+
+def _estilizar_cabecalho(janela, cores) -> None:
+    for widget in _percorrer_widgets(janela):
+        texto = _texto(widget)
+        if isinstance(widget, tk.Label) and texto == "Configurações do sistema":
             _configurar(
                 widget,
+                foreground=cores.DISPLAY_WHITE,
+                font=("Segoe UI", 18, "bold"),
+            )
+        elif isinstance(widget, tk.Label) and texto.startswith("Ajuste referências"):
+            _configurar(widget, foreground=cores.DISPLAY_MUTED)
+        elif texto == "ODIN":
+            _configurar(
+                widget,
+                background=cores.DISPLAY_DARK_RAISED,
+                foreground=cores.DISPLAY_YELLOW,
+                highlightthickness=0,
+                bd=0,
+            )
+        elif texto == "✕":
+            _configurar(
+                widget,
+                background=cores.DISPLAY_DANGER_DARK,
+                foreground=cores.DISPLAY_DANGER_LIGHT,
+                activebackground=cores.DISPLAY_DANGER,
+                activeforeground=cores.DISPLAY_WHITE,
+                highlightthickness=0,
                 bd=0,
                 relief=tk.FLAT,
-                highlightbackground=cores.DISPLAY_BORDER,
-                highlightcolor=cores.DISPLAY_YELLOW_DARK,
-                highlightthickness=1,
             )
 
 
-def _organizar_linha_controle(row, cores) -> None:
-    if getattr(row, "_display_settings_row_aligned", False):
-        return
-    filhos = []
-    try:
-        filhos = list(row.winfo_children())
-    except Exception:
-        return
+def _estilizar_botoes(janela, cores) -> None:
+    primarios = {"Salvar", "Salvar LEDs"}
+    perigos = {"Ref. apagado", "Restaurar padrões da câmera"}
+    sucessos = {"Ref. aceso"}
+    informativos = {"Carregar refs."}
+    selecao = {"Configurar LEDs"}
 
-    topo = None
-    ajuste = None
-    descricao = None
-    automatico = None
-    for filho in filhos:
-        if isinstance(filho, tk.Frame):
-            descendentes = list(_percorrer_widgets(filho))
-            if any(_classe(item) == "Scale" for item in descendentes):
-                ajuste = filho
-            elif any(_classe(item) in {"Checkbutton", "Radiobutton"} for item in descendentes):
-                topo = filho
-        elif _classe(filho) in {"Checkbutton", "Radiobutton"}:
-            automatico = filho
-        elif isinstance(filho, tk.Label):
-            descricao = filho
+    for widget in _percorrer_widgets(janela):
+        if _classe(widget) not in {"Button", "Menubutton"}:
+            continue
+        texto = _texto(widget)
 
-    if topo is None or ajuste is None:
-        return
+        estilo = {
+            "background": cores.DISPLAY_DARK_CARD,
+            "foreground": cores.DISPLAY_WHITE,
+            "activebackground": cores.DISPLAY_DARK_HOVER,
+            "activeforeground": cores.DISPLAY_WHITE,
+        }
+        if texto in primarios:
+            estilo.update(
+                background=cores.DISPLAY_YELLOW_DARK,
+                foreground=cores.DISPLAY_INK,
+                activebackground=cores.DISPLAY_YELLOW,
+                activeforeground=cores.DISPLAY_INK,
+            )
+        elif texto in perigos:
+            estilo.update(
+                foreground=cores.DISPLAY_DANGER_LIGHT,
+                activebackground=cores.DISPLAY_DANGER_DARK,
+                activeforeground=cores.DISPLAY_DANGER_LIGHT,
+            )
+        elif texto in sucessos:
+            estilo.update(
+                foreground=cores.DISPLAY_SUCCESS_LIGHT,
+                activebackground=cores.DISPLAY_SUCCESS_DARK,
+                activeforeground=cores.DISPLAY_SUCCESS_LIGHT,
+            )
+        elif texto in informativos:
+            estilo.update(
+                foreground=cores.DISPLAY_BLUE_LIGHT,
+                activebackground=cores.DISPLAY_BLUE_DARK,
+                activeforeground=cores.DISPLAY_BLUE_LIGHT,
+            )
+        elif texto in selecao:
+            estilo.update(
+                foreground=cores.DISPLAY_PURPLE_LIGHT,
+                activebackground=cores.DISPLAY_PURPLE_DARK,
+                activeforeground=cores.DISPLAY_PURPLE_LIGHT,
+            )
+        elif texto in {"Cancelar", "Fechar"}:
+            estilo.update(
+                background=cores.DISPLAY_DARK_RAISED,
+                foreground=cores.DISPLAY_WHITE,
+            )
 
-    _configurar(row, background=cores.DISPLAY_DARK_RAISED)
-    try:
-        row.pack_configure(fill=tk.X, expand=True, padx=18, pady=(8, 14))
-    except Exception:
-        pass
-
-    try:
-        topo.pack_forget()
-        ajuste.pack_forget()
-        if automatico is not None:
-            automatico.pack_forget()
-        if descricao is not None:
-            descricao.pack_forget()
-    except Exception:
-        return
-
-    topo.grid(row=0, column=0, sticky="ew")
-    row.grid_columnconfigure(0, weight=1)
-    linha = 1
-    if automatico is not None:
-        automatico.grid(row=linha, column=0, sticky="w", pady=(5, 2))
-        linha += 1
-    ajuste.grid(row=linha, column=0, sticky="ew", pady=(7, 3))
-    linha += 1
-    if descricao is not None:
-        descricao.grid(row=linha, column=0, sticky="ew", pady=(2, 0))
-
-    _configurar(topo, background=cores.DISPLAY_DARK_RAISED)
-    _configurar(ajuste, background=cores.DISPLAY_DARK_RAISED)
-
-    try:
-        elementos_topo = list(topo.winfo_children())
-    except Exception:
-        elementos_topo = []
-    if elementos_topo:
-        for item in elementos_topo:
-            try:
-                item.pack_forget()
-            except Exception:
-                pass
-        topo.grid_columnconfigure(0, weight=1)
-        topo.grid_columnconfigure(1, weight=0)
-        elementos_topo[0].grid(row=0, column=0, sticky="w")
-        for indice, item in enumerate(elementos_topo[1:], start=1):
-            item.grid(row=0, column=indice, sticky="e", padx=(16, 0))
-
-    try:
-        elementos_ajuste = list(ajuste.winfo_children())
-    except Exception:
-        elementos_ajuste = []
-    if elementos_ajuste:
-        for item in elementos_ajuste:
-            try:
-                item.pack_forget()
-            except Exception:
-                pass
-        ajuste.grid_columnconfigure(0, weight=1)
-        escala = next((item for item in elementos_ajuste if _classe(item) == "Scale"), None)
-        valor = next((item for item in elementos_ajuste if item is not escala), None)
-        if escala is not None:
-            escala.grid(row=0, column=0, sticky="ew")
-        if valor is not None:
-            valor.grid(row=0, column=1, sticky="e", padx=(14, 0))
-            _configurar(valor, width=7, anchor="e")
-
-    row._display_settings_row_aligned = True
+        _configurar(
+            widget,
+            **estilo,
+            highlightthickness=0,
+            bd=0,
+            relief=tk.FLAT,
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2",
+            padx=16,
+            pady=8,
+        )
 
 
-def _alinhar_controles(janela, cores) -> None:
+def _estilizar_campos_e_controles(janela, cores) -> None:
+    for widget in _percorrer_widgets(janela):
+        classe = _classe(widget)
+        if classe in {"Frame", "Canvas", "LabelFrame"}:
+            _configurar(
+                widget,
+                highlightthickness=0,
+                bd=0,
+                relief=tk.FLAT,
+            )
+        elif classe in {"Entry", "Spinbox", "Text", "Listbox"}:
+            _configurar(
+                widget,
+                background=cores.DISPLAY_DARK,
+                foreground=cores.DISPLAY_WHITE,
+                insertbackground=cores.DISPLAY_YELLOW,
+                selectbackground=cores.DISPLAY_BLUE_DARK,
+                selectforeground=cores.DISPLAY_WHITE,
+                highlightbackground=cores.DISPLAY_BORDER,
+                highlightcolor=cores.DISPLAY_YELLOW_DARK,
+                highlightthickness=1,
+                bd=0,
+                relief=tk.FLAT,
+            )
+        elif classe == "Scale":
+            _configurar(
+                widget,
+                background=cores.DISPLAY_DARK_RAISED,
+                activebackground=cores.DISPLAY_YELLOW_DARK,
+                troughcolor=cores.DISPLAY_DARK,
+                highlightthickness=0,
+                bd=0,
+            )
+        elif classe in {"Checkbutton", "Radiobutton"}:
+            _configurar(
+                widget,
+                background=cores.DISPLAY_DARK_RAISED,
+                foreground=cores.DISPLAY_WHITE,
+                activebackground=cores.DISPLAY_DARK_RAISED,
+                activeforeground=cores.DISPLAY_YELLOW,
+                selectcolor=cores.DISPLAY_DARK,
+                highlightthickness=0,
+            )
+        elif isinstance(widget, tk.Scrollbar):
+            _configurar(
+                widget,
+                background=cores.DISPLAY_DARK_RAISED,
+                activebackground=cores.DISPLAY_YELLOW_DARK,
+                troughcolor=cores.DISPLAY_DARK,
+                highlightthickness=0,
+                bd=0,
+                relief=tk.FLAT,
+                elementborderwidth=0,
+                width=12,
+                cursor="hand2",
+            )
+
+
+def _ajustar_linhas_de_controle(janela) -> None:
+    """Preserva o pack original e ajusta apenas espaçamento e expansão."""
     processados = set()
     for widget in _percorrer_widgets(janela):
         if _classe(widget) != "Scale":
             continue
         ajuste = getattr(widget, "master", None)
-        row = getattr(ajuste, "master", None)
-        if row is None or row in processados:
+        linha = getattr(ajuste, "master", None)
+        if linha is None or linha in processados:
             continue
-        processados.add(row)
-        _organizar_linha_controle(row, cores)
+        processados.add(linha)
+
+        try:
+            linha.pack_configure(fill=tk.X, expand=True, padx=18, pady=(7, 12))
+        except Exception:
+            pass
+        try:
+            ajuste.pack_configure(fill=tk.X, pady=(4, 0))
+        except Exception:
+            pass
+        try:
+            widget.pack_configure(side=tk.LEFT, fill=tk.X, expand=True)
+        except Exception:
+            pass
 
 
-def _aplicar_margens_responsivas(janela, cores) -> None:
+def _estilizar_rodape(janela, cores) -> None:
+    texto_ajuda = (
+        "As alterações só são aplicadas ao salvar.  •  "
+        "Roda do mouse: navegar  •  Ctrl+1/2: abas  •  "
+        "Ctrl+Enter: salvar  •  Esc: fechar"
+    )
+    for widget in _percorrer_widgets(janela):
+        if not isinstance(widget, tk.Label):
+            continue
+        if not _texto(widget).startswith("As alterações"):
+            continue
+        _configurar(
+            widget,
+            text=texto_ajuda,
+            foreground=cores.DISPLAY_MUTED,
+            background=cores.DISPLAY_DARK_ALT,
+            wraplength=760,
+            justify=tk.LEFT,
+        )
+        frame = getattr(widget, "master", None)
+        if frame is not None:
+            _configurar(frame, background=cores.DISPLAY_DARK_ALT)
+        break
+
+
+def _instalar_margem_responsiva(janela) -> None:
     if getattr(janela, "_display_settings_responsive_bound", False):
         return
 
-    cards = []
-    for label in _labels_secao(janela):
-        card = _card_da_label(label)
-        if card is not None and card not in cards:
-            cards.append(card)
+    try:
+        frame_raiz = tuple(janela.winfo_children())[0]
+    except Exception:
+        frame_raiz = None
 
     def atualizar(evento=None):
+        if frame_raiz is None:
+            return
         largura = getattr(evento, "width", None)
         if largura is None:
             try:
@@ -367,89 +528,37 @@ def _aplicar_margens_responsivas(janela, cores) -> None:
             except Exception:
                 largura = 1200
         margem = calcular_margem_responsiva(largura)
-        for card in cards:
-            try:
-                card.pack_configure(padx=(margem, margem), pady=(0, 14))
-            except Exception:
-                pass
-        for canvas in _canvases_rolagem(janela):
-            _configurar(canvas, background=cores.DISPLAY_DARK)
+        if getattr(janela, "_display_settings_last_margin", None) == margem:
+            return
+        janela._display_settings_last_margin = margem
+        try:
+            frame_raiz.pack_configure(padx=margem, pady=18)
+        except Exception:
+            pass
 
     janela.bind("<Configure>", atualizar, add="+")
     janela._display_settings_responsive_bound = True
-    try:
-        janela.after_idle(atualizar)
-    except Exception:
-        atualizar()
-
-
-def _estilizar_acoes(janela, cores) -> None:
-    for widget in _percorrer_widgets(janela):
-        if _classe(widget) not in {"Button", "Menubutton"}:
-            continue
-        texto = _texto(widget)
-        if texto in {"Salvar", "Salvar LEDs"}:
-            _configurar(
-                widget,
-                background=cores.DISPLAY_YELLOW_DARK,
-                foreground=cores.DISPLAY_INK,
-                activebackground=cores.DISPLAY_YELLOW,
-                activeforeground=cores.DISPLAY_INK,
-                highlightthickness=0,
-                bd=0,
-                relief=tk.FLAT,
-                padx=18,
-                pady=9,
-                font=("Segoe UI", 10, "bold"),
-            )
-        elif texto in {"Cancelar", "Fechar"}:
-            _configurar(
-                widget,
-                background=cores.DISPLAY_DARK_RAISED,
-                foreground=cores.DISPLAY_WHITE,
-                activebackground=cores.DISPLAY_DARK_HOVER,
-                activeforeground=cores.DISPLAY_WHITE,
-                highlightthickness=0,
-                bd=0,
-                relief=tk.FLAT,
-                padx=18,
-                pady=9,
-                font=("Segoe UI", 10, "bold"),
-            )
-        elif texto == "✕":
-            _configurar(
-                widget,
-                background=cores.DISPLAY_DARK_CARD,
-                foreground=cores.DISPLAY_MUTED,
-                activebackground=cores.DISPLAY_DANGER,
-                activeforeground=cores.DISPLAY_WHITE,
-                highlightthickness=0,
-                bd=0,
-                relief=tk.FLAT,
-            )
-        else:
-            _configurar(
-                widget,
-                highlightthickness=0,
-                bd=0,
-                relief=tk.FLAT,
-                padx=14,
-                pady=7,
-            )
+    atualizar()
 
 
 def aplicar_configuracoes_fullscreen(view, janela) -> None:
+    """Aplica fullscreen e visual estável sem trocar gerenciadores de layout."""
     if janela is None:
         return
+
     from src.platform import display_theme as cores
 
     _ativar_tela_cheia(janela)
+    aplicar_ux_configuracoes_display(view, janela)
     _configurar(janela, background=cores.DISPLAY_DARK)
     _estilizar_notebook(janela, _notebook(janela), cores)
-    _limpar_bordas_brancas(janela, cores)
-    _alinhar_controles(janela, cores)
-    _aplicar_margens_responsivas(janela, cores)
-    _estilizar_acoes(janela, cores)
+    _estilizar_cabecalho(janela, cores)
+    _estilizar_cards(janela, cores)
+    _estilizar_botoes(janela, cores)
+    _estilizar_campos_e_controles(janela, cores)
+    _ajustar_linhas_de_controle(janela)
+    _estilizar_rodape(janela, cores)
+    _instalar_margem_responsiva(janela)
 
     for canvas in _canvases_rolagem(janela):
         _configurar(
@@ -459,7 +568,6 @@ def aplicar_configuracoes_fullscreen(view, janela) -> None:
             bd=0,
         )
         try:
-            canvas.update_idletasks()
             canvas.configure(scrollregion=canvas.bbox("all"))
         except Exception:
             pass
@@ -471,46 +579,36 @@ def aplicar_configuracoes_fullscreen(view, janela) -> None:
 
 
 def instalar_configuracoes_fullscreen_display() -> None:
-    from src.platform.display_theme import DisplayThemeMixin
+    """Instala uma única camada estável sobre a abertura das configurações."""
     from src.ui.main_window import ODINView
 
-    original_abrir = ODINView.abrir_janela_configuracoes
-    if not getattr(original_abrir, _PATCH_OPEN, False):
-        def abrir_fullscreen(self, *args, **kwargs):
+    original = ODINView.abrir_janela_configuracoes
+    if getattr(original, _PATCH_OPEN, False):
+        return
+
+    def abrir_fullscreen(self, *args, **kwargs):
+        try:
+            anteriores = tuple(self.root.winfo_children())
+        except Exception:
+            anteriores = ()
+
+        retorno = original(self, *args, **kwargs)
+        janela = _encontrar_janela(self.root, anteriores)
+        aplicar_configuracoes_fullscreen(self, janela)
+
+        if janela is not None:
+            # Uma única reaplicação tardia é suficiente para vencer o Map do
+            # tema global sem gerar ciclos de Configure/Map ou event storm.
             try:
-                anteriores = tuple(self.root.winfo_children())
+                janela.after(
+                    120,
+                    lambda j=janela, v=self: aplicar_configuracoes_fullscreen(v, j),
+                )
             except Exception:
-                anteriores = ()
-            retorno = original_abrir(self, *args, **kwargs)
-            janela = _encontrar_janela(self.root, anteriores)
-            aplicar_configuracoes_fullscreen(self, janela)
-            if janela is not None:
-                for atraso in (0, 80, 250, 600):
-                    try:
-                        janela.after(
-                            atraso,
-                            lambda j=janela, v=self: aplicar_configuracoes_fullscreen(v, j),
-                        )
-                    except Exception:
-                        break
-            return retorno
+                pass
 
-        setattr(abrir_fullscreen, _PATCH_OPEN, True)
-        setattr(abrir_fullscreen, "_odin_original", original_abrir)
-        ODINView.abrir_janela_configuracoes = abrir_fullscreen
+        return retorno
 
-    original_tema = DisplayThemeMixin._aplicar_tema_display_agora
-    if not getattr(original_tema, _PATCH_THEME, False):
-        def tema_e_fullscreen(self):
-            retorno = original_tema(self)
-            root = getattr(self, "root", None)
-            if root is None:
-                return retorno
-            view = getattr(self, "view", None)
-            for janela in _janelas_configuracoes(root):
-                aplicar_configuracoes_fullscreen(view, janela)
-            return retorno
-
-        setattr(tema_e_fullscreen, _PATCH_THEME, True)
-        setattr(tema_e_fullscreen, "_odin_original", original_tema)
-        DisplayThemeMixin._aplicar_tema_display_agora = tema_e_fullscreen
+    setattr(abrir_fullscreen, _PATCH_OPEN, True)
+    setattr(abrir_fullscreen, "_odin_original", original)
+    ODINView.abrir_janela_configuracoes = abrir_fullscreen
