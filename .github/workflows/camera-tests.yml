@@ -70,4 +70,5 @@ jobs:
             tests.test_display_theme \
             tests.test_display_settings_ux \
             tests.test_display_settings_fullscreen \
+            tests.test_display_settings_integration \
             -v
