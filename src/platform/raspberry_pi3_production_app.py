@@ -19,6 +19,12 @@ from src.platform.camera_stability_runtime import (
 from src.platform.display_awake_runtime import (
     LinuxDisplayAwakeMixin,
 )
+from src.platform.display_theme import (
+    DISPLAY_INK,
+    DISPLAY_YELLOW,
+    DISPLAY_YELLOW_DARK,
+    DisplayThemeMixin,
+)
 from src.platform.fixed_full_hd_camera_service import (
     FixedFullHdCameraService,
 )
@@ -55,6 +61,7 @@ from src.platform.raspberry_runtime_fixes import (
 
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
+    DisplayThemeMixin,
     FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
     AreaRoiEditorV4Mixin,
@@ -111,10 +118,10 @@ class RaspberryPi3ProductionApp(
             text="PRODUÇÃO  F2",
             command=self.abrir_tela_operacao,
             font=("DejaVu Sans", 10, "bold"),
-            bg="#16A34A",
-            fg="#FFFFFF",
-            activebackground="#15803D",
-            activeforeground="#FFFFFF",
+            bg=DISPLAY_YELLOW,
+            fg=DISPLAY_INK,
+            activebackground=DISPLAY_YELLOW_DARK,
+            activeforeground=DISPLAY_INK,
             relief="flat",
             bd=0,
             padx=16,
