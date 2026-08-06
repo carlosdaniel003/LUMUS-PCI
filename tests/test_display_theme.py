@@ -2,18 +2,27 @@ import unittest
 
 from src.platform.display_theme import (
     DISPLAY_BLUE,
+    DISPLAY_BLUE_DARK,
+    DISPLAY_BLUE_LIGHT,
+    DISPLAY_BORDER,
+    DISPLAY_DANGER_DARK,
+    DISPLAY_DANGER_LIGHT,
     DISPLAY_DARK,
     DISPLAY_DARK_ALT,
     DISPLAY_DARK_CARD,
     DISPLAY_DARK_RAISED,
     DISPLAY_INK,
+    DISPLAY_PURPLE_DARK,
+    DISPLAY_PURPLE_LIGHT,
     DISPLAY_WHITE,
     DISPLAY_YELLOW,
     DISPLAY_YELLOW_DARK,
     DisplayThemeMixin,
     aplicar_tema_arvore,
+    classificar_acao_botao,
     instalar_paleta_display,
     mapear_cor_display,
+    obter_estilo_botao_display,
 )
 from src.platform.raspberry_pi3_production_app import (
     RaspberryPi3ProductionApp,
@@ -27,6 +36,7 @@ class FakeWidget:
         self._classe = classe
         self._opcoes = dict(opcoes or {})
         self._filhos = list(filhos or ())
+        self.bindings = {}
 
     def winfo_class(self):
         return self._classe
@@ -42,32 +52,35 @@ class FakeWidget:
     def configure(self, **opcoes):
         self._opcoes.update(opcoes)
 
+    def bind(self, sequence, callback, add=None):
+        self.bindings[sequence] = callback
+
 
 class DisplayThemeTests(unittest.TestCase):
     def test_cores_principais_sao_exatamente_as_solicitadas(self):
         self.assertEqual("#F5C518", DISPLAY_YELLOW)
         self.assertEqual("#2596BE", DISPLAY_BLUE)
-        self.assertEqual("#0B0D0F", DISPLAY_DARK)
+        self.assertEqual("#0B0F14", DISPLAY_DARK)
 
-    def test_fundos_sao_escuros_e_detalhes_sao_amarelos(self):
+    def test_fundos_sao_escuros_e_bordas_sao_discretas(self):
         self.assertEqual(
             DISPLAY_DARK,
             mapear_cor_display("background", "#030712"),
         )
         self.assertEqual(
-            DISPLAY_DARK_ALT,
+            DISPLAY_DARK_CARD,
             mapear_cor_display("background", "#07111F"),
         )
         self.assertEqual(
-            DISPLAY_DARK_CARD,
+            DISPLAY_DARK_RAISED,
             mapear_cor_display("background", "#0B1626"),
         )
         self.assertEqual(
-            DISPLAY_YELLOW,
+            DISPLAY_BORDER,
             mapear_cor_display("highlightbackground", "#122033"),
         )
         self.assertEqual(
-            DISPLAY_YELLOW,
+            DISPLAY_BLUE_LIGHT,
             mapear_cor_display("foreground", "#38BDF8"),
         )
 
@@ -81,7 +94,36 @@ class DisplayThemeTests(unittest.TestCase):
             mapear_cor_display("background", "#DC2626"),
         )
 
-    def test_botao_verde_antigo_recebe_amarelo_com_texto_escuro(self):
+    def test_classifica_acoes_com_hierarquia_visual(self):
+        self.assertEqual("primary", classificar_acao_botao("Analisar"))
+        self.assertEqual("primary", classificar_acao_botao("PRODUÇÃO  F2"))
+        self.assertEqual("info", classificar_acao_botao("Tela ao vivo"))
+        self.assertEqual(
+            "selection",
+            classificar_acao_botao("Selecionar LEDs"),
+        )
+        self.assertEqual(
+            "danger",
+            classificar_acao_botao("Limpar seleção"),
+        )
+        self.assertEqual("neutral", classificar_acao_botao("Fechar"))
+
+    def test_estilos_de_acao_usam_cores_distintas(self):
+        principal = obter_estilo_botao_display("Analisar")
+        informacao = obter_estilo_botao_display("Tela ao vivo")
+        selecao = obter_estilo_botao_display("Selecionar LEDs")
+        perigo = obter_estilo_botao_display("Remover")
+
+        self.assertEqual(DISPLAY_YELLOW_DARK, principal.background)
+        self.assertEqual(DISPLAY_INK, principal.foreground)
+        self.assertEqual(DISPLAY_BLUE_DARK, informacao.background)
+        self.assertEqual(DISPLAY_BLUE_LIGHT, informacao.foreground)
+        self.assertEqual(DISPLAY_PURPLE_DARK, selecao.background)
+        self.assertEqual(DISPLAY_PURPLE_LIGHT, selecao.foreground)
+        self.assertEqual(DISPLAY_DANGER_DARK, perigo.background)
+        self.assertEqual(DISPLAY_DANGER_LIGHT, perigo.foreground)
+
+    def test_botao_recebe_estilo_e_hover_conforme_a_acao(self):
         botao = FakeWidget(
             classe="Button",
             opcoes={
@@ -90,20 +132,22 @@ class DisplayThemeTests(unittest.TestCase):
                 "activebackground": "#15803D",
                 "activeforeground": "#FFFFFF",
                 "highlightbackground": "#122033",
+                "highlightcolor": "#122033",
                 "text": "PRODUÇÃO  F2",
+                "state": "normal",
             },
         )
 
         aplicar_tema_arvore(botao)
 
-        self.assertEqual(DISPLAY_YELLOW, botao._opcoes["background"])
+        self.assertEqual(DISPLAY_YELLOW_DARK, botao._opcoes["background"])
         self.assertEqual(DISPLAY_INK, botao._opcoes["foreground"])
-        self.assertEqual(
-            DISPLAY_YELLOW_DARK,
-            botao._opcoes["activebackground"],
-        )
+        self.assertEqual(DISPLAY_YELLOW, botao._opcoes["activebackground"])
+        self.assertEqual(1, botao._opcoes["highlightthickness"])
+        self.assertIn("<Enter>", botao.bindings)
+        self.assertIn("<Leave>", botao.bindings)
 
-    def test_arvore_tematiza_janela_e_texto_da_legenda(self):
+    def test_arvore_tematiza_janela_e_legenda_ng(self):
         legenda = FakeWidget(
             classe="Label",
             opcoes={
@@ -123,10 +167,10 @@ class DisplayThemeTests(unittest.TestCase):
         aplicar_tema_arvore(raiz)
 
         self.assertEqual(DISPLAY_DARK, raiz._opcoes["background"])
-        self.assertEqual(DISPLAY_DARK_ALT, legenda._opcoes["background"])
-        self.assertEqual(DISPLAY_YELLOW, legenda._opcoes["foreground"])
+        self.assertEqual(DISPLAY_DARK_CARD, legenda._opcoes["background"])
+        self.assertEqual(DISPLAY_BLUE_LIGHT, legenda._opcoes["foreground"])
         self.assertEqual(
-            "CÍRCULO AMARELO: LED APAGADO",
+            "CÍRCULO VERMELHO: LED APAGADO",
             legenda._opcoes["text"],
         )
 
@@ -137,15 +181,17 @@ class DisplayThemeTests(unittest.TestCase):
         self.assertEqual(DISPLAY_DARK_ALT, ODINView.COR_TOPO)
         self.assertEqual(DISPLAY_DARK_CARD, ODINView.COR_CARD)
         self.assertEqual(DISPLAY_DARK_RAISED, ODINView.COR_CARD_2)
-        self.assertEqual(DISPLAY_YELLOW, ODINView.COR_BORDA)
-        self.assertEqual(DISPLAY_YELLOW, ODINView.COR_AZUL)
+        self.assertEqual(DISPLAY_BORDER, ODINView.COR_BORDA)
+        self.assertEqual(DISPLAY_BLUE_LIGHT, ODINView.COR_AZUL)
+        self.assertEqual(DISPLAY_YELLOW, ODINView.COR_AMARELO)
+        self.assertEqual(DISPLAY_YELLOW, ODINView.COR_VERDE_CLARO)
         self.assertEqual(DISPLAY_WHITE, ODINView.COR_TEXTO)
         self.assertEqual(
             DISPLAY_DARK,
             RaspberryOperationWindow.PREVIEW_BACKGROUND,
         )
         self.assertEqual(
-            DISPLAY_YELLOW,
+            DISPLAY_BORDER,
             RaspberryOperationWindow.PREVIEW_BORDER,
         )
 
