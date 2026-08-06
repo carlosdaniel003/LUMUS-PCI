@@ -45,6 +45,7 @@ jobs:
             src/platform/display_theme.py \
             src/platform/display_settings_ux.py \
             src/platform/display_settings_theme_bridge.py \
+            src/platform/display_settings_redesign.py \
             src/platform/raspberry_pi3_production_app.py \
             src/ui/main_window_parts/lifecycle/init_view.py \
             src/ui/main_window_parts/lifecycle/alternar_tela_cheia.py \
@@ -69,4 +70,5 @@ jobs:
             tests.test_fullscreen_led_selection \
             tests.test_display_theme \
             tests.test_display_settings_ux \
+            tests.test_display_settings_redesign \
             -v
