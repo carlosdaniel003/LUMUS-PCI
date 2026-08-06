@@ -19,6 +19,9 @@ from src.platform.camera_stability_runtime import (
 from src.platform.display_awake_runtime import (
     LinuxDisplayAwakeMixin,
 )
+from src.platform.display_settings_fullscreen import (
+    instalar_configuracoes_fullscreen_display,
+)
 from src.platform.display_settings_redesign import (
     instalar_redesign_configuracoes_display,
 )
@@ -96,12 +99,13 @@ class RaspberryPi3ProductionApp(
         # Deve ser instalado depois do repositório de projetos. A partir daqui,
         # máscaras são persistidas e carregadas somente em pixels absolutos.
         instalar_repositorio_mascaras_absolutas()
-        # Patches exclusivos da branch display. A ordem mantém a rolagem e os
-        # atalhos existentes, reaplica o tema após Map e, por último, organiza
-        # a composição visual definitiva da janela de configurações.
+        # Patches exclusivos da branch display. A ordem preserva a rolagem,
+        # aplica a identidade visual, reorganiza a composição e finaliza em
+        # fullscreen responsivo, sem alterar câmera ou geometria das máscaras.
         instalar_ux_configuracoes_display()
         instalar_ponte_tema_configuracoes()
         instalar_redesign_configuracoes_display()
+        instalar_configuracoes_fullscreen_display()
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
