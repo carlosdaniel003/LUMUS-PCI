@@ -2,8 +2,10 @@ import unittest
 
 from src.platform.display_theme import (
     DISPLAY_BLUE,
-    DISPLAY_BLUE_DARK,
-    DISPLAY_BLUE_DEEP,
+    DISPLAY_DARK,
+    DISPLAY_DARK_ALT,
+    DISPLAY_DARK_CARD,
+    DISPLAY_DARK_RAISED,
     DISPLAY_INK,
     DISPLAY_WHITE,
     DISPLAY_YELLOW,
@@ -45,15 +47,20 @@ class DisplayThemeTests(unittest.TestCase):
     def test_cores_principais_sao_exatamente_as_solicitadas(self):
         self.assertEqual("#F5C518", DISPLAY_YELLOW)
         self.assertEqual("#2596BE", DISPLAY_BLUE)
+        self.assertEqual("#0B0D0F", DISPLAY_DARK)
 
-    def test_mapeia_fundos_bordas_e_destaques(self):
+    def test_fundos_sao_escuros_e_detalhes_sao_amarelos(self):
         self.assertEqual(
-            DISPLAY_BLUE_DEEP,
+            DISPLAY_DARK,
             mapear_cor_display("background", "#030712"),
         )
         self.assertEqual(
-            DISPLAY_BLUE_DARK,
+            DISPLAY_DARK_ALT,
             mapear_cor_display("background", "#07111F"),
+        )
+        self.assertEqual(
+            DISPLAY_DARK_CARD,
+            mapear_cor_display("background", "#0B1626"),
         )
         self.assertEqual(
             DISPLAY_YELLOW,
@@ -74,7 +81,7 @@ class DisplayThemeTests(unittest.TestCase):
             mapear_cor_display("background", "#DC2626"),
         )
 
-    def test_botao_recebe_amarelo_com_texto_escuro(self):
+    def test_botao_verde_antigo_recebe_amarelo_com_texto_escuro(self):
         botao = FakeWidget(
             classe="Button",
             opcoes={
@@ -115,8 +122,8 @@ class DisplayThemeTests(unittest.TestCase):
 
         aplicar_tema_arvore(raiz)
 
-        self.assertEqual(DISPLAY_BLUE_DEEP, raiz._opcoes["background"])
-        self.assertEqual(DISPLAY_BLUE_DARK, legenda._opcoes["background"])
+        self.assertEqual(DISPLAY_DARK, raiz._opcoes["background"])
+        self.assertEqual(DISPLAY_DARK_ALT, legenda._opcoes["background"])
         self.assertEqual(DISPLAY_YELLOW, legenda._opcoes["foreground"])
         self.assertEqual(
             "CÍRCULO AMARELO: LED APAGADO",
@@ -126,13 +133,15 @@ class DisplayThemeTests(unittest.TestCase):
     def test_instalacao_atualiza_constantes_das_telas(self):
         instalar_paleta_display()
 
-        self.assertEqual(DISPLAY_BLUE_DEEP, ODINView.COR_FUNDO_APP)
-        self.assertEqual(DISPLAY_BLUE, ODINView.COR_TOPO)
+        self.assertEqual(DISPLAY_DARK, ODINView.COR_FUNDO_APP)
+        self.assertEqual(DISPLAY_DARK_ALT, ODINView.COR_TOPO)
+        self.assertEqual(DISPLAY_DARK_CARD, ODINView.COR_CARD)
+        self.assertEqual(DISPLAY_DARK_RAISED, ODINView.COR_CARD_2)
         self.assertEqual(DISPLAY_YELLOW, ODINView.COR_BORDA)
         self.assertEqual(DISPLAY_YELLOW, ODINView.COR_AZUL)
         self.assertEqual(DISPLAY_WHITE, ODINView.COR_TEXTO)
         self.assertEqual(
-            DISPLAY_BLUE_DEEP,
+            DISPLAY_DARK,
             RaspberryOperationWindow.PREVIEW_BACKGROUND,
         )
         self.assertEqual(
