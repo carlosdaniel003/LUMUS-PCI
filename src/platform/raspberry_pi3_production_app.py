@@ -22,15 +22,6 @@ from src.platform.display_awake_runtime import (
 from src.platform.display_settings_fullscreen import (
     instalar_configuracoes_fullscreen_display,
 )
-from src.platform.display_settings_redesign import (
-    instalar_redesign_configuracoes_display,
-)
-from src.platform.display_settings_theme_bridge import (
-    instalar_ponte_tema_configuracoes,
-)
-from src.platform.display_settings_ux import (
-    instalar_ux_configuracoes_display,
-)
 from src.platform.display_theme import (
     DISPLAY_INK,
     DISPLAY_YELLOW,
@@ -99,12 +90,9 @@ class RaspberryPi3ProductionApp(
         # Deve ser instalado depois do repositório de projetos. A partir daqui,
         # máscaras são persistidas e carregadas somente em pixels absolutos.
         instalar_repositorio_mascaras_absolutas()
-        # Patches exclusivos da branch display. A ordem preserva a rolagem,
-        # aplica a identidade visual, reorganiza a composição e finaliza em
-        # fullscreen responsivo, sem alterar câmera ou geometria das máscaras.
-        instalar_ux_configuracoes_display()
-        instalar_ponte_tema_configuracoes()
-        instalar_redesign_configuracoes_display()
+        # A branch display usa uma única camada para tela cheia, tema local,
+        # responsividade, scroll e atalhos. As camadas antigas que refluíam os
+        # widgets e reagiam repetidamente a Map/Configure foram removidas.
         instalar_configuracoes_fullscreen_display()
         super().__init__(root)
 
