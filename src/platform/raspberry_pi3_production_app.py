@@ -19,6 +19,9 @@ from src.platform.camera_stability_runtime import (
 from src.platform.display_awake_runtime import (
     LinuxDisplayAwakeMixin,
 )
+from src.platform.display_settings_ux import (
+    instalar_ux_configuracoes_display,
+)
 from src.platform.display_theme import (
     DISPLAY_INK,
     DISPLAY_YELLOW,
@@ -87,6 +90,9 @@ class RaspberryPi3ProductionApp(
         # Deve ser instalado depois do repositório de projetos. A partir daqui,
         # máscaras são persistidas e carregadas somente em pixels absolutos.
         instalar_repositorio_mascaras_absolutas()
+        # Patch visual e de navegação exclusivo da branch display. É instalado
+        # antes da criação da ODINView para envolver a abertura das configurações.
+        instalar_ux_configuracoes_display()
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
