@@ -56,11 +56,25 @@ def _atualizar_imagem_canvas(self) -> None:
         self.canvas,
         TAG_IMAGEM,
     )
+    imagem_x = int(
+        getattr(
+            self,
+            "_imagem_render_offset_x",
+            self.deslocamento_imagem_x,
+        )
+    )
+    imagem_y = int(
+        getattr(
+            self,
+            "_imagem_render_offset_y",
+            self.deslocamento_imagem_y,
+        )
+    )
 
     if item_imagem is None:
         item_imagem = self.canvas.create_image(
-            self.deslocamento_imagem_x,
-            self.deslocamento_imagem_y,
+            imagem_x,
+            imagem_y,
             image=self.imagem_tk,
             anchor=tk.NW,
             tags=(TAG_IMAGEM,),
@@ -68,8 +82,8 @@ def _atualizar_imagem_canvas(self) -> None:
     else:
         self.canvas.coords(
             item_imagem,
-            self.deslocamento_imagem_x,
-            self.deslocamento_imagem_y,
+            imagem_x,
+            imagem_y,
         )
         self.canvas.itemconfigure(
             item_imagem,
