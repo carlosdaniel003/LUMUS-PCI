@@ -8,6 +8,7 @@ import cv2
 from src.models.analysis_result import LedAnalysisResult
 from src.models.led_selection import LedSelection
 
+
 def exibir_renderizacoes_visuais(self, renderizacoes: dict | None) -> None:
         if not renderizacoes:
             self.limpar_renderizacoes_visuais()
@@ -31,7 +32,12 @@ def exibir_renderizacoes_visuais(self, renderizacoes: dict | None) -> None:
 
         roi_debug = renderizacoes.get("roi_debug")
         if roi_debug is None:
-            self.desenhar_placeholder(self.canvas_roi_debug, "ROI debug\nselecione um LED")
+            self.imagens_auxiliares_originais.pop("roi_debug", None)
+            self.atualizar_imagem_tela_cheia_se_aberta("roi_debug")
+            self.desenhar_placeholder(
+                self.canvas_roi_debug,
+                "ROI debug\nselecione um LED",
+            )
         else:
             self.exibir_imagem_em_canvas(
                 canvas=self.canvas_roi_debug,
