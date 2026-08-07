@@ -6,6 +6,9 @@ import tkinter as tk
 from src.ui.main_window_parts.image.rotacao_visual_principal import (
     rotacionar_imagem_visual,
 )
+from src.ui.main_window_parts.image.selection_zoom import (
+    calcular_viewport_zoom_selecao,
+)
 
 
 def _codificar_ppm_bgr(imagem_bgr) -> bytes:
@@ -16,8 +19,20 @@ def _codificar_ppm_bgr(imagem_bgr) -> bytes:
 
 
 def _atualizar_photoimage_ppm(self, dados_ppm: bytes) -> bool:
-    largura = int(self.largura_imagem_exibida)
-    altura = int(self.altura_imagem_exibida)
+    largura = int(
+        getattr(
+            self,
+            "_imagem_render_largura",
+            self.largura_imagem_exibida,
+        )
+    )
+    altura = int(
+        getattr(
+            self,
+            "_imagem_render_altura",
+            self.altura_imagem_exibida,
+        )
+    )
     imagem_existente = getattr(self, "imagem_tk", None)
     mesma_resolucao = (
         imagem_existente is not None
@@ -56,31 +71,53 @@ def atualizar_imagem_principal_redimensionada(self) -> None:
         self.obter_tamanho_canvas_principal()
     )
 
-    escala_largura = largura_disponivel / largura_visual
-    escala_altura = altura_disponivel / altura_visual
-    self.escala_exibicao = min(escala_largura, escala_altura, 1.0)
+    zoom_ativo = bool(getattr(self, "_selecao_zoom_ativo", False))
+    fator_zoom = (
+        float(getattr(self, "_selecao_zoom_fator", 1.0) or 1.0)
+        if zoom_ativo
+        else 1.0
+    )
+    centro_zoom_x = (
+        getattr(self, "_selecao_zoom_centro_visual_x", None)
+        if zoom_ativo
+        else None
+    )
+    centro_zoom_y = (
+        getattr(self, "_selecao_zoom_centro_visual_y", None)
+        if zoom_ativo
+        else None
+    )
 
-    self.largura_imagem_exibida = max(
-        1,
-        int(largura_visual * self.escala_exibicao),
-    )
-    self.altura_imagem_exibida = max(
-        1,
-        int(altura_visual * self.escala_exibicao),
+    viewport = calcular_viewport_zoom_selecao(
+        largura_visual=largura_visual,
+        altura_visual=altura_visual,
+        largura_canvas=largura_disponivel,
+        altura_canvas=altura_disponivel,
+        fator_zoom=fator_zoom,
+        centro_visual_x=centro_zoom_x,
+        centro_visual_y=centro_zoom_y,
     )
 
-    self.deslocamento_imagem_x = max(
-        0,
-        int(
-            (largura_disponivel - self.largura_imagem_exibida) / 2
-        ),
-    )
-    self.deslocamento_imagem_y = max(
-        0,
-        int(
-            (altura_disponivel - self.altura_imagem_exibida) / 2
-        ),
-    )
+    # Estes três valores continuam representando a imagem virtual completa.
+    # Assim os overlays e a conversão Canvas -> imagem original permanecem
+    # geometricamente corretos mesmo quando só um recorte é renderizado.
+    self.escala_exibicao = float(viewport.escala)
+    self.largura_imagem_exibida = int(viewport.largura_virtual)
+    self.altura_imagem_exibida = int(viewport.altura_virtual)
+    self.deslocamento_imagem_x = int(viewport.deslocamento_virtual_x)
+    self.deslocamento_imagem_y = int(viewport.deslocamento_virtual_y)
+
+    recorte = imagem_visual[
+        viewport.origem_visual_y:viewport.fim_visual_y,
+        viewport.origem_visual_x:viewport.fim_visual_x,
+    ]
+    if recorte is None or getattr(recorte, "size", 0) == 0:
+        return
+
+    self._imagem_render_largura = int(viewport.largura_render)
+    self._imagem_render_altura = int(viewport.altura_render)
+    self._imagem_render_offset_x = int(viewport.deslocamento_render_x)
+    self._imagem_render_offset_y = int(viewport.deslocamento_render_y)
 
     interpolacao = (
         cv2.INTER_AREA
@@ -88,10 +125,10 @@ def atualizar_imagem_principal_redimensionada(self) -> None:
         else cv2.INTER_LINEAR
     )
     self.imagem_exibicao = cv2.resize(
-        imagem_visual,
+        recorte,
         (
-            self.largura_imagem_exibida,
-            self.altura_imagem_exibida,
+            self._imagem_render_largura,
+            self._imagem_render_altura,
         ),
         interpolation=interpolacao,
     )
@@ -110,5 +147,5 @@ def atualizar_imagem_principal_redimensionada(self) -> None:
 
     imagem_base64 = base64.b64encode(buffer).decode("ascii")
     self.imagem_tk = tk.PhotoImage(data=imagem_base64)
-    self._imagem_tk_largura = self.largura_imagem_exibida
-    self._imagem_tk_altura = self.altura_imagem_exibida
+    self._imagem_tk_largura = self._imagem_render_largura
+    self._imagem_tk_altura = self._imagem_render_altura
