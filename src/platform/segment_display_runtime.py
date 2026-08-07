@@ -30,31 +30,76 @@ def _tem_segmentos(leds) -> bool:
 class SegmentDisplayRuntimeMixin:
     """Mantém a geometria mista nos fluxos legados do ODIN."""
 
+    def _restaurar_manuais_segmento_na_visualizacao(
+        self,
+        manuais,
+        redesenhar: bool = True,
+    ) -> bool:
+        """Impede que o fluxo legado converta segmentos manuais em círculos.
+
+        O ODIN base reconstrói ``leds_selecionados`` usando apenas centro e
+        raio em alguns pontos do live view. Para um segmento, esse ``raio`` é
+        apenas uma medida de compatibilidade (circunferência que contém a
+        barra), portanto exibi-lo como ROI circular produz exatamente as
+        bolinhas grandes vistas na tela. A fonte verdadeira continua em
+        ``leds_manuais_camera``; este método recoloca largura, altura, ângulo e
+        tipo de ROI antes do próximo desenho.
+        """
+        itens = _copiar_lista(manuais)
+        if not itens or not _tem_segmentos(itens):
+            return False
+
+        # Quando as guias fixas estão deliberadamente visíveis, elas têm
+        # precedência. As ROIs manuais são restauradas somente no fluxo manual.
+        if bool(getattr(self, "guias_leds_fixos_visiveis", False)):
+            return False
+
+        self.leds_manuais_camera = _copiar_lista(itens)
+        self.leds_selecionados = _copiar_lista(itens)
+        self.view.selecao_manual_camera_visivel = True
+
+        if (
+            redesenhar
+            and not bool(getattr(self, "camera_em_pausa_analise", False))
+            and getattr(self, "imagem_original", None) is not None
+        ):
+            self.view.desenhar_canvas(
+                self.leds_selecionados,
+                self.resultados_led_atual,
+            )
+        return True
+
     def iniciar_selecao_led(self) -> None:
         manuais_antes = _copiar_lista(getattr(self, "leds_manuais_camera", ()))
         super().iniciar_selecao_led()
-        if manuais_antes and _tem_segmentos(manuais_antes):
-            self.leds_manuais_camera = _copiar_lista(manuais_antes)
-            if str(getattr(self, "modo_atual", "")) == "selecionar_leds_camera":
-                self.leds_selecionados = _copiar_lista(manuais_antes)
-                self.view.selecao_manual_camera_visivel = True
-                self.view.desenhar_canvas(
-                    self.leds_selecionados,
-                    self.resultados_led_atual,
-                )
+
+        # Ao sair do editor, o modo manual deixa de estar "ativo", mas as ROIs
+        # temporárias continuam na tela. Elas devem continuar segmentos, não
+        # voltar ao fallback circular do ODIN base.
+        self._restaurar_manuais_segmento_na_visualizacao(
+            manuais_antes,
+            redesenhar=True,
+        )
 
     def atualizar_frame_camera(self) -> None:
         manuais_antes = _copiar_lista(getattr(self, "leds_manuais_camera", ()))
         super().atualizar_frame_camera()
-        if manuais_antes and _tem_segmentos(manuais_antes):
-            self.leds_manuais_camera = _copiar_lista(manuais_antes)
-            if bool(getattr(self, "selecao_manual_camera_ativa", False)):
-                self.leds_selecionados = _copiar_lista(manuais_antes)
-                self.view.selecao_manual_camera_visivel = True
-                self.view.desenhar_canvas(
-                    self.leds_selecionados,
-                    self.resultados_led_atual,
-                )
+
+        # O método legado recria cada ROI manual somente com id/x/y/raio a cada
+        # frame. Reaplicamos a geometria completa mesmo depois que o usuário
+        # fechou a tela de seleção, desde que as guias fixas estejam ocultas.
+        self._restaurar_manuais_segmento_na_visualizacao(
+            manuais_antes,
+            redesenhar=True,
+        )
+
+    def retomar_tela_ao_vivo_apos_analise(self) -> None:
+        manuais_antes = _copiar_lista(getattr(self, "leds_manuais_camera", ()))
+        super().retomar_tela_ao_vivo_apos_analise()
+        self._restaurar_manuais_segmento_na_visualizacao(
+            manuais_antes,
+            redesenhar=True,
+        )
 
     def salvar_leds_fixos(self) -> None:
         if not self.leds_selecionados:
@@ -198,6 +243,8 @@ class SegmentDisplayRuntimeMixin:
         )
         resultados_led = []
         for led in self.leds_selecionados:
+            # A extração recebe a ROI completa. Segmentos usam a máscara
+            # poligonal chanfrada; círculos continuam usando a máscara circular.
             features_atual = extrair_features_selecao(self.imagem_original, led)
             resultado = classificador.classificar_led_por_referencia(
                 features_atual=features_atual,
