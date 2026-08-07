@@ -41,6 +41,11 @@ from src.ui.main_window_parts.image.fullscreen_image_viewer import (
     fechar_imagem_tela_cheia,
     redesenhar_imagem_tela_cheia,
 )
+from src.ui.main_window_parts.image.rotacao_visual_principal import (
+    atualizar_botao_rotacao_principal,
+    definir_rotacao_visual_principal,
+    rotacionar_imagem_principal,
+)
 from src.ui.main_window_parts.updates.atualizar_painel_resultado import atualizar_painel_resultado
 from src.ui.main_window_parts.history.criar_observacao_resultado import criar_observacao_resultado
 from src.ui.main_window_parts.history.desenhar_barra_confianca import desenhar_barra_confianca
@@ -140,6 +145,9 @@ class ODINView:
     atualizar_imagem_tela_cheia_se_aberta = atualizar_imagem_tela_cheia_se_aberta
     evento_abrir_imagem_principal_tela_cheia = evento_abrir_imagem_principal_tela_cheia
     configurar_abertura_imagens_tela_cheia = configurar_abertura_imagens_tela_cheia
+    atualizar_botao_rotacao_principal = atualizar_botao_rotacao_principal
+    definir_rotacao_visual_principal = definir_rotacao_visual_principal
+    rotacionar_imagem_principal = rotacionar_imagem_principal
     atualizar_painel_resultado = atualizar_painel_resultado
     criar_observacao_resultado = criar_observacao_resultado
     desenhar_barra_confianca = desenhar_barra_confianca
