@@ -31,9 +31,9 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self._atualizacao_relogio_pendente = None
     self.logo_tk = None
     self.lupa_tk = None
+    self.rotacao_visual_principal = 0
+    self.botao_rotacao_principal = None
 
-    # Estado isolado do visualizador de imagens. Ele não substitui o Canvas
-    # principal nem altera câmera, ROIs ou geometria do dashboard.
     self.janela_imagem_tela_cheia = None
     self.canvas_imagem_tela_cheia = None
     self.chave_imagem_tela_cheia = None
@@ -68,6 +68,4 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
 
     self.iniciar_relogio_sistema()
 
-    # A janela abre em tela cheia no monitor atual. F11 usa o mesmo método para
-    # alternar entre tela cheia e a janela maximizada responsiva.
     self.root.after(120, self.alternar_tela_cheia)
