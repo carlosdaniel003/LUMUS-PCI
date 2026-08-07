@@ -50,6 +50,7 @@ jobs:
             src/platform/rotated_preview_roi_editor.py \
             src/platform/segment_display_roi_editor.py \
             src/platform/segment_display_runtime.py \
+            src/platform/segment_display_operation_window.py \
             src/platform/fullscreen_led_selection.py \
             src/platform/display_awake_runtime.py \
             src/platform/display_theme.py \
@@ -99,4 +100,5 @@ jobs:
             tests.test_main_image_rotation \
             tests.test_display_theme \
             tests.test_segment_roi \
+            tests.test_segment_operation_preview \
             -v
