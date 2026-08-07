@@ -9,6 +9,7 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self.imagem_tk = None
     self.imagem_exibicao = None
     self.imagens_auxiliares_tk = {}
+    self.imagens_auxiliares_originais = {}
     self.imagem_canvas_original = None
     self.ultimo_led_selecionado = None
     self.ultimo_resultado_led_atual = None
@@ -31,6 +32,15 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self.logo_tk = None
     self.lupa_tk = None
 
+    # Estado isolado do visualizador de imagens. Ele não substitui o Canvas
+    # principal nem altera câmera, ROIs ou geometria do dashboard.
+    self.janela_imagem_tela_cheia = None
+    self.canvas_imagem_tela_cheia = None
+    self.chave_imagem_tela_cheia = None
+    self.imagem_tela_cheia_tk = None
+    self._redesenho_imagem_tela_cheia_pendente = None
+    self._imagens_tela_cheia_bindings_instalados = False
+
     self.root.title("ODIN - Observador Digital Inteligente")
 
     largura_tela = max(800, int(self.root.winfo_screenwidth()))
@@ -47,6 +57,7 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self.configurar_atalhos_tela()
     self.configurar_estilo_tabela()
     self.criar_layout()
+    self.configurar_abertura_imagens_tela_cheia()
     self.iniciar_relogio_sistema()
 
     # A janela abre em tela cheia no monitor atual. F11 usa o mesmo método para
