@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from src.core.roi_geometry import TIPO_ROI_CIRCULO, normalizar_tipo_roi
 from src.models.led_features import LedFeatures
 from src.models.metric_evaluation import MetricEvaluation
 
@@ -28,15 +29,20 @@ class LedAnalysisResult:
     avaliacao_metricas: MetricEvaluation
     motivos: list[str]
     confianca: float
+    tipo_roi: str = TIPO_ROI_CIRCULO
+    largura: int | None = None
+    altura: int | None = None
+    angulo: float = 0.0
 
     def to_dict(self) -> dict:
-        return {
+        dados = {
             "id": self.id,
             "status": self.status,
             "valor_binario": self.valor_binario,
             "centro_x": self.centro_x,
             "centro_y": self.centro_y,
             "raio": self.raio,
+            "tipo_roi": normalizar_tipo_roi(self.tipo_roi),
             "features": self.features.to_dict(),
             "limite_v_mean": self.limite_v_mean,
             "limite_v_std": self.limite_v_std,
@@ -54,3 +60,10 @@ class LedAnalysisResult:
             "motivos": self.motivos,
             "confianca": self.confianca,
         }
+        if normalizar_tipo_roi(self.tipo_roi) != TIPO_ROI_CIRCULO:
+            dados.update(
+                largura=None if self.largura is None else int(self.largura),
+                altura=None if self.altura is None else int(self.altura),
+                angulo=float(self.angulo),
+            )
+        return dados
