@@ -1,6 +1,9 @@
 import tkinter as tk
 
 from src.models.analysis_result import LedAnalysisResult
+from src.ui.main_window_parts.image.rotacao_visual_principal import (
+    obter_ponto_visual_view,
+)
 
 
 TAG_MARCACOES = "marcacoes_canvas"
@@ -18,19 +21,18 @@ def desenhar_resultado_led(
         else COR_NG_AZUL
     )
 
+    centro_x_visual, centro_y_visual = obter_ponto_visual_view(
+        self,
+        resultado_led_atual.centro_x,
+        resultado_led_atual.centro_y,
+    )
     centro_x_canvas = (
         self.deslocamento_imagem_x
-        + int(
-            resultado_led_atual.centro_x
-            * self.escala_exibicao
-        )
+        + int(centro_x_visual * self.escala_exibicao)
     )
     centro_y_canvas = (
         self.deslocamento_imagem_y
-        + int(
-            resultado_led_atual.centro_y
-            * self.escala_exibicao
-        )
+        + int(centro_y_visual * self.escala_exibicao)
     )
     raio_canvas = max(
         3,
