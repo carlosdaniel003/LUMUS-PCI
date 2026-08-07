@@ -45,9 +45,17 @@ jobs:
             src/platform/display_theme.py \
             src/platform/raspberry_pi3_production_app.py \
             src/ui/main_window.py \
+            src/ui/main_window_parts/panels/criar_painel_principal.py \
+            src/ui/main_window_parts/image/rotacao_visual_principal.py \
+            src/ui/main_window_parts/image/atualizar_imagem_principal_redimensionada.py \
+            src/ui/main_window_parts/image/converter_canvas_para_imagem_original.py \
             src/ui/main_window_parts/image/fullscreen_image_viewer.py \
             src/ui/main_window_parts/image/exibir_imagem_em_canvas.py \
             src/ui/main_window_parts/image/preparar_imagem_para_exibicao.py \
+            src/ui/main_window_parts/canvas/desenhar_resultado_led.py \
+            src/ui/main_window_parts/canvas/desenhar_led_selecionado.py \
+            src/ui/main_window_parts/canvas/desenhar_guias_leds_camera.py \
+            src/ui/main_window_parts/updates/atualizar_estado_selecao_led.py \
             src/ui/main_window_parts/updates/exibir_renderizacoes_visuais.py \
             src/ui/main_window_parts/updates/limpar_renderizacoes_visuais.py \
             src/ui/main_window_parts/lifecycle/init_view.py \
@@ -72,5 +80,6 @@ jobs:
             tests.test_fixed_mask_geometry_guard \
             tests.test_fullscreen_led_selection \
             tests.test_fullscreen_image_viewer \
+            tests.test_main_image_rotation \
             tests.test_display_theme \
             -v
