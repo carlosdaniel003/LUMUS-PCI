@@ -40,12 +40,22 @@ def exibir_imagem_em_canvas(
     chave: str,
 ) -> None:
     if imagem is None:
+        self.imagens_auxiliares_originais.pop(chave, None)
+        self.atualizar_imagem_tela_cheia_se_aberta(chave)
         canvas.delete("all")
         self.desenhar_placeholder(
             canvas,
             "sem imagem",
         )
         return
+
+    # Mantém a imagem em resolução original separada do PhotoImage reduzido do
+    # dashboard. O visualizador fullscreen usa esta cópia e nunca interfere no
+    # Canvas pequeno nem na análise.
+    try:
+        self.imagens_auxiliares_originais[chave] = imagem.copy()
+    except Exception:
+        self.imagens_auxiliares_originais[chave] = imagem
 
     largura_canvas, altura_canvas = (
         _obter_tamanho_real_canvas(canvas)
@@ -189,3 +199,5 @@ def exibir_imagem_em_canvas(
         item_imagem,
         item_fundo,
     )
+
+    self.atualizar_imagem_tela_cheia_se_aberta(chave)
