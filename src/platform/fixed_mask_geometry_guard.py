@@ -16,48 +16,46 @@ MODOS_EDICAO_MASCARA = {
 
 
 def copiar_mascara_absoluta(led: LedSelection) -> LedSelection:
-    """Copia somente a geometria em pixels, descartando escalas normalizadas."""
+    """Copia a geometria em pixels, inclusive segmento, sem escala normalizada."""
     return LedSelection(
         id=str(led.id),
         centro_x=int(led.centro_x),
         centro_y=int(led.centro_y),
         raio=int(led.raio),
+        tipo_roi=getattr(led, "tipo_roi", "circulo"),
+        largura=getattr(led, "largura", None),
+        altura=getattr(led, "altura", None),
+        angulo=float(getattr(led, "angulo", 0.0) or 0.0),
     )
 
 
 def copiar_mascaras_absolutas(
     leds: Iterable[LedSelection] | None,
 ) -> list[LedSelection]:
-    return [
-        copiar_mascara_absoluta(led)
-        for led in (leds or ())
-    ]
+    return [copiar_mascara_absoluta(led) for led in (leds or ())]
 
 
 def assinatura_geometria(
     leds: Iterable[LedSelection] | None,
-) -> tuple[tuple[str, int, int, int], ...]:
+) -> tuple[tuple, ...]:
     return tuple(
         (
             str(led.id),
+            str(getattr(led, "tipo_roi", "circulo")),
             int(led.centro_x),
             int(led.centro_y),
             int(led.raio),
+            None if getattr(led, "largura", None) is None else int(led.largura),
+            None if getattr(led, "altura", None) is None else int(led.altura),
+            round(float(getattr(led, "angulo", 0.0) or 0.0), 6),
         )
         for led in (leds or ())
     )
 
 
 def instalar_repositorio_mascaras_absolutas() -> None:
-    """
-    Faz o perfil Raspberry salvar e carregar somente coordenadas absolutas.
-
-    O patch deve ser instalado depois do repositório de projetos, para que cada
-    projeto continue independente. Os argumentos de resolução são aceitos por
-    compatibilidade, mas deliberadamente ignorados.
-    """
+    """Faz o perfil Raspberry salvar/carregar somente geometria absoluta."""
     global _PATCH_REPOSITORIO_INSTALADO
-
     if _PATCH_REPOSITORIO_INSTALADO:
         return
 
@@ -73,7 +71,6 @@ def instalar_repositorio_mascaras_absolutas() -> None:
     ) -> dict:
         del largura_base, altura_base
         absolutos = copiar_mascaras_absolutas(leds_fixos)
-
         try:
             return salvar_original(
                 self,
@@ -106,7 +103,7 @@ def instalar_repositorio_mascaras_absolutas() -> None:
 
 
 class FixedMaskGeometryGuardMixin:
-    """Impede qualquer transformação automática das máscaras de produção."""
+    """Impede transformação automática das máscaras fora do editor."""
 
     def __init__(self, *args, **kwargs) -> None:
         self._mask_guard_lock = RLock()
@@ -151,7 +148,6 @@ class FixedMaskGeometryGuardMixin:
             projeto = str(project or self._mask_guard_active_project())
             if not force and projeto == self._mask_guard_project:
                 return
-
             mascaras = (
                 copiar_mascaras_absolutas(source)
                 if source is not None
@@ -161,7 +157,6 @@ class FixedMaskGeometryGuardMixin:
             self._mask_guard_snapshot = tuple(mascaras)
 
     def _mask_guard_refresh_project(self) -> None:
-        """Consulta o projeto somente em eventos de carga/produção, nunca por frame."""
         projeto = self._mask_guard_active_project()
         if projeto != self._mask_guard_project:
             self._mask_guard_capture(force=True, project=projeto)
@@ -173,7 +168,6 @@ class FixedMaskGeometryGuardMixin:
         return str(getattr(self, "modo_atual", "")) in MODOS_EDICAO_MASCARA
 
     def _mask_guard_enforce(self) -> list[LedSelection]:
-        """Restaura a última geometria salva sem efetuar escala ou arredondamento."""
         with self._mask_guard_lock:
             if not self._mask_guard_project:
                 self._mask_guard_capture(force=True)
@@ -198,11 +192,8 @@ class FixedMaskGeometryGuardMixin:
                 and guias_visiveis
             ):
                 self.leds_selecionados = copiar_mascaras_absolutas(esperado)
-
             return copiar_mascaras_absolutas(esperado)
 
-    # O perfil usa câmera fixa em 1920x1080. Nenhuma resolução, transitória ou
-    # reportada pelo driver, tem autorização para recalcular a geometria.
     def adaptar_leds_fixos_para_frame_camera(self, leds_fixos):
         del leds_fixos
         return self._mask_guard_enforce()
@@ -239,7 +230,6 @@ class FixedMaskGeometryGuardMixin:
         self._mask_guard_enforce()
 
     def salvar_leds_fixos(self) -> None:
-        # Este é o único ponto que autoriza uma nova geometria permanente.
         super().salvar_leds_fixos()
         salvas = self._mask_guard_read_repository()
         self._mask_guard_capture(force=True, source=salvas)
