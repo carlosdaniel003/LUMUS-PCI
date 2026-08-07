@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import cv2
+import tkinter as tk
 
 
 ROTACOES_VISUAIS = (0, 90, 180, 270)
@@ -118,6 +119,90 @@ def atualizar_botao_rotacao_principal(self) -> None:
         pass
 
 
+def _atualizar_fundo_e_imagem_canvas(self) -> None:
+    canvas = getattr(self, "canvas", None)
+    imagem_tk = getattr(self, "imagem_tk", None)
+    if canvas is None or imagem_tk is None:
+        return
+
+    largura_canvas, altura_canvas = self.obter_tamanho_canvas_principal()
+    fundos = canvas.find_withtag("fundo_canvas")
+    if fundos:
+        fundo = fundos[0]
+        canvas.coords(fundo, 0, 0, largura_canvas, altura_canvas)
+        canvas.itemconfigure(fundo, fill="#020617", outline="")
+    else:
+        fundo = canvas.create_rectangle(
+            0,
+            0,
+            largura_canvas,
+            altura_canvas,
+            fill="#020617",
+            outline="",
+            tags=("fundo_canvas",),
+        )
+
+    imagens = canvas.find_withtag("imagem_canvas")
+    if imagens:
+        item_imagem = imagens[0]
+        canvas.coords(
+            item_imagem,
+            self.deslocamento_imagem_x,
+            self.deslocamento_imagem_y,
+        )
+        canvas.itemconfigure(
+            item_imagem,
+            image=imagem_tk,
+            anchor=tk.NW,
+        )
+    else:
+        item_imagem = canvas.create_image(
+            self.deslocamento_imagem_x,
+            self.deslocamento_imagem_y,
+            image=imagem_tk,
+            anchor=tk.NW,
+            tags=("imagem_canvas",),
+        )
+
+    canvas.tag_lower(fundo)
+    canvas.tag_raise(item_imagem, fundo)
+
+
+def redesenhar_rotacao_visual_principal(self) -> None:
+    """Redesenha imagem e marcações sem atualizar histórico/KPIs."""
+    if getattr(self, "imagem_canvas_original", None) is None:
+        return
+
+    self.atualizar_imagem_principal_redimensionada()
+    _atualizar_fundo_e_imagem_canvas(self)
+
+    canvas = getattr(self, "canvas", None)
+    if canvas is None:
+        return
+
+    canvas.delete("marcacoes_canvas")
+    canvas.delete("lupa_canvas")
+
+    resultados = getattr(self, "ultimo_resultado_led_atual", None)
+    leds = getattr(self, "ultimo_led_selecionado", None)
+    resultados_normalizados = self._normalizar_resultados_led(resultados)
+    leds_normalizados = self._normalizar_leds_selecionados(leds)
+
+    if resultados_normalizados:
+        self.desenhar_resultados_led(resultados_normalizados)
+    elif leds_normalizados:
+        selecao_manual_camera = bool(
+            getattr(self, "selecao_manual_camera_visivel", False)
+        )
+        if (
+            getattr(self, "tela_ao_vivo_ativa", False)
+            and not selecao_manual_camera
+        ):
+            self.desenhar_guias_leds_camera(leds_normalizados)
+        else:
+            self.desenhar_leds_selecionados(leds_normalizados)
+
+
 def definir_rotacao_visual_principal(
     self,
     rotacao: int,
@@ -131,13 +216,7 @@ def definir_rotacao_visual_principal(
 
     self.rotacao_visual_principal = angulo
     atualizar_botao_rotacao_principal(self)
-
-    if getattr(self, "imagem_canvas_original", None) is not None:
-        self.atualizar_imagem_principal_redimensionada()
-        self.desenhar_canvas(
-            getattr(self, "ultimo_led_selecionado", None),
-            getattr(self, "ultimo_resultado_led_atual", None),
-        )
+    redesenhar_rotacao_visual_principal(self)
 
     atualizar_fullscreen = getattr(
         self,
