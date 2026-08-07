@@ -62,6 +62,10 @@ from src.platform.segment_display_roi_editor import (
 from src.platform.segment_display_runtime import (
     SegmentDisplayRuntimeMixin,
 )
+from src.platform.segment_project_geometry_persistence import (
+    SegmentProjectGeometryPersistenceMixin,
+    instalar_preservacao_segmentos_resolution_sync,
+)
 
 
 class RaspberryPi3ProductionApp(
@@ -69,6 +73,7 @@ class RaspberryPi3ProductionApp(
     DisplayThemeMixin,
     FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
+    SegmentProjectGeometryPersistenceMixin,
     SegmentDisplayRuntimeMixin,
     SegmentDisplayRoiEditorMixin,
     ResolutionSynchronizedLedMasksMixin,
@@ -86,6 +91,7 @@ class RaspberryPi3ProductionApp(
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
         instalar_repositorio_mascaras_absolutas()
+        instalar_preservacao_segmentos_resolution_sync()
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
