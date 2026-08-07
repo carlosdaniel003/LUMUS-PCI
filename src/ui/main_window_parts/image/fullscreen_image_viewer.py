@@ -4,6 +4,10 @@ import tkinter as tk
 
 import cv2
 
+from src.ui.main_window_parts.image.exibir_imagem_em_canvas import (
+    preparar_imagem_auxiliar_visual,
+)
+
 
 VISUALIZACOES_TELA_CHEIA = {
     "principal": "Imagem principal • Ao vivo",
@@ -52,8 +56,19 @@ def _codificar_ppm_bgr(imagem_bgr) -> bytes:
 def _imagem_fonte(self, chave: str):
     if chave == "principal":
         return getattr(self, "imagem_canvas_original", None)
+
     imagens = getattr(self, "imagens_auxiliares_originais", {})
-    return imagens.get(chave)
+    imagem = imagens.get(chave)
+    if imagem is None:
+        return None
+
+    # Os quatro painéis derivados usam a mesma orientação visual da imagem
+    # principal também quando são abertos em tela cheia. A cópia original
+    # permanece intacta no dicionário de fontes.
+    return preparar_imagem_auxiliar_visual(
+        imagem,
+        getattr(self, "rotacao_visual_principal", 0),
+    )
 
 
 def _janela_valida(self) -> bool:
