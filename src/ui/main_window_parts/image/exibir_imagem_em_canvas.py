@@ -3,9 +3,24 @@ import tkinter as tk
 
 import cv2
 
+from src.ui.main_window_parts.image.rotacao_visual_principal import (
+    normalizar_rotacao_visual,
+    rotacionar_imagem_visual,
+)
+
 
 TAG_FUNDO_AUXILIAR = "fundo_imagem_auxiliar"
 TAG_IMAGEM_AUXILIAR = "imagem_auxiliar"
+
+
+def preparar_imagem_auxiliar_visual(imagem, rotacao: int):
+    """Retorna a cópia visual da imagem auxiliar na orientação atual do ODIN."""
+    if imagem is None:
+        return None
+    return rotacionar_imagem_visual(
+        imagem,
+        normalizar_rotacao_visual(rotacao),
+    )
 
 
 def _obter_tamanho_real_canvas(
@@ -49,13 +64,18 @@ def exibir_imagem_em_canvas(
         )
         return
 
-    # Mantém a imagem em resolução original separada do PhotoImage reduzido do
-    # dashboard. O visualizador fullscreen usa esta cópia e nunca interfere no
-    # Canvas pequeno nem na análise.
+    # Mantém a imagem em resolução/orientação original separada do PhotoImage
+    # reduzido do dashboard. A rotação é somente visual e nunca altera os dados
+    # usados pela análise nem a fonte que poderá ser redesenhada depois.
     try:
         self.imagens_auxiliares_originais[chave] = imagem.copy()
     except Exception:
         self.imagens_auxiliares_originais[chave] = imagem
+
+    imagem_visual = preparar_imagem_auxiliar_visual(
+        imagem,
+        getattr(self, "rotacao_visual_principal", 0),
+    )
 
     largura_canvas, altura_canvas = (
         _obter_tamanho_real_canvas(canvas)
@@ -63,13 +83,13 @@ def exibir_imagem_em_canvas(
 
     # Imagens monocromáticas são convertidas para três canais para
     # manter a mesma rotina de codificação PNG usada nos demais painéis.
-    if len(imagem.shape) == 2:
+    if len(imagem_visual.shape) == 2:
         imagem_bgr = cv2.cvtColor(
-            imagem,
+            imagem_visual,
             cv2.COLOR_GRAY2BGR,
         )
     else:
-        imagem_bgr = imagem
+        imagem_bgr = imagem_visual
 
     altura_imagem, largura_imagem = (
         imagem_bgr.shape[:2]
