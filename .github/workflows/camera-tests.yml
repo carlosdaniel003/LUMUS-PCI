@@ -30,6 +30,12 @@ jobs:
       - name: Compile changed camera, display and ROI modules
         run: |
           python -m py_compile \
+            src/core/roi_geometry.py \
+            src/core/feature_extractor.py \
+            src/core/operation_engine.py \
+            src/core/visual_renderer.py \
+            src/models/led_selection.py \
+            src/models/analysis_result.py \
             src/platform/threaded_camera_service.py \
             src/platform/fixed_full_hd_camera_service.py \
             src/platform/native_resolution_config.py \
@@ -42,6 +48,8 @@ jobs:
             src/platform/area_roi_editor_v4.py \
             src/platform/rotated_roi_editor.py \
             src/platform/rotated_preview_roi_editor.py \
+            src/platform/segment_display_roi_editor.py \
+            src/platform/segment_display_runtime.py \
             src/platform/fullscreen_led_selection.py \
             src/platform/display_awake_runtime.py \
             src/platform/display_theme.py \
@@ -56,6 +64,7 @@ jobs:
             src/ui/main_window_parts/image/preparar_imagem_para_exibicao.py \
             src/ui/main_window_parts/magnifier/atualizar_lupa_canvas.py \
             src/ui/main_window_parts/magnifier/desenhar_lupa_canvas.py \
+            src/ui/main_window_parts/canvas/roi_shape_canvas.py \
             src/ui/main_window_parts/canvas/desenhar_resultado_led.py \
             src/ui/main_window_parts/canvas/desenhar_led_selecionado.py \
             src/ui/main_window_parts/canvas/desenhar_guias_leds_camera.py \
@@ -89,4 +98,5 @@ jobs:
             tests.test_fullscreen_image_viewer \
             tests.test_main_image_rotation \
             tests.test_display_theme \
+            tests.test_segment_roi \
             -v
