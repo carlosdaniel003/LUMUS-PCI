@@ -1,4 +1,7 @@
 from src.models.led_selection import LedSelection
+from src.ui.main_window_parts.image.rotacao_visual_principal import (
+    obter_ponto_visual_view,
+)
 
 
 TAG_MARCACOES = "marcacoes_canvas"
@@ -8,19 +11,18 @@ def desenhar_led_selecionado(
     self,
     led_selecionado: LedSelection,
 ) -> None:
+    centro_x_visual, centro_y_visual = obter_ponto_visual_view(
+        self,
+        led_selecionado.centro_x,
+        led_selecionado.centro_y,
+    )
     centro_x_canvas = (
         self.deslocamento_imagem_x
-        + int(
-            led_selecionado.centro_x
-            * self.escala_exibicao
-        )
+        + int(centro_x_visual * self.escala_exibicao)
     )
     centro_y_canvas = (
         self.deslocamento_imagem_y
-        + int(
-            led_selecionado.centro_y
-            * self.escala_exibicao
-        )
+        + int(centro_y_visual * self.escala_exibicao)
     )
     raio_canvas = max(
         3,
