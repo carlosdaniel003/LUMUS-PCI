@@ -15,15 +15,52 @@ def criar_painel_principal(self) -> None:
     self.frame_painel_principal.grid_rowconfigure(1, weight=1)
     self.frame_painel_principal.grid_columnconfigure(0, weight=1)
 
-    self.criar_titulo_card(
+    frame_titulo_principal = tk.Frame(
         self.frame_painel_principal,
-        "Imagem principal • Ao vivo",
-    ).grid(
+        bg=self.COR_CARD,
+        bd=0,
+        highlightthickness=0,
+    )
+    frame_titulo_principal.grid(
         row=0,
         column=0,
         sticky="ew",
         padx=10,
-        pady=(6, 3),
+        pady=(5, 3),
+    )
+    frame_titulo_principal.grid_columnconfigure(0, weight=1)
+
+    self.criar_titulo_card(
+        frame_titulo_principal,
+        "Imagem principal • Ao vivo",
+    ).grid(
+        row=0,
+        column=0,
+        sticky="w",
+    )
+
+    self.botao_rotacao_principal = tk.Button(
+        frame_titulo_principal,
+        text="↻ 0°",
+        command=self.rotacionar_imagem_principal,
+        bg=self.COR_CARD_2,
+        fg=self.COR_AMARELO,
+        activebackground=self.COR_BORDA,
+        activeforeground=self.COR_TEXTO,
+        relief=tk.FLAT,
+        bd=0,
+        highlightthickness=0,
+        font=("Segoe UI", 8, "bold"),
+        padx=8,
+        pady=2,
+        cursor="hand2",
+        takefocus=True,
+    )
+    self.botao_rotacao_principal.grid(
+        row=0,
+        column=1,
+        sticky="e",
+        padx=(8, 0),
     )
 
     # O Canvas não solicita uma dimensão fixa. Ele acompanha integralmente o
