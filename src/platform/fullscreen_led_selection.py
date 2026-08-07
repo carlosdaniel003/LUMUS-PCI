@@ -3,6 +3,19 @@ from __future__ import annotations
 import tkinter as tk
 from typing import Callable
 
+from src.ui.main_window_parts.image.rotacao_visual_principal import (
+    dimensoes_visuais,
+)
+from src.ui.main_window_parts.image.selection_zoom import (
+    ZOOM_SELECAO_MIN,
+    calcular_centro_zoom_ancorado,
+    calcular_escala_zoom_selecao,
+    proximo_fator_zoom_selecao,
+)
+
+
+CTRL_MASK = 0x0004
+
 
 class FullscreenLedSelectionMixin:
     """Exibe o editor existente em uma janela de tela cheia, sem tocar na câmera."""
@@ -14,6 +27,7 @@ class FullscreenLedSelectionMixin:
         self._selecao_tela_cheia_fechando = False
         self._botao_tipo_roi_segmento = None
         self._botao_tipo_roi_circulo = None
+        self._label_zoom_selecao = None
         super().__init__(*args, **kwargs)
 
     def _selecao_tela_cheia_esta_aberta(self) -> bool:
@@ -58,6 +72,172 @@ class FullscreenLedSelectionMixin:
             except Exception:
                 pass
 
+    def _atualizar_indicador_zoom_selecao(self) -> None:
+        label = self._label_zoom_selecao
+        if label is None:
+            return
+        fator = float(
+            getattr(getattr(self, "view", None), "_selecao_zoom_fator", 1.0)
+            or 1.0
+        )
+        try:
+            label.configure(text=f"ZOOM {int(round(fator * 100))}%")
+        except Exception:
+            pass
+
+    def _ativar_zoom_selecao(self) -> None:
+        view = getattr(self, "view", None)
+        if view is None:
+            return
+        view._selecao_zoom_ativo = True
+        view._selecao_zoom_fator = ZOOM_SELECAO_MIN
+        view._selecao_zoom_centro_visual_x = None
+        view._selecao_zoom_centro_visual_y = None
+        self._atualizar_indicador_zoom_selecao()
+
+    def _desativar_zoom_selecao(self) -> None:
+        view = getattr(self, "view", None)
+        if view is None:
+            return
+        view._selecao_zoom_ativo = False
+        view._selecao_zoom_fator = ZOOM_SELECAO_MIN
+        view._selecao_zoom_centro_visual_x = None
+        view._selecao_zoom_centro_visual_y = None
+
+    @staticmethod
+    def _direcao_scroll(evento) -> int:
+        delta = int(getattr(evento, "delta", 0) or 0)
+        numero = getattr(evento, "num", None)
+        if delta > 0 or numero == 4:
+            return 1
+        if delta < 0 or numero == 5:
+            return -1
+        return 0
+
+    def _redesenhar_apos_zoom_selecao(self) -> None:
+        view = getattr(self, "view", None)
+        if view is None:
+            return
+        limpar_lupa = getattr(view, "limpar_lupa_canvas", None)
+        if callable(limpar_lupa):
+            try:
+                limpar_lupa()
+            except Exception:
+                pass
+        atualizar = getattr(view, "atualizar_imagem_principal_redimensionada", None)
+        if callable(atualizar):
+            atualizar()
+        desenhar = getattr(view, "desenhar_canvas", None)
+        if callable(desenhar):
+            desenhar(
+                getattr(self, "leds_selecionados", []),
+                getattr(self, "resultados_led_atual", []),
+            )
+        overlay = getattr(self, "_desenhar_overlay_editor_roi", None)
+        if callable(overlay):
+            try:
+                overlay()
+            except Exception:
+                pass
+
+    def _evento_zoom_selecao(self, evento) -> str:
+        view = getattr(self, "view", None)
+        if view is None or not bool(getattr(view, "_selecao_zoom_ativo", False)):
+            return "break"
+
+        direcao = self._direcao_scroll(evento)
+        if direcao == 0:
+            return "break"
+
+        fator_atual = float(getattr(view, "_selecao_zoom_fator", 1.0) or 1.0)
+        novo_fator = proximo_fator_zoom_selecao(fator_atual, direcao)
+        if abs(novo_fator - fator_atual) < 1e-9:
+            return "break"
+
+        imagem = getattr(view, "imagem_canvas_original", None)
+        shape = getattr(imagem, "shape", None)
+        if shape is not None and len(shape) >= 2:
+            altura_original = int(shape[0])
+            largura_original = int(shape[1])
+            largura_visual, altura_visual = dimensoes_visuais(
+                largura_original,
+                altura_original,
+                getattr(view, "rotacao_visual_principal", 0),
+            )
+
+            obter_tamanho = getattr(view, "obter_tamanho_canvas_principal", None)
+            if callable(obter_tamanho):
+                largura_canvas, altura_canvas = obter_tamanho()
+            else:
+                canvas = getattr(view, "canvas", None)
+                largura_canvas = int(getattr(canvas, "winfo_width", lambda: 1)())
+                altura_canvas = int(getattr(canvas, "winfo_height", lambda: 1)())
+
+            nova_escala = calcular_escala_zoom_selecao(
+                largura_visual,
+                altura_visual,
+                largura_canvas,
+                altura_canvas,
+                novo_fator,
+            )
+            centro_atual_x = getattr(
+                view,
+                "_selecao_zoom_centro_visual_x",
+                None,
+            )
+            centro_atual_y = getattr(
+                view,
+                "_selecao_zoom_centro_visual_y",
+                None,
+            )
+            centro_x, centro_y = calcular_centro_zoom_ancorado(
+                ponteiro_x=float(getattr(evento, "x", largura_canvas / 2.0)),
+                ponteiro_y=float(getattr(evento, "y", altura_canvas / 2.0)),
+                escala_atual=float(getattr(view, "escala_exibicao", 1.0) or 1.0),
+                deslocamento_atual_x=float(getattr(view, "deslocamento_imagem_x", 0)),
+                deslocamento_atual_y=float(getattr(view, "deslocamento_imagem_y", 0)),
+                largura_virtual_atual=int(
+                    getattr(view, "largura_imagem_exibida", largura_canvas) or largura_canvas
+                ),
+                altura_virtual_atual=int(
+                    getattr(view, "altura_imagem_exibida", altura_canvas) or altura_canvas
+                ),
+                nova_escala=nova_escala,
+                largura_canvas=largura_canvas,
+                altura_canvas=altura_canvas,
+                largura_visual=largura_visual,
+                altura_visual=altura_visual,
+                centro_atual_x=centro_atual_x,
+                centro_atual_y=centro_atual_y,
+            )
+            if novo_fator <= ZOOM_SELECAO_MIN:
+                view._selecao_zoom_centro_visual_x = None
+                view._selecao_zoom_centro_visual_y = None
+            else:
+                view._selecao_zoom_centro_visual_x = centro_x
+                view._selecao_zoom_centro_visual_y = centro_y
+
+        view._selecao_zoom_fator = novo_fator
+        self._atualizar_indicador_zoom_selecao()
+        self._redesenhar_apos_zoom_selecao()
+
+        atualizar_status = getattr(view, "atualizar_status", None)
+        if callable(atualizar_status):
+            atualizar_status(
+                f"Zoom da seleção: {int(round(novo_fator * 100))}%. "
+                "Ctrl+scroll ajusta o zoom sem alterar a máscara."
+            )
+        return "break"
+
+    def _evento_roda_ou_zoom_selecao(self, evento) -> str | None:
+        estado = int(getattr(evento, "state", 0) or 0)
+        if estado & CTRL_MASK:
+            return self._evento_zoom_selecao(evento)
+        callback = getattr(self, "_evento_roda_roi", None)
+        if callable(callback):
+            return callback(evento)
+        return None
+
     def _criar_interface_selecao_tela_cheia(self):
         janela = tk.Toplevel(self.root)
         janela.title("ODIN • Seleção de ROIs")
@@ -88,7 +268,7 @@ class FullscreenLedSelectionMixin:
             textos,
             text=(
                 "Segmento: arraste para criar • Shift+arraste seleciona área • "
-                "alças ajustam largura/altura/ângulo • setas movem 1 px"
+                "Ctrl+scroll aplica zoom • setas movem 1 px"
             ),
             font=("DejaVu Sans", 8),
             fg="#AAB8C8",
@@ -152,6 +332,26 @@ class FullscreenLedSelectionMixin:
         self._botao_tipo_roi_circulo.pack(side=tk.LEFT)
         self._atualizar_botoes_tipo_roi()
 
+        zoom_frame = tk.Frame(barra, bg="#07111F")
+        zoom_frame.pack(side=tk.RIGHT, padx=(8, 4), pady=8)
+        tk.Label(
+            zoom_frame,
+            text="PRECISÃO",
+            font=("DejaVu Sans", 7, "bold"),
+            fg="#94A3B8",
+            bg="#07111F",
+        ).pack(side=tk.TOP, anchor="w", pady=(0, 3))
+        self._label_zoom_selecao = tk.Label(
+            zoom_frame,
+            text="ZOOM 100%",
+            font=("DejaVu Sans", 9, "bold"),
+            fg="#38BDF8",
+            bg="#07111F",
+            padx=8,
+            pady=5,
+        )
+        self._label_zoom_selecao.pack(side=tk.TOP)
+
         canvas = tk.Canvas(
             janela,
             bg="#020617",
@@ -176,12 +376,17 @@ class FullscreenLedSelectionMixin:
         self._vincular_evento(canvas, "<Motion>", getattr(view, "atualizar_lupa_canvas", None))
         self._vincular_evento(canvas, "<Leave>", getattr(view, "limpar_lupa_canvas", None))
 
+        for sequencia in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self._vincular_evento(
+                canvas,
+                sequencia,
+                self._evento_roda_ou_zoom_selecao,
+                adicionar=True,
+            )
+
         for sequencia, nome_callback in (
             ("<B1-Motion>", "_evento_arrastar_roi"),
             ("<ButtonRelease-1>", "_evento_soltar_roi"),
-            ("<MouseWheel>", "_evento_roda_roi"),
-            ("<Button-4>", "_evento_roda_roi"),
-            ("<Button-5>", "_evento_roda_roi"),
             ("<Delete>", "_evento_apagar_roi"),
             ("<BackSpace>", "_evento_apagar_roi"),
             ("<Escape>", "_evento_cancelar_selecao_roi"),
@@ -253,6 +458,7 @@ class FullscreenLedSelectionMixin:
         self._selecao_tela_cheia_canvas_original = self.view.canvas
         self._cancelar_redesenho_pendente_selecao()
         self.view.canvas = canvas
+        self._ativar_zoom_selecao()
         self._configurar_eventos_canvas_tela_cheia(canvas)
         try:
             janela.protocol("WM_DELETE_WINDOW", self._confirmar_selecao_tela_cheia)
@@ -285,11 +491,13 @@ class FullscreenLedSelectionMixin:
         self._cancelar_redesenho_pendente_selecao()
         if canvas_original is not None:
             self.view.canvas = canvas_original
+        self._desativar_zoom_selecao()
         self._selecao_tela_cheia_window = None
         self._selecao_tela_cheia_canvas = None
         self._selecao_tela_cheia_canvas_original = None
         self._botao_tipo_roi_segmento = None
         self._botao_tipo_roi_circulo = None
+        self._label_zoom_selecao = None
         if janela is not None:
             try:
                 janela.grab_release()
