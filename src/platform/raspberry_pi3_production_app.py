@@ -56,8 +56,11 @@ from src.platform.raspberry_pi3_settings import (
 from src.platform.raspberry_runtime_fixes import (
     RaspberryRuntimeFixesMixin,
 )
-from src.platform.rotated_preview_roi_editor import (
-    RotatedPreviewAreaRoiEditorMixin,
+from src.platform.segment_display_roi_editor import (
+    SegmentDisplayRoiEditorMixin,
+)
+from src.platform.segment_display_runtime import (
+    SegmentDisplayRuntimeMixin,
 )
 
 
@@ -66,7 +69,8 @@ class RaspberryPi3ProductionApp(
     DisplayThemeMixin,
     FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
-    RotatedPreviewAreaRoiEditorMixin,
+    SegmentDisplayRuntimeMixin,
+    SegmentDisplayRoiEditorMixin,
     ResolutionSynchronizedLedMasksMixin,
     NativeResolutionConfigMixin,
     RaspberryCameraStabilityMixin,
@@ -75,26 +79,16 @@ class RaspberryPi3ProductionApp(
     AutomaticLedDetectionMixin,
     GPIOEnabledRaspberryPi3ODINApp,
 ):
-    """Perfil final do Raspberry com o acesso à produção integrado ao topo."""
+    """Perfil final do display com ROI circular e segmento chanfrado."""
 
     def __init__(self, root: tk.Tk) -> None:
-        # O perfil final não negocia resolução automaticamente: desenvolvimento
-        # e Produção F2 usam sempre 1920x1080 a 20 FPS. Em falhas, somente o
-        # backend/formato pode ser alternado, mantendo a geometria da imagem.
-        raspberry_pi3_profile.RaspberryPi3CameraService = (
-            FixedFullHdCameraService
-        )
+        raspberry_pi3_profile.RaspberryPi3CameraService = FixedFullHdCameraService
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
-        # Deve ser instalado depois do repositório de projetos. A partir daqui,
-        # máscaras são persistidas e carregadas somente em pixels absolutos.
         instalar_repositorio_mascaras_absolutas()
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
-        # O perfil final usa uma janela própria: metade para o resultado e
-        # metade para a câmera responsiva. A variante azul também garante que
-        # nenhum foco, grab ou callback visual bloqueie a tela principal.
         self.operacao_window = BlueRaspberryOperationWindow(
             root=self.root,
             on_trigger=self.disparar_inspecao_operacao,
@@ -109,12 +103,7 @@ class RaspberryPi3ProductionApp(
             add="+",
         )
 
-        parent = getattr(
-            self.view,
-            "frame_topo_direita",
-            self.root,
-        )
-
+        parent = getattr(self.view, "frame_topo_direita", self.root)
         self.botao_operacao = tk.Button(
             parent,
             text="PRODUÇÃO  F2",
