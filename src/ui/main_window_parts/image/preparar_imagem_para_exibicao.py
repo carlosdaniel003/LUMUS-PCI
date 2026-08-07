@@ -11,3 +11,4 @@ def preparar_imagem_para_exibicao(self, imagem_canvas) -> None:
         self.label_meta_resolucao.config(text=resolucao)
 
     self.atualizar_imagem_principal_redimensionada()
+    self.atualizar_imagem_tela_cheia_se_aberta("principal")
