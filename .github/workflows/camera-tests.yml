@@ -104,5 +104,6 @@ jobs:
             tests.test_main_image_rotation \
             tests.test_display_theme \
             tests.test_segment_roi \
+            tests.test_segment_runtime_persistence \
             tests.test_segment_operation_preview \
             -v
