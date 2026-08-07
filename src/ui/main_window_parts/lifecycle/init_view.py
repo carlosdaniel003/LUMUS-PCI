@@ -57,7 +57,15 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self.configurar_atalhos_tela()
     self.configurar_estilo_tabela()
     self.criar_layout()
-    self.configurar_abertura_imagens_tela_cheia()
+
+    configurar_fullscreen_imagens = getattr(
+        self,
+        "configurar_abertura_imagens_tela_cheia",
+        None,
+    )
+    if callable(configurar_fullscreen_imagens):
+        configurar_fullscreen_imagens()
+
     self.iniciar_relogio_sistema()
 
     # A janela abre em tela cheia no monitor atual. F11 usa o mesmo método para
