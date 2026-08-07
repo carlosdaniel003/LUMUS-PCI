@@ -207,17 +207,20 @@ class LedSelection:
         )
 
     def to_dict(self) -> dict:
+        # Círculos mantêm exatamente o formato histórico para não modificar
+        # projetos existentes nem quebrar integrações que esperam quatro campos.
         dados = {
             "id": self.id,
-            "tipo_roi": self.tipo_roi,
             "centro_x": int(self.centro_x),
             "centro_y": int(self.centro_y),
             "raio": int(self.raio),
         }
 
+        # Somente a nova geometria precisa declarar explicitamente sua forma.
         if self.eh_segmento:
             dados.update(
                 {
+                    "tipo_roi": TIPO_ROI_SEGMENTO,
                     "largura": int(self.largura or 48),
                     "altura": int(self.altura or 14),
                     "angulo": float(self.angulo),
