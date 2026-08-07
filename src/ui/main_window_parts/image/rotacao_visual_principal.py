@@ -92,7 +92,30 @@ def converter_ponto_visual_para_original(
     return x, y
 
 
-def obter_ponto_visual_view(self, x: float, y: float) -> tuple[float, float]:
+def converter_delta_visual_para_original(
+    delta_x_visual: int,
+    delta_y_visual: int,
+    rotacao: int,
+) -> tuple[int, int]:
+    """Converte um deslocamento visto na tela para o referencial da câmera."""
+    dx = int(delta_x_visual)
+    dy = int(delta_y_visual)
+    angulo = normalizar_rotacao_visual(rotacao)
+
+    if angulo == 90:
+        return dy, -dx
+    if angulo == 180:
+        return -dx, -dy
+    if angulo == 270:
+        return -dy, dx
+    return dx, dy
+
+
+def obter_ponto_visual_view(
+    self,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
     imagem = getattr(self, "imagem_canvas_original", None)
     if imagem is None:
         return float(x), float(y)
@@ -104,6 +127,44 @@ def obter_ponto_visual_view(self, x: float, y: float) -> tuple[float, float]:
         altura,
         getattr(self, "rotacao_visual_principal", 0),
     )
+
+
+def obter_ponto_canvas_view(
+    self,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    """Projeta uma coordenada real da imagem no Canvas atualmente rotacionado."""
+    visual_x, visual_y = obter_ponto_visual_view(self, x, y)
+    escala = max(
+        0.000001,
+        float(getattr(self, "escala_exibicao", 1.0)),
+    )
+    return (
+        float(getattr(self, "deslocamento_imagem_x", 0))
+        + visual_x * escala,
+        float(getattr(self, "deslocamento_imagem_y", 0))
+        + visual_y * escala,
+    )
+
+
+def obter_retangulo_canvas_view(
+    self,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+) -> tuple[float, float, float, float]:
+    """Projeta um retângulo da imagem e normaliza suas bordas no Canvas."""
+    pontos = (
+        obter_ponto_canvas_view(self, x1, y1),
+        obter_ponto_canvas_view(self, x2, y1),
+        obter_ponto_canvas_view(self, x2, y2),
+        obter_ponto_canvas_view(self, x1, y2),
+    )
+    xs = [ponto[0] for ponto in pontos]
+    ys = [ponto[1] for ponto in pontos]
+    return min(xs), min(ys), max(xs), max(ys)
 
 
 def atualizar_botao_rotacao_principal(self) -> None:
