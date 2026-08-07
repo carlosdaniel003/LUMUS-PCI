@@ -83,6 +83,7 @@ jobs:
             tests.test_area_roi_keyboard \
             tests.test_rotated_roi_editor \
             tests.test_rotated_magnifier \
+            tests.test_auxiliary_image_rotation \
             tests.test_fixed_mask_geometry_guard \
             tests.test_fullscreen_led_selection \
             tests.test_fullscreen_image_viewer \
