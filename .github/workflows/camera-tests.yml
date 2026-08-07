@@ -41,6 +41,7 @@ jobs:
             src/platform/area_roi_editor_v3.py \
             src/platform/area_roi_editor_v4.py \
             src/platform/rotated_roi_editor.py \
+            src/platform/rotated_preview_roi_editor.py \
             src/platform/fullscreen_led_selection.py \
             src/platform/display_awake_runtime.py \
             src/platform/display_theme.py \
@@ -53,6 +54,8 @@ jobs:
             src/ui/main_window_parts/image/fullscreen_image_viewer.py \
             src/ui/main_window_parts/image/exibir_imagem_em_canvas.py \
             src/ui/main_window_parts/image/preparar_imagem_para_exibicao.py \
+            src/ui/main_window_parts/magnifier/atualizar_lupa_canvas.py \
+            src/ui/main_window_parts/magnifier/desenhar_lupa_canvas.py \
             src/ui/main_window_parts/canvas/desenhar_resultado_led.py \
             src/ui/main_window_parts/canvas/desenhar_led_selecionado.py \
             src/ui/main_window_parts/canvas/desenhar_guias_leds_camera.py \
@@ -79,6 +82,7 @@ jobs:
             tests.test_area_roi_editor \
             tests.test_area_roi_keyboard \
             tests.test_rotated_roi_editor \
+            tests.test_rotated_magnifier \
             tests.test_fixed_mask_geometry_guard \
             tests.test_fullscreen_led_selection \
             tests.test_fullscreen_image_viewer \
