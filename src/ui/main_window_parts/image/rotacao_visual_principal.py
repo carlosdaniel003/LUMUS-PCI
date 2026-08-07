@@ -5,6 +5,12 @@ import tkinter as tk
 
 
 ROTACOES_VISUAIS = (0, 90, 180, 270)
+PAINEIS_AUXILIARES_ROTACIONADOS = (
+    ("canvas_mapa_intensidade", "heatmap"),
+    ("canvas_imagem_teste", "canal_v"),
+    ("canvas_mascara", "mascara"),
+    ("canvas_roi_debug", "roi_debug"),
+)
 
 
 def normalizar_rotacao_visual(valor) -> int:
@@ -229,8 +235,30 @@ def _atualizar_fundo_e_imagem_canvas(self) -> None:
     canvas.tag_raise(item_imagem, fundo)
 
 
+def redesenhar_paineis_auxiliares_rotacionados(self) -> None:
+    """Redesenha os quatro painéis derivados usando a mesma rotação visual."""
+    imagens = getattr(self, "imagens_auxiliares_originais", {})
+    if not isinstance(imagens, dict):
+        return
+
+    exibir = getattr(self, "exibir_imagem_em_canvas", None)
+    if not callable(exibir):
+        return
+
+    for atributo_canvas, chave in PAINEIS_AUXILIARES_ROTACIONADOS:
+        canvas_auxiliar = getattr(self, atributo_canvas, None)
+        imagem_original = imagens.get(chave)
+        if canvas_auxiliar is None or imagem_original is None:
+            continue
+        exibir(
+            canvas=canvas_auxiliar,
+            imagem=imagem_original,
+            chave=chave,
+        )
+
+
 def redesenhar_rotacao_visual_principal(self) -> None:
-    """Redesenha imagem e marcações sem atualizar histórico/KPIs."""
+    """Redesenha imagem principal, marcações e painéis auxiliares sem reanalisar."""
     if getattr(self, "imagem_canvas_original", None) is None:
         return
 
@@ -238,30 +266,30 @@ def redesenhar_rotacao_visual_principal(self) -> None:
     _atualizar_fundo_e_imagem_canvas(self)
 
     canvas = getattr(self, "canvas", None)
-    if canvas is None:
-        return
+    if canvas is not None:
+        canvas.delete("marcacoes_canvas")
+        canvas.delete("lupa_canvas")
 
-    canvas.delete("marcacoes_canvas")
-    canvas.delete("lupa_canvas")
+        resultados = getattr(self, "ultimo_resultado_led_atual", None)
+        leds = getattr(self, "ultimo_led_selecionado", None)
+        resultados_normalizados = self._normalizar_resultados_led(resultados)
+        leds_normalizados = self._normalizar_leds_selecionados(leds)
 
-    resultados = getattr(self, "ultimo_resultado_led_atual", None)
-    leds = getattr(self, "ultimo_led_selecionado", None)
-    resultados_normalizados = self._normalizar_resultados_led(resultados)
-    leds_normalizados = self._normalizar_leds_selecionados(leds)
+        if resultados_normalizados:
+            self.desenhar_resultados_led(resultados_normalizados)
+        elif leds_normalizados:
+            selecao_manual_camera = bool(
+                getattr(self, "selecao_manual_camera_visivel", False)
+            )
+            if (
+                getattr(self, "tela_ao_vivo_ativa", False)
+                and not selecao_manual_camera
+            ):
+                self.desenhar_guias_leds_camera(leds_normalizados)
+            else:
+                self.desenhar_leds_selecionados(leds_normalizados)
 
-    if resultados_normalizados:
-        self.desenhar_resultados_led(resultados_normalizados)
-    elif leds_normalizados:
-        selecao_manual_camera = bool(
-            getattr(self, "selecao_manual_camera_visivel", False)
-        )
-        if (
-            getattr(self, "tela_ao_vivo_ativa", False)
-            and not selecao_manual_camera
-        ):
-            self.desenhar_guias_leds_camera(leds_normalizados)
-        else:
-            self.desenhar_leds_selecionados(leds_normalizados)
+    redesenhar_paineis_auxiliares_rotacionados(self)
 
 
 def definir_rotacao_visual_principal(
@@ -269,7 +297,7 @@ def definir_rotacao_visual_principal(
     rotacao: int,
     notificar: bool = False,
 ) -> None:
-    """Troca somente a orientação apresentada no Canvas principal."""
+    """Troca a orientação apresentada pela imagem principal e derivados."""
     angulo = normalizar_rotacao_visual(rotacao)
     if angulo == getattr(self, "rotacao_visual_principal", 0):
         atualizar_botao_rotacao_principal(self)
@@ -285,13 +313,20 @@ def definir_rotacao_visual_principal(
         None,
     )
     if callable(atualizar_fullscreen):
-        atualizar_fullscreen("principal")
+        for chave in (
+            "principal",
+            "heatmap",
+            "canal_v",
+            "mascara",
+            "roi_debug",
+        ):
+            atualizar_fullscreen(chave)
 
     if notificar:
         atualizar_status = getattr(self, "atualizar_status", None)
         if callable(atualizar_status):
             atualizar_status(
-                f"Imagem principal rotacionada visualmente para {angulo}°. "
+                f"Visualizações rotacionadas para {angulo}°. "
                 "Câmera, análise e posições das ROIs não foram alteradas."
             )
 
