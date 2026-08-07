@@ -8,6 +8,7 @@ import numpy as np
 
 from config import DEFAULT_THRESHOLD_V
 from src.core.classifier import ReferenceLedClassifier
+from src.core.roi_geometry import criar_mascaras_roi, normalizar_tipo_roi
 from src.models.led_features import LedFeatures
 from src.models.led_selection import LedSelection
 
@@ -29,6 +30,10 @@ class PreparedLed:
     mascara_led: np.ndarray
     mascara_interna: np.ndarray
     mascara_anel: np.ndarray
+    tipo_roi: str = "circulo"
+    largura: int | None = None
+    altura: int | None = None
+    angulo: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -40,13 +45,7 @@ class OperationResult:
 
 
 class OperationEngine:
-    """
-    Motor de inspeção de caminho curto para produção.
-
-    As referências, o classificador, as coordenadas e as máscaras das ROIs são
-    preparados uma vez. Em cada disparo, o frame é convertido para HSV apenas
-    uma vez e somente as pequenas regiões dos LEDs são avaliadas.
-    """
+    """Motor de inspeção de caminho curto para produção."""
 
     def __init__(self) -> None:
         self._classifier: ReferenceLedClassifier | None = None
@@ -80,39 +79,29 @@ class OperationEngine:
         frame_height = int(frame_height)
 
         if frame_width <= 0 or frame_height <= 0:
-            raise OperationPreparationError(
-                "Resolução da câmera inválida."
-            )
-
+            raise OperationPreparationError("Resolução da câmera inválida.")
         if features_reference_on is None or features_reference_off is None:
             raise OperationPreparationError(
                 "Referências de LED aceso e apagado não carregadas."
             )
-
         if not leds:
             raise OperationPreparationError(
                 "Nenhuma posição fixa de LED foi configurada."
             )
 
         prepared_leds: list[PreparedLed] = []
-
         for led in leds:
-            prepared_led = self._prepare_led(
-                led,
-                frame_width,
-                frame_height,
-            )
+            prepared_led = self._prepare_led(led, frame_width, frame_height)
             if prepared_led is not None:
                 prepared_leds.append(prepared_led)
 
         if not prepared_leds:
             raise OperationPreparationError(
-                "As posições dos LEDs não são válidas para 640x480."
+                f"As posições das ROIs não são válidas para {frame_width}x{frame_height}."
             )
-
         if len(prepared_leds) != len(leds):
             raise OperationPreparationError(
-                "Uma ou mais posições de LED ficaram fora da imagem."
+                "Uma ou mais posições de ROI ficaram fora da imagem."
             )
 
         self._classifier = ReferenceLedClassifier(
@@ -129,65 +118,35 @@ class OperationEngine:
         frame_width: int,
         frame_height: int,
     ) -> PreparedLed | None:
-        center_x = int(led.centro_x)
-        center_y = int(led.centro_y)
-        radius = max(2, int(led.raio))
-
-        x1 = max(0, center_x - radius)
-        y1 = max(0, center_y - radius)
-        x2 = min(frame_width, center_x + radius + 1)
-        y2 = min(frame_height, center_y + radius + 1)
-
-        if x2 <= x1 or y2 <= y1:
+        preparado = criar_mascaras_roi(led, frame_width, frame_height)
+        if preparado is None:
             return None
 
-        local_center_x = center_x - x1
-        local_center_y = center_y - y1
-        roi_height = y2 - y1
-        roi_width = x2 - x1
-
-        yy, xx = np.ogrid[:roi_height, :roi_width]
-        squared_distance = (
-            (xx - local_center_x) ** 2
-            + (yy - local_center_y) ** 2
-        )
-
-        inner_radius = max(2, int(radius * 0.45))
-        ring_inner_radius = max(
-            inner_radius + 1,
-            int(radius * 0.62),
-        )
-
-        led_mask = squared_distance <= radius**2
-        inner_mask = squared_distance <= inner_radius**2
-        ring_mask = (
-            (squared_distance >= ring_inner_radius**2)
-            & (squared_distance <= radius**2)
-        )
-
+        x1, y1, x2, y2, led_mask, inner_mask, ring_mask = preparado
         if not np.any(led_mask):
             return None
 
         return PreparedLed(
             id=str(led.id),
-            centro_x=center_x,
-            centro_y=center_y,
-            raio=radius,
-            x1=x1,
-            y1=y1,
-            x2=x2,
-            y2=y2,
+            centro_x=int(led.centro_x),
+            centro_y=int(led.centro_y),
+            raio=max(2, int(led.raio)),
+            x1=int(x1),
+            y1=int(y1),
+            x2=int(x2),
+            y2=int(y2),
             mascara_led=led_mask,
             mascara_interna=inner_mask,
             mascara_anel=ring_mask,
+            tipo_roi=normalizar_tipo_roi(getattr(led, "tipo_roi", None)),
+            largura=getattr(led, "largura", None),
+            altura=getattr(led, "altura", None),
+            angulo=float(getattr(led, "angulo", 0.0) or 0.0),
         )
 
     def analyze(self, frame) -> OperationResult:
         if not self.ready or self._classifier is None:
-            raise OperationPreparationError(
-                "Motor de operação não preparado."
-            )
-
+            raise OperationPreparationError("Motor de operação não preparado.")
         if frame is None or getattr(frame, "size", 0) == 0:
             raise OperationPreparationError(
                 "A câmera não forneceu um frame válido."
@@ -208,10 +167,7 @@ class OperationEngine:
         failed_led_ids: list[str] = []
 
         for prepared_led in self._prepared_leds:
-            features = self._extract_prepared_features(
-                hsv_frame,
-                prepared_led,
-            )
+            features = self._extract_prepared_features(hsv_frame, prepared_led)
             result = self._classifier.classificar_led_por_referencia(
                 features_atual=features,
                 centro_x=prepared_led.centro_x,
@@ -219,8 +175,11 @@ class OperationEngine:
                 raio=prepared_led.raio,
             )
             result.id = prepared_led.id
+            result.tipo_roi = prepared_led.tipo_roi
+            result.largura = prepared_led.largura
+            result.altura = prepared_led.altura
+            result.angulo = prepared_led.angulo
             results.append(result)
-
             if result.status != "ACESO":
                 failed_led_ids.append(prepared_led.id)
 
@@ -241,7 +200,6 @@ class OperationEngine:
             prepared_led.y1:prepared_led.y2,
             prepared_led.x1:prepared_led.x2,
         ]
-
         if roi_hsv.size == 0:
             return LedFeatures()
 
@@ -267,52 +225,33 @@ class OperationEngine:
         v_p90 = float(np.percentile(pixels_v, 90))
         v_p95 = float(np.percentile(pixels_v, 95))
         v_p99 = float(np.percentile(pixels_v, 99))
-
         s_mean = float(np.mean(pixels_s))
         s_std = float(np.std(pixels_s))
         s_p90 = float(np.percentile(pixels_s, 90))
         h_mean = float(np.mean(pixels_h))
 
         inner_v_mean = (
-            float(np.mean(inner_pixels_v))
-            if inner_pixels_v.size
-            else 0.0
+            float(np.mean(inner_pixels_v)) if inner_pixels_v.size else 0.0
         )
         ring_v_mean = (
-            float(np.mean(ring_pixels_v))
-            if ring_pixels_v.size
-            else 0.0
+            float(np.mean(ring_pixels_v)) if ring_pixels_v.size else 0.0
         )
         inner_s_mean = (
-            float(np.mean(inner_pixels_s))
-            if inner_pixels_s.size
-            else 0.0
+            float(np.mean(inner_pixels_s)) if inner_pixels_s.size else 0.0
         )
         ring_s_mean = (
-            float(np.mean(ring_pixels_s))
-            if ring_pixels_s.size
-            else 0.0
+            float(np.mean(ring_pixels_s)) if ring_pixels_s.size else 0.0
         )
 
         center_to_ring_v = inner_v_mean - ring_v_mean
         center_to_ring_s = inner_s_mean - ring_s_mean
-
         percent_on = float(
-            np.count_nonzero(pixels_v >= DEFAULT_THRESHOLD_V)
-            / pixels_v.size
+            np.count_nonzero(pixels_v >= DEFAULT_THRESHOLD_V) / pixels_v.size
         )
-        percent_hot_220 = float(
-            np.count_nonzero(pixels_v >= 220) / pixels_v.size
-        )
-        percent_hot_235 = float(
-            np.count_nonzero(pixels_v >= 235) / pixels_v.size
-        )
-        percent_hot_245 = float(
-            np.count_nonzero(pixels_v >= 245) / pixels_v.size
-        )
-        percent_hot_250 = float(
-            np.count_nonzero(pixels_v >= 250) / pixels_v.size
-        )
+        percent_hot_220 = float(np.count_nonzero(pixels_v >= 220) / pixels_v.size)
+        percent_hot_235 = float(np.count_nonzero(pixels_v >= 235) / pixels_v.size)
+        percent_hot_245 = float(np.count_nonzero(pixels_v >= 245) / pixels_v.size)
+        percent_hot_250 = float(np.count_nonzero(pixels_v >= 250) / pixels_v.size)
 
         glow_score = (
             max(0.0, center_to_ring_v) * 1.20
