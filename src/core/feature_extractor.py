@@ -2,7 +2,9 @@ import cv2
 import numpy as np
 
 from config import DEFAULT_THRESHOLD_V
+from src.core.roi_geometry import criar_mascaras_roi, roi_dentro_imagem
 from src.models.led_features import LedFeatures
+from src.models.led_selection import LedSelection
 
 
 def validar_centro_led(
@@ -23,46 +25,35 @@ def validar_centro_led(
     return True
 
 
+def validar_roi_selecao(
+    led: LedSelection,
+    largura_original: int,
+    altura_original: int,
+) -> bool:
+    return roi_dentro_imagem(led, largura_original, altura_original)
+
+
 def extrair_features_referencia_led(imagem) -> LedFeatures:
     altura, largura = imagem.shape[:2]
     centro_x = int(largura / 2)
     centro_y = int(altura / 2)
     raio = max(3, int(min(largura, altura) * 0.45))
-
     return extrair_features_led(imagem, centro_x, centro_y, raio)
 
 
-def extrair_features_led(imagem, centro_x: int, centro_y: int, raio: int) -> LedFeatures:
-    altura, largura = imagem.shape[:2]
-
-    x1 = max(0, centro_x - raio)
-    y1 = max(0, centro_y - raio)
-    x2 = min(largura, centro_x + raio + 1)
-    y2 = min(altura, centro_y + raio + 1)
-
-    roi = imagem[y1:y2, x1:x2]
-
-    if roi.size == 0:
+def _calcular_features_mascaras(
+    roi,
+    mascara_led,
+    mascara_interna,
+    mascara_anel,
+) -> LedFeatures:
+    if roi is None or getattr(roi, "size", 0) == 0:
         return LedFeatures()
 
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     canal_h = hsv[:, :, 0]
     canal_s = hsv[:, :, 1]
     canal_v = hsv[:, :, 2]
-
-    altura_roi, largura_roi = canal_v.shape[:2]
-    centro_local_x = centro_x - x1
-    centro_local_y = centro_y - y1
-
-    yy, xx = np.ogrid[:altura_roi, :largura_roi]
-    distancia_quadrada = (xx - centro_local_x) ** 2 + (yy - centro_local_y) ** 2
-
-    raio_interno = max(2, int(raio * 0.45))
-    raio_anel_interno = max(raio_interno + 1, int(raio * 0.62))
-
-    mascara_led = distancia_quadrada <= raio**2
-    mascara_interna = distancia_quadrada <= raio_interno**2
-    mascara_anel = (distancia_quadrada >= raio_anel_interno**2) & (distancia_quadrada <= raio**2)
 
     pixels_h = canal_h[mascara_led]
     pixels_s = canal_s[mascara_led]
@@ -137,4 +128,42 @@ def extrair_features_led(imagem, centro_x: int, centro_y: int, raio: int) -> Led
         area_pixels=int(pixels_v.size),
         inner_area_pixels=int(pixels_v_interno.size),
         ring_area_pixels=int(pixels_v_anel.size),
+    )
+
+
+def extrair_features_selecao(imagem, led: LedSelection) -> LedFeatures:
+    if imagem is None or getattr(imagem, "size", 0) == 0 or led is None:
+        return LedFeatures()
+
+    altura, largura = imagem.shape[:2]
+    preparado = criar_mascaras_roi(led, largura, altura)
+    if preparado is None:
+        return LedFeatures()
+
+    x1, y1, x2, y2, mascara_led, mascara_interna, mascara_anel = preparado
+    roi = imagem[y1:y2, x1:x2]
+    return _calcular_features_mascaras(
+        roi,
+        mascara_led,
+        mascara_interna,
+        mascara_anel,
+    )
+
+
+def extrair_features_led(
+    imagem,
+    centro_x: int,
+    centro_y: int,
+    raio: int,
+) -> LedFeatures:
+    """Compatibilidade: o fluxo legado continua analisando uma ROI circular."""
+    return extrair_features_selecao(
+        imagem,
+        LedSelection(
+            id="LED_SELECIONADO",
+            centro_x=int(centro_x),
+            centro_y=int(centro_y),
+            raio=int(raio),
+            tipo_roi="circulo",
+        ),
     )
