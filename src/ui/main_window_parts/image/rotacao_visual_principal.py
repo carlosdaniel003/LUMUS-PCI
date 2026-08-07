@@ -1,0 +1,174 @@
+from __future__ import annotations
+
+import cv2
+
+
+ROTACOES_VISUAIS = (0, 90, 180, 270)
+
+
+def normalizar_rotacao_visual(valor) -> int:
+    try:
+        rotacao = int(valor) % 360
+    except (TypeError, ValueError):
+        return 0
+    return rotacao if rotacao in ROTACOES_VISUAIS else 0
+
+
+def proxima_rotacao_visual(valor) -> int:
+    atual = normalizar_rotacao_visual(valor)
+    indice = ROTACOES_VISUAIS.index(atual)
+    return ROTACOES_VISUAIS[(indice + 1) % len(ROTACOES_VISUAIS)]
+
+
+def dimensoes_visuais(
+    largura_original: int,
+    altura_original: int,
+    rotacao: int,
+) -> tuple[int, int]:
+    largura = max(1, int(largura_original))
+    altura = max(1, int(altura_original))
+    angulo = normalizar_rotacao_visual(rotacao)
+    if angulo in (90, 270):
+        return altura, largura
+    return largura, altura
+
+
+def rotacionar_imagem_visual(imagem, rotacao: int):
+    """Rotaciona somente a cópia usada na interface; não altera a fonte."""
+    if imagem is None:
+        return None
+    angulo = normalizar_rotacao_visual(rotacao)
+    if angulo == 90:
+        return cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
+    if angulo == 180:
+        return cv2.rotate(imagem, cv2.ROTATE_180)
+    if angulo == 270:
+        return cv2.rotate(imagem, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return imagem
+
+
+def converter_ponto_original_para_visual(
+    x: float,
+    y: float,
+    largura_original: int,
+    altura_original: int,
+    rotacao: int,
+) -> tuple[float, float]:
+    largura = max(1, int(largura_original))
+    altura = max(1, int(altura_original))
+    angulo = normalizar_rotacao_visual(rotacao)
+    x = float(x)
+    y = float(y)
+
+    if angulo == 90:
+        return float(altura - 1) - y, x
+    if angulo == 180:
+        return float(largura - 1) - x, float(altura - 1) - y
+    if angulo == 270:
+        return y, float(largura - 1) - x
+    return x, y
+
+
+def converter_ponto_visual_para_original(
+    x: float,
+    y: float,
+    largura_original: int,
+    altura_original: int,
+    rotacao: int,
+) -> tuple[float, float]:
+    largura = max(1, int(largura_original))
+    altura = max(1, int(altura_original))
+    angulo = normalizar_rotacao_visual(rotacao)
+    x = float(x)
+    y = float(y)
+
+    if angulo == 90:
+        return y, float(altura - 1) - x
+    if angulo == 180:
+        return float(largura - 1) - x, float(altura - 1) - y
+    if angulo == 270:
+        return float(largura - 1) - y, x
+    return x, y
+
+
+def obter_ponto_visual_view(self, x: float, y: float) -> tuple[float, float]:
+    imagem = getattr(self, "imagem_canvas_original", None)
+    if imagem is None:
+        return float(x), float(y)
+    altura, largura = imagem.shape[:2]
+    return converter_ponto_original_para_visual(
+        x,
+        y,
+        largura,
+        altura,
+        getattr(self, "rotacao_visual_principal", 0),
+    )
+
+
+def atualizar_botao_rotacao_principal(self) -> None:
+    botao = getattr(self, "botao_rotacao_principal", None)
+    if botao is None:
+        return
+    angulo = normalizar_rotacao_visual(
+        getattr(self, "rotacao_visual_principal", 0)
+    )
+    try:
+        botao.config(text=f"↻ {angulo}°")
+    except Exception:
+        pass
+
+
+def definir_rotacao_visual_principal(
+    self,
+    rotacao: int,
+    notificar: bool = False,
+) -> None:
+    """Troca somente a orientação apresentada no Canvas principal."""
+    angulo = normalizar_rotacao_visual(rotacao)
+    if angulo == getattr(self, "rotacao_visual_principal", 0):
+        atualizar_botao_rotacao_principal(self)
+        return
+
+    self.rotacao_visual_principal = angulo
+    atualizar_botao_rotacao_principal(self)
+
+    if getattr(self, "imagem_canvas_original", None) is not None:
+        self.atualizar_imagem_principal_redimensionada()
+        self.desenhar_canvas(
+            getattr(self, "ultimo_led_selecionado", None),
+            getattr(self, "ultimo_resultado_led_atual", None),
+        )
+
+    atualizar_fullscreen = getattr(
+        self,
+        "atualizar_imagem_tela_cheia_se_aberta",
+        None,
+    )
+    if callable(atualizar_fullscreen):
+        atualizar_fullscreen("principal")
+
+    if notificar:
+        atualizar_status = getattr(self, "atualizar_status", None)
+        if callable(atualizar_status):
+            atualizar_status(
+                f"Imagem principal rotacionada visualmente para {angulo}°. "
+                "Câmera, análise e posições das ROIs não foram alteradas."
+            )
+
+
+def rotacionar_imagem_principal(self) -> None:
+    if bool(getattr(self, "selecao_led_ativa", False)):
+        atualizar_status = getattr(self, "atualizar_status", None)
+        if callable(atualizar_status):
+            atualizar_status(
+                "Finalize o modo Selecionar LEDs antes de rotacionar a visualização."
+            )
+        return
+
+    definir_rotacao_visual_principal(
+        self,
+        proxima_rotacao_visual(
+            getattr(self, "rotacao_visual_principal", 0)
+        ),
+        notificar=True,
+    )
