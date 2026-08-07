@@ -3,6 +3,7 @@ from __future__ import annotations
 from threading import RLock
 from typing import Iterable
 
+from src.core.roi_geometry import TIPO_ROI_SEGMENTO, normalizar_tipo_roi
 from src.infra.config_repository import ConfigRepository
 from src.models.led_selection import LedSelection
 
@@ -38,19 +39,35 @@ def copiar_mascaras_absolutas(
 def assinatura_geometria(
     leds: Iterable[LedSelection] | None,
 ) -> tuple[tuple, ...]:
-    return tuple(
-        (
-            str(led.id),
-            str(getattr(led, "tipo_roi", "circulo")),
-            int(led.centro_x),
-            int(led.centro_y),
-            int(led.raio),
-            None if getattr(led, "largura", None) is None else int(led.largura),
-            None if getattr(led, "altura", None) is None else int(led.altura),
-            round(float(getattr(led, "angulo", 0.0) or 0.0), 6),
-        )
-        for led in (leds or ())
-    )
+    """Assinatura compatível com o legado e completa para segmentos."""
+    assinatura = []
+    for led in leds or ():
+        tipo = normalizar_tipo_roi(getattr(led, "tipo_roi", None))
+        if tipo == TIPO_ROI_SEGMENTO:
+            assinatura.append(
+                (
+                    str(led.id),
+                    TIPO_ROI_SEGMENTO,
+                    int(led.centro_x),
+                    int(led.centro_y),
+                    int(led.raio),
+                    None if getattr(led, "largura", None) is None else int(led.largura),
+                    None if getattr(led, "altura", None) is None else int(led.altura),
+                    round(float(getattr(led, "angulo", 0.0) or 0.0), 6),
+                )
+            )
+        else:
+            # Mantém exatamente a assinatura histórica para não alterar os
+            # contratos e testes já existentes do perfil Raspberry.
+            assinatura.append(
+                (
+                    str(led.id),
+                    int(led.centro_x),
+                    int(led.centro_y),
+                    int(led.raio),
+                )
+            )
+    return tuple(assinatura)
 
 
 def instalar_repositorio_mascaras_absolutas() -> None:
