@@ -6,9 +6,6 @@ import src.platform.raspberry_pi3_profile as raspberry_pi3_profile
 from src.platform.automatic_led_detection import (
     AutomaticLedDetectionMixin,
 )
-from src.platform.blue_operation_window import (
-    BlueRaspberryOperationWindow,
-)
 from src.platform.camera_advanced_config import (
     instalar_normalizacao_config_repository,
 )
@@ -56,6 +53,9 @@ from src.platform.raspberry_pi3_settings import (
 from src.platform.raspberry_runtime_fixes import (
     RaspberryRuntimeFixesMixin,
 )
+from src.platform.segment_display_operation_window import (
+    SegmentDisplayOperationWindow,
+)
 from src.platform.segment_display_roi_editor import (
     SegmentDisplayRoiEditorMixin,
 )
@@ -89,7 +89,7 @@ class RaspberryPi3ProductionApp(
         super().__init__(root)
 
     def _instalar_tela_operacao(self) -> None:
-        self.operacao_window = BlueRaspberryOperationWindow(
+        self.operacao_window = SegmentDisplayOperationWindow(
             root=self.root,
             on_trigger=self.disparar_inspecao_operacao,
             on_close=self.fechar_tela_operacao,
