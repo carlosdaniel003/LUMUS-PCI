@@ -16,7 +16,8 @@ from src.platform.segment_project_geometry_persistence import (
 
 class FakeRepository:
     def __init__(self, leds):
-        self._leds = leds
+        self._leds = [copiar_led_geometria_completa(led) for led in leds]
+        self.ultimo_projeto = None
 
     def obter_projeto_led_ativo(self):
         return "DISPLAY-7SEG"
@@ -24,6 +25,18 @@ class FakeRepository:
     def carregar_leds_fixos(self, projeto=None):
         self.ultimo_projeto = projeto
         return [copiar_led_geometria_completa(led) for led in self._leds]
+
+    def salvar_leds_fixos(
+        self,
+        leds_fixos,
+        largura_base=None,
+        altura_base=None,
+        projeto=None,
+    ):
+        del largura_base, altura_base
+        self.ultimo_projeto = projeto
+        self._leds = [copiar_led_geometria_completa(led) for led in leds_fixos]
+        return {"fixed_leds": [led.to_dict() for led in self._leds]}
 
 
 class FakeView:
@@ -59,8 +72,8 @@ class BaseQuePerdeGeometria:
         self.projeto_led_ativo = "DISPLAY-7SEG"
 
     def carregar_leds_fixos(self):
-        # Reproduz o defeito observado no fluxo legado: o projeto e carregado,
-        # mas as ROIs sao recriadas apenas com centro/raio e viram circulos.
+        # Reproduz o defeito observado no fluxo legado: o projeto é carregado,
+        # mas as ROIs são recriadas apenas com centro/raio e viram círculos.
         carregados = self.config_repository.carregar_leds_fixos(
             projeto=self.config_repository.obter_projeto_led_ativo()
         )
@@ -70,6 +83,28 @@ class BaseQuePerdeGeometria:
             for led in carregados
         ]
         self.view.desenhar_canvas(self.leds_selecionados, [])
+
+    def _salvar_leds_no_projeto(
+        self,
+        nome_projeto,
+        parent=None,
+        confirmar_substituicao=True,
+    ):
+        # Reproduz exatamente o caminho do ODIN base alcançado pelo botão
+        # "Salvar LEDs selecionados": antes de persistir, reconstrói somente
+        # id/x/y/raio, convertendo segmentos em círculos.
+        del parent, confirmar_substituicao
+        circulos = [
+            LedSelection(led.id, led.centro_x, led.centro_y, led.raio)
+            for led in self.leds_selecionados
+        ]
+        self.config_repository.salvar_leds_fixos(
+            circulos,
+            projeto=nome_projeto,
+        )
+        self.leds_fixos_configurados = circulos
+        self.leds_selecionados = circulos
+        return True
 
     def _atualizar_projeto_led_na_interface(self):
         return None
@@ -127,6 +162,47 @@ class SegmentProjectPersistenceTests(unittest.TestCase):
         self.assertGreaterEqual(len(app.view.desenhos), 2)
         ultimo = app.view.desenhos[-1][0][0]
         self.assertEqual(TIPO_ROI_SEGMENTO, ultimo.tipo_roi)
+
+    def test_salvar_leds_selecionados_regrava_geometria_completa(self):
+        app = RuntimeFake([])
+        app.leds_selecionados = [self._segmento()]
+
+        salvo = app._salvar_leds_no_projeto("DISPLAY-7SEG")
+
+        self.assertTrue(salvo)
+        persistido = app.config_repository.carregar_leds_fixos(
+            projeto="DISPLAY-7SEG"
+        )[0]
+        self.assertEqual(TIPO_ROI_SEGMENTO, persistido.tipo_roi)
+        self.assertEqual(150, persistido.largura)
+        self.assertEqual(28, persistido.altura)
+        self.assertAlmostEqual(-4.5, persistido.angulo)
+        self.assertEqual(TIPO_ROI_SEGMENTO, app.leds_selecionados[0].tipo_roi)
+
+    def test_ciclo_real_salvar_selecionados_e_carregar_projeto_nao_vira_bolinha(self):
+        app = RuntimeFake([])
+        app.leds_selecionados = [self._segmento()]
+
+        self.assertTrue(app._salvar_leds_no_projeto("DISPLAY-7SEG"))
+
+        # Simula a tela sendo limpa antes de o operador clicar em
+        # "Carregar projeto". O fluxo base tentará converter para círculo,
+        # e a camada display precisa recuperar a geometria persistida.
+        app.leds_selecionados = []
+        app.leds_fixos_configurados = []
+        app.view.desenhos.clear()
+        app.carregar_leds_fixos()
+
+        self.assertEqual(1, len(app.leds_selecionados))
+        carregado = app.leds_selecionados[0]
+        self.assertEqual(TIPO_ROI_SEGMENTO, carregado.tipo_roi)
+        self.assertEqual(150, carregado.largura)
+        self.assertEqual(28, carregado.altura)
+        self.assertAlmostEqual(-4.5, carregado.angulo)
+        self.assertEqual(
+            TIPO_ROI_SEGMENTO,
+            app.view.desenhos[-1][0][0].tipo_roi,
+        )
 
     def test_carregamento_misto_preserva_segmento_e_circulo(self):
         circulo = LedSelection("LED_DP", 900, 400, 10)
