@@ -56,8 +56,8 @@ from src.platform.raspberry_pi3_settings import (
 from src.platform.raspberry_runtime_fixes import (
     RaspberryRuntimeFixesMixin,
 )
-from src.platform.rotated_roi_editor import (
-    RotatedAreaRoiEditorMixin,
+from src.platform.rotated_preview_roi_editor import (
+    RotatedPreviewAreaRoiEditorMixin,
 )
 
 
@@ -66,7 +66,7 @@ class RaspberryPi3ProductionApp(
     DisplayThemeMixin,
     FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
-    RotatedAreaRoiEditorMixin,
+    RotatedPreviewAreaRoiEditorMixin,
     ResolutionSynchronizedLedMasksMixin,
     NativeResolutionConfigMixin,
     RaspberryCameraStabilityMixin,
