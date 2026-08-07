@@ -33,6 +33,14 @@ from src.ui.main_window_parts.image.preparar_imagem_para_exibicao import prepara
 from src.ui.main_window_parts.image.converter_canvas_para_imagem_original import converter_canvas_para_imagem_original
 from src.ui.main_window_parts.image.evento_redimensionar_canvas_principal import evento_redimensionar_canvas_principal
 from src.ui.main_window_parts.image.redesenhar_imagem_principal_apos_redimensionamento import redesenhar_imagem_principal_apos_redimensionamento
+from src.ui.main_window_parts.image.fullscreen_image_viewer import (
+    abrir_imagem_tela_cheia,
+    atualizar_imagem_tela_cheia_se_aberta,
+    configurar_abertura_imagens_tela_cheia,
+    evento_abrir_imagem_principal_tela_cheia,
+    fechar_imagem_tela_cheia,
+    redesenhar_imagem_tela_cheia,
+)
 from src.ui.main_window_parts.updates.atualizar_painel_resultado import atualizar_painel_resultado
 from src.ui.main_window_parts.history.criar_observacao_resultado import criar_observacao_resultado
 from src.ui.main_window_parts.history.desenhar_barra_confianca import desenhar_barra_confianca
@@ -68,6 +76,7 @@ from src.ui.main_window_parts.brand.carregar_logo_sistema import carregar_logo_s
 from src.ui.main_window_parts.magnifier.atualizar_lupa_canvas import atualizar_lupa_canvas
 from src.ui.main_window_parts.magnifier.desenhar_lupa_canvas import desenhar_lupa_canvas
 from src.ui.main_window_parts.magnifier.limpar_lupa_canvas import limpar_lupa_canvas
+
 
 class ODINView:
     """
@@ -125,6 +134,12 @@ class ODINView:
     converter_canvas_para_imagem_original = converter_canvas_para_imagem_original
     evento_redimensionar_canvas_principal = evento_redimensionar_canvas_principal
     redesenhar_imagem_principal_apos_redimensionamento = redesenhar_imagem_principal_apos_redimensionamento
+    abrir_imagem_tela_cheia = abrir_imagem_tela_cheia
+    fechar_imagem_tela_cheia = fechar_imagem_tela_cheia
+    redesenhar_imagem_tela_cheia = redesenhar_imagem_tela_cheia
+    atualizar_imagem_tela_cheia_se_aberta = atualizar_imagem_tela_cheia_se_aberta
+    evento_abrir_imagem_principal_tela_cheia = evento_abrir_imagem_principal_tela_cheia
+    configurar_abertura_imagens_tela_cheia = configurar_abertura_imagens_tela_cheia
     atualizar_painel_resultado = atualizar_painel_resultado
     criar_observacao_resultado = criar_observacao_resultado
     desenhar_barra_confianca = desenhar_barra_confianca
