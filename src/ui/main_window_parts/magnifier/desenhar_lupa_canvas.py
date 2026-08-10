@@ -3,7 +3,18 @@ import time
 import tkinter as tk
 
 import cv2
+import numpy as np
 
+from src.core.roi_geometry import (
+    SEGMENTO_ALTURA_PADRAO,
+    SEGMENTO_LARGURA_PADRAO,
+    TIPO_ROI_SEGMENTO,
+    bbox_roi,
+    normalizar_tipo_roi,
+    pontos_segmento,
+    raio_compatibilidade_segmento,
+)
+from src.models.led_selection import LedSelection
 from src.ui.main_window_parts.image.rotacao_visual_principal import (
     normalizar_rotacao_visual,
     rotacionar_imagem_visual,
@@ -50,6 +61,149 @@ def _obter_numero_led_preview(led) -> str:
     return id_led.split("_")[-1] if "_" in id_led else id_led
 
 
+def _obter_controlador_preview(self):
+    callbacks = getattr(self, "callbacks", {})
+    if not isinstance(callbacks, dict):
+        return None
+    callback = callbacks.get("evento_clique_esquerdo")
+    return getattr(callback, "__self__", None)
+
+
+def _obter_tipo_roi_edicao_preview(self) -> str:
+    controlador = _obter_controlador_preview(self)
+    return normalizar_tipo_roi(
+        getattr(controlador, "tipo_roi_edicao", None)
+    )
+
+
+def _obter_segmento_criacao_preview(self):
+    controlador = _obter_controlador_preview(self)
+    candidato = getattr(controlador, "_segmento_criacao_atual", None)
+    if (
+        candidato is not None
+        and normalizar_tipo_roi(getattr(candidato, "tipo_roi", None))
+        == TIPO_ROI_SEGMENTO
+    ):
+        return candidato
+    return None
+
+
+def pontos_segmento_preview_recorte(
+    led,
+    x1: int,
+    y1: int,
+    escala_x: float,
+    escala_y: float,
+) -> np.ndarray:
+    """Projeta o polígono real do segmento para coordenadas da preview."""
+    pontos_locais = []
+    for x, y in pontos_segmento(led):
+        pontos_locais.append(
+            [
+                int(round((float(x) - float(x1)) * float(escala_x))),
+                int(round((float(y) - float(y1)) * float(escala_y))),
+            ]
+        )
+    return np.asarray(pontos_locais, dtype=np.int32).reshape((-1, 1, 2))
+
+
+def _roi_intersecta_recorte(led, x1: int, y1: int, x2: int, y2: int) -> bool:
+    bx1, by1, bx2, by2 = bbox_roi(led)
+    return not (
+        bx2 < x1
+        or bx1 >= x2
+        or by2 < y1
+        or by1 >= y2
+    )
+
+
+def _centro_roi_no_recorte(
+    led,
+    x1: int,
+    y1: int,
+    escala_x: float,
+    escala_y: float,
+) -> tuple[int, int]:
+    return (
+        int(round((int(getattr(led, "centro_x", 0)) - x1) * escala_x)),
+        int(round((int(getattr(led, "centro_y", 0)) - y1) * escala_y)),
+    )
+
+
+def _desenhar_forma_roi_no_recorte(
+    recorte_ampliado,
+    led,
+    x1: int,
+    y1: int,
+    escala_x: float,
+    escala_y: float,
+    cor,
+    espessura: int = 3,
+) -> tuple[int, int, int, int]:
+    """Desenha círculo ou segmento sem substituir segmento por raio circular."""
+    centro_local_x, centro_local_y = _centro_roi_no_recorte(
+        led,
+        x1,
+        y1,
+        escala_x,
+        escala_y,
+    )
+
+    if normalizar_tipo_roi(getattr(led, "tipo_roi", None)) == TIPO_ROI_SEGMENTO:
+        pontos = pontos_segmento_preview_recorte(
+            led,
+            x1,
+            y1,
+            escala_x,
+            escala_y,
+        )
+        cv2.polylines(
+            recorte_ampliado,
+            [pontos],
+            True,
+            cor,
+            int(espessura),
+            cv2.LINE_AA,
+        )
+        cv2.drawMarker(
+            recorte_ampliado,
+            (centro_local_x, centro_local_y),
+            cor,
+            markerType=cv2.MARKER_CROSS,
+            markerSize=9,
+            thickness=1,
+        )
+        xs = pontos[:, 0, 0]
+        ys = pontos[:, 0, 1]
+        return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+
+    raio = max(1, int(getattr(led, "raio", 1)))
+    raio_local = max(
+        8,
+        int(raio * ((escala_x + escala_y) / 2.0)),
+    )
+    cv2.circle(
+        recorte_ampliado,
+        (centro_local_x, centro_local_y),
+        raio_local,
+        cor,
+        int(espessura),
+    )
+    cv2.circle(
+        recorte_ampliado,
+        (centro_local_x, centro_local_y),
+        4,
+        cor,
+        -1,
+    )
+    return (
+        centro_local_x - raio_local,
+        centro_local_y - raio_local,
+        centro_local_x + raio_local,
+        centro_local_y + raio_local,
+    )
+
+
 def _desenhar_leds_confirmados_no_recorte(
     self,
     recorte_ampliado,
@@ -60,50 +214,30 @@ def _desenhar_leds_confirmados_no_recorte(
     escala_x: float,
     escala_y: float,
 ) -> None:
-    """Desenha no recorte os LEDs confirmados antes da rotação da lupa."""
+    """Desenha cada ROI confirmada com sua geometria real antes da rotação."""
     cor_selecionado = (72, 255, 110)
 
     for led in _normalizar_leds_selecionados_preview(self):
-        centro_x = int(getattr(led, "centro_x", -1))
-        centro_y = int(getattr(led, "centro_y", -1))
-        raio = max(1, int(getattr(led, "raio", 1)))
-
-        if (
-            centro_x + raio < x1
-            or centro_x - raio >= x2
-            or centro_y + raio < y1
-            or centro_y - raio >= y2
-        ):
+        if not _roi_intersecta_recorte(led, x1, y1, x2, y2):
             continue
 
-        centro_local_x = int((centro_x - x1) * escala_x)
-        centro_local_y = int((centro_y - y1) * escala_y)
-        raio_local = max(
-            8,
-            int(raio * ((escala_x + escala_y) / 2.0)),
-        )
-
-        cv2.circle(
+        esquerda, topo, _, _ = _desenhar_forma_roi_no_recorte(
             recorte_ampliado,
-            (centro_local_x, centro_local_y),
-            raio_local,
+            led,
+            x1,
+            y1,
+            escala_x,
+            escala_y,
             cor_selecionado,
-            3,
-        )
-        cv2.circle(
-            recorte_ampliado,
-            (centro_local_x, centro_local_y),
-            4,
-            cor_selecionado,
-            -1,
+            espessura=3,
         )
 
         cv2.putText(
             recorte_ampliado,
             _obter_numero_led_preview(led),
             (
-                max(2, centro_local_x - raio_local),
-                max(13, centro_local_y - raio_local - 4),
+                max(2, esquerda),
+                max(13, topo - 4),
             ),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.42,
@@ -111,6 +245,28 @@ def _desenhar_leds_confirmados_no_recorte(
             1,
             cv2.LINE_AA,
         )
+
+
+def _criar_segmento_mira_preview(self, imagem_x: int, imagem_y: int) -> LedSelection:
+    controlador = _obter_controlador_preview(self)
+    largura = max(
+        8,
+        int(getattr(controlador, "segmento_largura_padrao", SEGMENTO_LARGURA_PADRAO)),
+    )
+    altura = max(
+        4,
+        int(getattr(controlador, "segmento_altura_padrao", SEGMENTO_ALTURA_PADRAO)),
+    )
+    return LedSelection(
+        id="MIRA",
+        centro_x=int(imagem_x),
+        centro_y=int(imagem_y),
+        raio=raio_compatibilidade_segmento(largura, altura),
+        tipo_roi=TIPO_ROI_SEGMENTO,
+        largura=largura,
+        altura=altura,
+        angulo=0.0,
+    )
 
 
 def _obter_confirmacao_lupa(self):
@@ -209,27 +365,63 @@ def desenhar_lupa_canvas(
             cor_linhas = cor_mira
             espessura_mira = 4
 
-    cv2.circle(
-        recorte_ampliado,
-        (centro_lupa_x, centro_lupa_y),
-        raio_lupa,
-        cor_mira,
-        espessura_mira,
-    )
-    cv2.line(
-        recorte_ampliado,
-        (centro_lupa_x - raio_lupa - 10, centro_lupa_y),
-        (centro_lupa_x + raio_lupa + 10, centro_lupa_y),
-        cor_linhas,
-        1,
-    )
-    cv2.line(
-        recorte_ampliado,
-        (centro_lupa_x, centro_lupa_y - raio_lupa - 10),
-        (centro_lupa_x, centro_lupa_y + raio_lupa + 10),
-        cor_linhas,
-        1,
-    )
+    tipo_mira = _obter_tipo_roi_edicao_preview(self)
+    if tipo_mira == TIPO_ROI_SEGMENTO:
+        segmento_mira = _obter_segmento_criacao_preview(self)
+        if segmento_mira is None:
+            segmento_mira = _criar_segmento_mira_preview(
+                self,
+                imagem_x,
+                imagem_y,
+            )
+        if _roi_intersecta_recorte(segmento_mira, x1, y1, x2, y2):
+            _desenhar_forma_roi_no_recorte(
+                recorte_ampliado,
+                segmento_mira,
+                x1,
+                y1,
+                escala_x,
+                escala_y,
+                cor_mira,
+                espessura=espessura_mira,
+            )
+        cv2.line(
+            recorte_ampliado,
+            (centro_lupa_x - 12, centro_lupa_y),
+            (centro_lupa_x + 12, centro_lupa_y),
+            cor_linhas,
+            1,
+        )
+        cv2.line(
+            recorte_ampliado,
+            (centro_lupa_x, centro_lupa_y - 12),
+            (centro_lupa_x, centro_lupa_y + 12),
+            cor_linhas,
+            1,
+        )
+    else:
+        cv2.circle(
+            recorte_ampliado,
+            (centro_lupa_x, centro_lupa_y),
+            raio_lupa,
+            cor_mira,
+            espessura_mira,
+        )
+        cv2.line(
+            recorte_ampliado,
+            (centro_lupa_x - raio_lupa - 10, centro_lupa_y),
+            (centro_lupa_x + raio_lupa + 10, centro_lupa_y),
+            cor_linhas,
+            1,
+        )
+        cv2.line(
+            recorte_ampliado,
+            (centro_lupa_x, centro_lupa_y - raio_lupa - 10),
+            (centro_lupa_x, centro_lupa_y + raio_lupa + 10),
+            cor_linhas,
+            1,
+        )
+
     cv2.circle(
         recorte_ampliado,
         (centro_lupa_x, centro_lupa_y),
