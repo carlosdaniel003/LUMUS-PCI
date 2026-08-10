@@ -7,6 +7,7 @@ from config import MAX_RADIUS_PX, MIN_RADIUS_PX
 from src.core.classifier import ReferenceLedClassifier
 from src.core.feature_extractor import extrair_features_selecao, validar_roi_selecao
 from src.core.roi_geometry import TIPO_ROI_SEGMENTO, normalizar_tipo_roi
+from src.core.segment_low_light import aplicar_diagnostico_pouca_luz
 from src.core.visual_renderer import criar_imagem_resultados_visuais
 from src.infra.camera_service import CameraService
 from src.models.led_selection import LedSelection
@@ -35,22 +36,10 @@ class SegmentDisplayRuntimeMixin:
         manuais,
         redesenhar: bool = True,
     ) -> bool:
-        """Impede que o fluxo legado converta segmentos manuais em círculos.
-
-        O ODIN base reconstrói ``leds_selecionados`` usando apenas centro e
-        raio em alguns pontos do live view. Para um segmento, esse ``raio`` é
-        apenas uma medida de compatibilidade (circunferência que contém a
-        barra), portanto exibi-lo como ROI circular produz exatamente as
-        bolinhas grandes vistas na tela. A fonte verdadeira continua em
-        ``leds_manuais_camera``; este método recoloca largura, altura, ângulo e
-        tipo de ROI antes do próximo desenho.
-        """
+        """Impede que o fluxo legado converta segmentos manuais em círculos."""
         itens = _copiar_lista(manuais)
         if not itens or not _tem_segmentos(itens):
             return False
-
-        # Quando as guias fixas estão deliberadamente visíveis, elas têm
-        # precedência. As ROIs manuais são restauradas somente no fluxo manual.
         if bool(getattr(self, "guias_leds_fixos_visiveis", False)):
             return False
 
@@ -72,10 +61,6 @@ class SegmentDisplayRuntimeMixin:
     def iniciar_selecao_led(self) -> None:
         manuais_antes = _copiar_lista(getattr(self, "leds_manuais_camera", ()))
         super().iniciar_selecao_led()
-
-        # Ao sair do editor, o modo manual deixa de estar "ativo", mas as ROIs
-        # temporárias continuam na tela. Elas devem continuar segmentos, não
-        # voltar ao fallback circular do ODIN base.
         self._restaurar_manuais_segmento_na_visualizacao(
             manuais_antes,
             redesenhar=True,
@@ -84,10 +69,6 @@ class SegmentDisplayRuntimeMixin:
     def atualizar_frame_camera(self) -> None:
         manuais_antes = _copiar_lista(getattr(self, "leds_manuais_camera", ()))
         super().atualizar_frame_camera()
-
-        # O método legado recria cada ROI manual somente com id/x/y/raio a cada
-        # frame. Reaplicamos a geometria completa mesmo depois que o usuário
-        # fechou a tela de seleção, desde que as guias fixas estejam ocultas.
         self._restaurar_manuais_segmento_na_visualizacao(
             manuais_antes,
             redesenhar=True,
@@ -243,8 +224,6 @@ class SegmentDisplayRuntimeMixin:
         )
         resultados_led = []
         for led in self.leds_selecionados:
-            # A extração recebe a ROI completa. Segmentos usam a máscara
-            # poligonal chanfrada; círculos continuam usando a máscara circular.
             features_atual = extrair_features_selecao(self.imagem_original, led)
             resultado = classificador.classificar_led_por_referencia(
                 features_atual=features_atual,
@@ -257,6 +236,7 @@ class SegmentDisplayRuntimeMixin:
             resultado.largura = led.largura
             resultado.altura = led.altura
             resultado.angulo = led.angulo
+            aplicar_diagnostico_pouca_luz(resultado, led.tipo_roi)
             resultados_led.append(resultado)
 
         self.resultados_led_atual = resultados_led
@@ -285,7 +265,6 @@ class SegmentDisplayRuntimeMixin:
         )
         self.atualizar_renderizacoes_visuais(resultados_led)
 
-        # Mantém o formatador existente sem duplicar lógica textual.
         from src.core.debug_formatter import formatar_resultado_textual_multiplos
 
         self.view.escrever_resultados(
