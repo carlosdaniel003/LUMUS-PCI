@@ -20,9 +20,14 @@ class FakeEvent:
 class FakeCanvas:
     def __init__(self):
         self.bindings = {}
+        self.cursor = "crosshair"
 
     def bind(self, sequence, callback, add=None):
         self.bindings[sequence] = callback
+
+    def configure(self, **kwargs):
+        if "cursor" in kwargs:
+            self.cursor = kwargs["cursor"]
 
     def focus_set(self):
         return None
@@ -113,6 +118,7 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
         self.assertEqual(1, app.view.redraws)
         self.assertEqual(1, app.view.draws)
         self.assertIn("Ctrl+scroll", app.view.status)
+        self.assertIn("botão do meio", app.view.status)
 
     def test_scroll_linux_ctrl_button4_tambem_aplica_zoom(self):
         app = FakeApp()
@@ -135,6 +141,79 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
                 "_evento_roda_ou_zoom_selecao",
                 canvas.bindings[sequencia].__name__,
             )
+
+    def test_bindings_do_botao_do_meio_controlam_pan(self):
+        app = FakeApp()
+        canvas = FakeCanvas()
+
+        app._configurar_eventos_canvas_tela_cheia(canvas)
+
+        esperados = {
+            "<Button-2>": "_evento_iniciar_pan_selecao",
+            "<B2-Motion>": "_evento_arrastar_pan_selecao",
+            "<ButtonRelease-2>": "_evento_finalizar_pan_selecao",
+        }
+        for sequencia, callback in esperados.items():
+            self.assertIn(sequencia, canvas.bindings)
+            self.assertEqual(callback, canvas.bindings[sequencia].__name__)
+
+    def test_botao_do_meio_arrasta_imagem_quando_ha_zoom(self):
+        app = FakeApp()
+        app.view._selecao_zoom_fator = 2.0
+        app.view.escala_exibicao = 2.0
+        app.view.largura_imagem_exibida = 3840
+        app.view.altura_imagem_exibida = 2160
+        app.view.deslocamento_imagem_x = -1120
+        app.view.deslocamento_imagem_y = -630
+        app.view._selecao_zoom_centro_visual_x = 960.0
+        app.view._selecao_zoom_centro_visual_y = 540.0
+
+        retorno_inicio = app._evento_iniciar_pan_selecao(FakeEvent(x=800, y=450))
+        retorno_arraste = app._evento_arrastar_pan_selecao(FakeEvent(x=900, y=410))
+
+        self.assertEqual("break", retorno_inicio)
+        self.assertEqual("break", retorno_arraste)
+        self.assertTrue(app._selecao_pan_ativo)
+        self.assertEqual("fleur", app.view.canvas.cursor)
+        self.assertAlmostEqual(910.0, app.view._selecao_zoom_centro_visual_x)
+        self.assertAlmostEqual(560.0, app.view._selecao_zoom_centro_visual_y)
+        self.assertEqual(1, app.view.redraws)
+        self.assertEqual(1, app.view.draws)
+
+        retorno_fim = app._evento_finalizar_pan_selecao(FakeEvent(x=900, y=410))
+        self.assertEqual("break", retorno_fim)
+        self.assertFalse(app._selecao_pan_ativo)
+        self.assertEqual("crosshair", app.view.canvas.cursor)
+
+    def test_pan_na_borda_nao_cria_zona_morta(self):
+        app = FakeApp()
+        app.view._selecao_zoom_fator = 2.0
+        app.view.escala_exibicao = 2.0
+        app.view.largura_imagem_exibida = 3840
+        app.view.altura_imagem_exibida = 2160
+        app.view.deslocamento_imagem_x = 0
+        app.view.deslocamento_imagem_y = 0
+        app.view._selecao_zoom_centro_visual_x = 0.0
+        app.view._selecao_zoom_centro_visual_y = 0.0
+
+        app._evento_iniciar_pan_selecao(FakeEvent(x=100, y=100))
+        app._evento_arrastar_pan_selecao(FakeEvent(x=0, y=100))
+
+        # Com a imagem encostada à esquerda, arrastar o mouse para a esquerda
+        # deve deslocar imediatamente o viewport para dentro da imagem.
+        self.assertAlmostEqual(450.0, app.view._selecao_zoom_centro_visual_x)
+
+    def test_botao_do_meio_sem_zoom_nao_inicia_pan(self):
+        app = FakeApp()
+
+        retorno = app._evento_iniciar_pan_selecao(FakeEvent(x=800, y=450))
+        app._evento_arrastar_pan_selecao(FakeEvent(x=900, y=450))
+
+        self.assertEqual("break", retorno)
+        self.assertFalse(app._selecao_pan_ativo)
+        self.assertEqual("crosshair", app.view.canvas.cursor)
+        self.assertEqual(0, app.view.redraws)
+        self.assertEqual(0, app.view.draws)
 
 
 if __name__ == "__main__":
