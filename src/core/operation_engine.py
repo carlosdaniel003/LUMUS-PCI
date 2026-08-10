@@ -9,6 +9,7 @@ import numpy as np
 from config import DEFAULT_THRESHOLD_V
 from src.core.classifier import ReferenceLedClassifier
 from src.core.roi_geometry import criar_mascaras_roi, normalizar_tipo_roi
+from src.core.segment_low_light import aplicar_diagnostico_pouca_luz
 from src.models.led_features import LedFeatures
 from src.models.led_selection import LedSelection
 
@@ -179,6 +180,7 @@ class OperationEngine:
             result.largura = prepared_led.largura
             result.altura = prepared_led.altura
             result.angulo = prepared_led.angulo
+            aplicar_diagnostico_pouca_luz(result, prepared_led.tipo_roi)
             results.append(result)
             if result.status != "ACESO":
                 failed_led_ids.append(prepared_led.id)
