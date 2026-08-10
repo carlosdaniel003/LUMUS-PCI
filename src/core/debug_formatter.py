@@ -4,6 +4,8 @@ from src.models.led_selection import LedSelection
 from src.models.output_paths import OutputPaths
 
 
+STATUS_POUCA_LUZ = "POUCA_LUZ"
+
 FEATURES_DEBUG_ORDEM = [
     "v_mean",
     "v_max",
@@ -76,12 +78,22 @@ def _adicionar_debug_led(linhas: list[str], resultado_led: LedAnalysisResult) ->
     features = resultado_led.features
     avaliacao_metricas = resultado_led.avaliacao_metricas
 
-    linhas.append(f"{resultado_led.id} | {resultado_led.status} | bin={resultado_led.valor_binario} | conf={resultado_led.confianca}")
+    linhas.append(
+        f"{resultado_led.id} | {resultado_led.status} | "
+        f"bin={resultado_led.valor_binario} | conf={resultado_led.confianca}"
+    )
     linhas.append("-" * 42)
     linhas.append(f"Centro X: {resultado_led.centro_x}")
     linhas.append(f"Centro Y: {resultado_led.centro_y}")
     linhas.append(f"Raio: {resultado_led.raio} px")
     linhas.append(f"Área analisada: {features.area_pixels} px")
+    if str(getattr(resultado_led, "tipo_roi", "")).lower() == "segmento":
+        linhas.append(
+            "Luminosidade do segmento: "
+            f"índice={getattr(resultado_led, 'indice_luminosidade', 1.0)} | "
+            f"score_falha={getattr(resultado_led, 'score_falha_luminosidade', 0.0)} | "
+            f"falha={getattr(resultado_led, 'falha_luminosidade', False)}"
+        )
     linhas.append("")
     linhas.append("FEATURES")
 
@@ -109,20 +121,40 @@ def _adicionar_debug_led(linhas: list[str], resultado_led: LedAnalysisResult) ->
     linhas.append("")
 
 
-def formatar_resultado_textual(resultado_led: LedAnalysisResult, output_paths: OutputPaths) -> str:
+def formatar_resultado_textual(
+    resultado_led: LedAnalysisResult,
+    output_paths: OutputPaths,
+) -> str:
     return formatar_resultado_textual_multiplos([resultado_led], output_paths)
 
 
-def formatar_resultado_textual_multiplos(resultados_led: list[LedAnalysisResult], output_paths: OutputPaths) -> str:
+def formatar_resultado_textual_multiplos(
+    resultados_led: list[LedAnalysisResult],
+    output_paths: OutputPaths,
+) -> str:
     total_leds = len(resultados_led)
-    leds_acesos = sum(1 for item in resultados_led if item.valor_binario == 1)
-    leds_apagados = total_leds - leds_acesos
+    leds_acesos = sum(
+        1
+        for item in resultados_led
+        if str(getattr(item, "status", "")).upper() == "ACESO"
+    )
+    leds_pouca_luz = sum(
+        1
+        for item in resultados_led
+        if str(getattr(item, "status", "")).upper() == STATUS_POUCA_LUZ
+    )
+    leds_apagados = sum(
+        1
+        for item in resultados_led
+        if str(getattr(item, "status", "")).upper() == "APAGADO"
+    )
 
     linhas = []
     linhas.append("RESULTADO DA ANÁLISE")
     linhas.append("=" * 42)
     linhas.append(f"Total de LEDs analisados: {total_leds}")
     linhas.append(f"LEDs acesos: {leds_acesos}")
+    linhas.append(f"Segmentos com pouca luz: {leds_pouca_luz}")
     linhas.append(f"LEDs apagados: {leds_apagados}")
 
     if total_leds > 0:
@@ -134,6 +166,12 @@ def formatar_resultado_textual_multiplos(resultados_led: list[LedAnalysisResult]
     linhas.append("=" * 42)
 
     for resultado_led in resultados_led:
+        detalhe_luz = ""
+        if str(getattr(resultado_led, "status", "")).upper() == STATUS_POUCA_LUZ:
+            detalhe_luz = (
+                f" | indice_luz={getattr(resultado_led, 'indice_luminosidade', 0.0)}"
+                f" | score_falha={getattr(resultado_led, 'score_falha_luminosidade', 0.0)}"
+            )
         linhas.append(
             f"{resultado_led.id} | {resultado_led.status} | "
             f"bin={resultado_led.valor_binario} | "
@@ -141,6 +179,7 @@ def formatar_resultado_textual_multiplos(resultados_led: list[LedAnalysisResult]
             f"v_mean={resultado_led.features.v_mean} | "
             f"v_max={resultado_led.features.v_max} | "
             f"glow={resultado_led.features.glow_score}"
+            f"{detalhe_luz}"
         )
 
     linhas.append("")
@@ -156,10 +195,11 @@ def formatar_resultado_textual_multiplos(resultados_led: list[LedAnalysisResult]
     linhas.append("SALVAMENTO DE FOTOS NG")
     linhas.append("=" * 42)
 
+    total_falhas = leds_apagados + leds_pouca_luz
     if output_paths.caminho_resultado_imagem is not None:
         linhas.append("Fotografia NG enfileirada para gravação em segundo plano:")
         linhas.append(str(output_paths.caminho_resultado_imagem))
-    elif leds_apagados == 0:
+    elif total_falhas == 0:
         linhas.append("Resultado OK: nenhuma fotografia foi gravada.")
     else:
         linhas.append(
