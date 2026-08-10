@@ -15,6 +15,17 @@ from src.models.led_selection import LedSelection
 AlvoLed = LedAnalysisResult | LedSelection | None
 AlvosLed = AlvoLed | list[LedAnalysisResult] | list[LedSelection]
 
+STATUS_ACESO = "ACESO"
+STATUS_APAGADO = "APAGADO"
+STATUS_POUCA_LUZ = "POUCA_LUZ"
+
+# Paleta visual do ODIN em BGR (OpenCV):
+# ACESO = verde, APAGADO = azul, POUCA_LUZ = amarelo.
+COR_ACESO_BGR = (94, 197, 34)          # #22C55E
+COR_APAGADO_BGR = (248, 189, 56)      # #38BDF8
+COR_POUCA_LUZ_BGR = (36, 191, 251)    # #FBBF24
+COR_SELECIONADO_BGR = (248, 189, 56)  # #38BDF8
+
 
 def _normalizar_alvos(alvo: AlvosLed):
     if alvo is None:
@@ -42,15 +53,34 @@ def _obter_dados_alvo(alvo: AlvoLed):
     }
 
 
+def _obter_estado_visual(dados) -> str:
+    if dados is None:
+        return "SELECIONADO"
+
+    status = str(dados.get("status", "")).strip().upper().replace(" ", "_")
+    valor_binario = int(dados.get("valor_binario", -1))
+
+    # O status tem precedência sobre o binário. POUCA_LUZ mantém binário 1
+    # porque ainda existe emissão luminosa, mas visualmente é uma falha NG.
+    if status == STATUS_POUCA_LUZ:
+        return STATUS_POUCA_LUZ
+    if status == STATUS_APAGADO or valor_binario == 0:
+        return STATUS_APAGADO
+    if status == STATUS_ACESO or valor_binario == 1:
+        return STATUS_ACESO
+    return "SELECIONADO"
+
+
 def _obter_cor_bgr(alvo: AlvoLed):
     dados = _obter_dados_alvo(alvo)
-    if dados is None:
-        return (56, 189, 248)
-    if dados["valor_binario"] == 1:
-        return (0, 255, 0)
-    if dados["valor_binario"] == 0:
-        return (0, 0, 255)
-    return (248, 189, 56)
+    estado = _obter_estado_visual(dados)
+    if estado == STATUS_POUCA_LUZ:
+        return COR_POUCA_LUZ_BGR
+    if estado == STATUS_APAGADO:
+        return COR_APAGADO_BGR
+    if estado == STATUS_ACESO:
+        return COR_ACESO_BGR
+    return COR_SELECIONADO_BGR
 
 
 def _obter_numero_led(alvo: AlvoLed) -> str:
@@ -88,9 +118,19 @@ def _desenhar_marcacao_led(imagem, alvo: AlvoLed, com_texto: bool = True):
     dados = _obter_dados_alvo(alvo)
     if dados is None:
         return imagem
+
+    estado = _obter_estado_visual(dados)
     cor = _obter_cor_bgr(alvo)
-    espessura = 3 if dados["valor_binario"] == 0 else 2
-    escala = 1.12 if dados["valor_binario"] == 0 else 1.0
+    if estado == STATUS_APAGADO:
+        espessura = 3
+        escala = 1.12
+    elif estado == STATUS_POUCA_LUZ:
+        espessura = 3
+        escala = 1.08
+    else:
+        espessura = 2
+        escala = 1.0
+
     _desenhar_forma(imagem, alvo, cor, espessura=espessura, escala=escala)
     cv2.drawMarker(
         imagem,
@@ -142,15 +182,27 @@ def criar_imagem_resultado_visual(imagem_original, resultado_led: LedAnalysisRes
 def criar_imagem_resultados_visuais(imagem_original, resultados_led):
     imagem_resultado = imagem_original.copy()
     for resultado in resultados_led:
-        cor = (0, 180, 0) if resultado.valor_binario == 1 else (0, 0, 255)
-        alpha = 0.12 if resultado.valor_binario == 1 else 0.35
+        dados = _obter_dados_alvo(resultado)
+        estado = _obter_estado_visual(dados)
+        cor = _obter_cor_bgr(resultado)
+
+        if estado == STATUS_APAGADO:
+            alpha = 0.35
+            escala = 1.12
+        elif estado == STATUS_POUCA_LUZ:
+            alpha = 0.30
+            escala = 1.08
+        else:
+            alpha = 0.12
+            escala = 1.08
+
         camada = imagem_resultado.copy()
         _desenhar_forma(
             camada,
             resultado,
             cor,
             preencher=True,
-            escala=1.08 if resultado.valor_binario == 1 else 1.12,
+            escala=escala,
         )
         imagem_resultado = cv2.addWeighted(
             camada, alpha, imagem_resultado, 1.0 - alpha, 0
