@@ -28,6 +28,9 @@ class FullscreenLedSelectionMixin:
         self._botao_tipo_roi_segmento = None
         self._botao_tipo_roi_circulo = None
         self._label_zoom_selecao = None
+        self._selecao_pan_ativo = False
+        self._selecao_pan_ultimo_x = None
+        self._selecao_pan_ultimo_y = None
         super().__init__(*args, **kwargs)
 
     def _selecao_tela_cheia_esta_aberta(self) -> bool:
@@ -93,6 +96,9 @@ class FullscreenLedSelectionMixin:
         view._selecao_zoom_fator = ZOOM_SELECAO_MIN
         view._selecao_zoom_centro_visual_x = None
         view._selecao_zoom_centro_visual_y = None
+        self._selecao_pan_ativo = False
+        self._selecao_pan_ultimo_x = None
+        self._selecao_pan_ultimo_y = None
         self._atualizar_indicador_zoom_selecao()
 
     def _desativar_zoom_selecao(self) -> None:
@@ -103,6 +109,9 @@ class FullscreenLedSelectionMixin:
         view._selecao_zoom_fator = ZOOM_SELECAO_MIN
         view._selecao_zoom_centro_visual_x = None
         view._selecao_zoom_centro_visual_y = None
+        self._selecao_pan_ativo = False
+        self._selecao_pan_ultimo_x = None
+        self._selecao_pan_ultimo_y = None
 
     @staticmethod
     def _direcao_scroll(evento) -> int:
@@ -113,6 +122,127 @@ class FullscreenLedSelectionMixin:
         if delta < 0 or numero == 5:
             return -1
         return 0
+
+    def _canvas_selecao_atual(self):
+        canvas = self._selecao_tela_cheia_canvas
+        if canvas is not None:
+            return canvas
+        return getattr(getattr(self, "view", None), "canvas", None)
+
+    def _definir_cursor_pan_selecao(self, cursor: str) -> None:
+        canvas = self._canvas_selecao_atual()
+        if canvas is None:
+            return
+        try:
+            canvas.configure(cursor=cursor)
+        except Exception:
+            pass
+
+    def _evento_motion_selecao(self, evento) -> str | None:
+        if self._selecao_pan_ativo:
+            return "break"
+        callback = getattr(getattr(self, "view", None), "atualizar_lupa_canvas", None)
+        if callable(callback):
+            return callback(evento)
+        return None
+
+    def _evento_iniciar_pan_selecao(self, evento) -> str:
+        view = getattr(self, "view", None)
+        if view is None or not bool(getattr(view, "_selecao_zoom_ativo", False)):
+            return "break"
+
+        fator = float(getattr(view, "_selecao_zoom_fator", ZOOM_SELECAO_MIN) or ZOOM_SELECAO_MIN)
+        if fator <= ZOOM_SELECAO_MIN:
+            return "break"
+
+        self._selecao_pan_ativo = True
+        self._selecao_pan_ultimo_x = float(getattr(evento, "x", 0.0))
+        self._selecao_pan_ultimo_y = float(getattr(evento, "y", 0.0))
+        self._definir_cursor_pan_selecao("fleur")
+
+        limpar_lupa = getattr(view, "limpar_lupa_canvas", None)
+        if callable(limpar_lupa):
+            try:
+                limpar_lupa()
+            except Exception:
+                pass
+        return "break"
+
+    def _evento_arrastar_pan_selecao(self, evento) -> str:
+        if not self._selecao_pan_ativo:
+            return "break"
+
+        view = getattr(self, "view", None)
+        if view is None:
+            return "break"
+
+        fator = float(getattr(view, "_selecao_zoom_fator", ZOOM_SELECAO_MIN) or ZOOM_SELECAO_MIN)
+        if fator <= ZOOM_SELECAO_MIN:
+            self._evento_finalizar_pan_selecao(evento)
+            return "break"
+
+        x_atual = float(getattr(evento, "x", self._selecao_pan_ultimo_x or 0.0))
+        y_atual = float(getattr(evento, "y", self._selecao_pan_ultimo_y or 0.0))
+        x_anterior = float(self._selecao_pan_ultimo_x if self._selecao_pan_ultimo_x is not None else x_atual)
+        y_anterior = float(self._selecao_pan_ultimo_y if self._selecao_pan_ultimo_y is not None else y_atual)
+        delta_x = x_atual - x_anterior
+        delta_y = y_atual - y_anterior
+        self._selecao_pan_ultimo_x = x_atual
+        self._selecao_pan_ultimo_y = y_atual
+
+        if abs(delta_x) < 1e-9 and abs(delta_y) < 1e-9:
+            return "break"
+
+        imagem = getattr(view, "imagem_canvas_original", None)
+        shape = getattr(imagem, "shape", None)
+        if shape is None or len(shape) < 2:
+            return "break"
+
+        altura_original = int(shape[0])
+        largura_original = int(shape[1])
+        largura_visual, altura_visual = dimensoes_visuais(
+            largura_original,
+            altura_original,
+            getattr(view, "rotacao_visual_principal", 0),
+        )
+
+        obter_tamanho = getattr(view, "obter_tamanho_canvas_principal", None)
+        if callable(obter_tamanho):
+            largura_canvas, altura_canvas = obter_tamanho()
+        else:
+            canvas = self._canvas_selecao_atual()
+            largura_canvas = int(getattr(canvas, "winfo_width", lambda: 1)())
+            altura_canvas = int(getattr(canvas, "winfo_height", lambda: 1)())
+
+        escala = max(1e-9, float(getattr(view, "escala_exibicao", 1.0) or 1.0))
+        deslocamento_x = float(getattr(view, "deslocamento_imagem_x", 0.0) or 0.0)
+        deslocamento_y = float(getattr(view, "deslocamento_imagem_y", 0.0) or 0.0)
+
+        # O centro efetivamente visível é derivado do deslocamento renderizado,
+        # não apenas do centro solicitado. Isso evita uma zona morta ao arrastar
+        # para longe das bordas quando o viewport já está limitado nelas.
+        centro_efetivo_x = (float(largura_canvas) / 2.0 - deslocamento_x) / escala
+        centro_efetivo_y = (float(altura_canvas) / 2.0 - deslocamento_y) / escala
+        centro_x = centro_efetivo_x - (delta_x / escala)
+        centro_y = centro_efetivo_y - (delta_y / escala)
+
+        view._selecao_zoom_centro_visual_x = max(
+            0.0,
+            min(float(largura_visual), centro_x),
+        )
+        view._selecao_zoom_centro_visual_y = max(
+            0.0,
+            min(float(altura_visual), centro_y),
+        )
+        self._redesenhar_apos_zoom_selecao()
+        return "break"
+
+    def _evento_finalizar_pan_selecao(self, _evento=None) -> str:
+        self._selecao_pan_ativo = False
+        self._selecao_pan_ultimo_x = None
+        self._selecao_pan_ultimo_y = None
+        self._definir_cursor_pan_selecao("crosshair")
+        return "break"
 
     def _redesenhar_apos_zoom_selecao(self) -> None:
         view = getattr(self, "view", None)
@@ -213,6 +343,7 @@ class FullscreenLedSelectionMixin:
             if novo_fator <= ZOOM_SELECAO_MIN:
                 view._selecao_zoom_centro_visual_x = None
                 view._selecao_zoom_centro_visual_y = None
+                self._evento_finalizar_pan_selecao()
             else:
                 view._selecao_zoom_centro_visual_x = centro_x
                 view._selecao_zoom_centro_visual_y = centro_y
@@ -225,7 +356,7 @@ class FullscreenLedSelectionMixin:
         if callable(atualizar_status):
             atualizar_status(
                 f"Zoom da seleção: {int(round(novo_fator * 100))}%. "
-                "Ctrl+scroll ajusta o zoom sem alterar a máscara."
+                "Ctrl+scroll ajusta o zoom; botão do meio arrasta a imagem."
             )
         return "break"
 
@@ -268,7 +399,8 @@ class FullscreenLedSelectionMixin:
             textos,
             text=(
                 "Segmento: arraste para criar • Shift+arraste seleciona área • "
-                "Ctrl+scroll aplica zoom • setas movem 1 px"
+                "Ctrl+scroll aplica zoom • rodinha pressionada+arraste move imagem • "
+                "setas movem 1 px"
             ),
             font=("DejaVu Sans", 8),
             fg="#AAB8C8",
@@ -373,8 +505,11 @@ class FullscreenLedSelectionMixin:
         view = self.view
         self._vincular_evento(canvas, "<Button-1>", getattr(self, "evento_clique_esquerdo", None))
         self._vincular_evento(canvas, "<Configure>", getattr(view, "evento_redimensionar_canvas_principal", None))
-        self._vincular_evento(canvas, "<Motion>", getattr(view, "atualizar_lupa_canvas", None))
+        self._vincular_evento(canvas, "<Motion>", self._evento_motion_selecao)
         self._vincular_evento(canvas, "<Leave>", getattr(view, "limpar_lupa_canvas", None))
+        self._vincular_evento(canvas, "<Button-2>", self._evento_iniciar_pan_selecao)
+        self._vincular_evento(canvas, "<B2-Motion>", self._evento_arrastar_pan_selecao)
+        self._vincular_evento(canvas, "<ButtonRelease-2>", self._evento_finalizar_pan_selecao)
 
         for sequencia in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self._vincular_evento(
@@ -489,6 +624,7 @@ class FullscreenLedSelectionMixin:
         janela = self._selecao_tela_cheia_window
         canvas_original = self._selecao_tela_cheia_canvas_original
         self._cancelar_redesenho_pendente_selecao()
+        self._evento_finalizar_pan_selecao()
         if canvas_original is not None:
             self.view.canvas = canvas_original
         self._desativar_zoom_selecao()
