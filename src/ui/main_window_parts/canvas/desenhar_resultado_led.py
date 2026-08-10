@@ -8,9 +8,9 @@ from src.ui.main_window_parts.canvas.roi_shape_canvas import (
 
 
 TAG_MARCACOES = "marcacoes_canvas"
-COR_NG_AZUL = "#3B82F6"
+COR_NG_AZUL = "#38BDF8"
 FUNDO_NG_AZUL = "#061A33"
-COR_POUCA_LUZ = "#F59E0B"
+COR_POUCA_LUZ = "#FBBF24"
 FUNDO_POUCA_LUZ = "#3A2103"
 STATUS_POUCA_LUZ = "POUCA_LUZ"
 
