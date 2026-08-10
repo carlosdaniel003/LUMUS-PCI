@@ -10,17 +10,26 @@ from src.ui.main_window_parts.canvas.roi_shape_canvas import (
 TAG_MARCACOES = "marcacoes_canvas"
 COR_NG_AZUL = "#3B82F6"
 FUNDO_NG_AZUL = "#061A33"
+COR_POUCA_LUZ = "#F59E0B"
+FUNDO_POUCA_LUZ = "#3A2103"
+STATUS_POUCA_LUZ = "POUCA_LUZ"
 
 
 def desenhar_resultado_led(
     self,
     resultado_led_atual: LedAnalysisResult,
 ) -> None:
-    cor = (
-        self.COR_VERDE_CLARO
-        if resultado_led_atual.valor_binario == 1
-        else COR_NG_AZUL
-    )
+    status = str(getattr(resultado_led_atual, "status", "")).upper()
+    pouca_luz = status == STATUS_POUCA_LUZ
+    apagado = status == "APAGADO" or resultado_led_atual.valor_binario == 0
+
+    if pouca_luz:
+        cor = COR_POUCA_LUZ
+    elif apagado:
+        cor = COR_NG_AZUL
+    else:
+        cor = self.COR_VERDE_CLARO
+
     centro_x, centro_y = ponto_original_para_canvas(
         self,
         resultado_led_atual.centro_x,
@@ -28,8 +37,10 @@ def desenhar_resultado_led(
     )
     id_led = str(getattr(resultado_led_atual, "id", "LED"))
     numero_led = id_led.split("_")[-1] if "_" in id_led else id_led
-    largura_linha = 2 if resultado_led_atual.valor_binario == 1 else 4
-    escala_forma = 1.0 if resultado_led_atual.valor_binario == 1 else 1.12
+
+    falha = pouca_luz or apagado
+    largura_linha = 4 if falha else 2
+    escala_forma = 1.08 if pouca_luz else (1.12 if apagado else 1.0)
     tags = (TAG_MARCACOES,)
 
     desenhar_forma_roi_canvas(
@@ -48,15 +59,16 @@ def desenhar_resultado_led(
     x_label = centro_x + raio_visual + 4
     y_label = centro_y - raio_visual - 4
 
-    if resultado_led_atual.valor_binario == 0:
-        texto = f"{numero_led} NG"
-        largura_aproximada = max(42, len(texto) * 7)
+    if falha:
+        texto = f"{numero_led} POUCA LUZ" if pouca_luz else f"{numero_led} NG"
+        fundo = FUNDO_POUCA_LUZ if pouca_luz else FUNDO_NG_AZUL
+        largura_aproximada = max(52, len(texto) * 7)
         self.canvas.create_rectangle(
             x_label - 4,
             y_label - 16,
             x_label + largura_aproximada,
             y_label + 2,
-            fill=FUNDO_NG_AZUL,
+            fill=fundo,
             outline=cor,
             width=1,
             tags=tags,
