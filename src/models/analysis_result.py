@@ -33,6 +33,9 @@ class LedAnalysisResult:
     largura: int | None = None
     altura: int | None = None
     angulo: float = 0.0
+    falha_luminosidade: bool = False
+    indice_luminosidade: float = 1.0
+    score_falha_luminosidade: float = 0.0
 
     def to_dict(self) -> dict:
         dados = {
@@ -59,6 +62,9 @@ class LedAnalysisResult:
             "avaliacao_metricas": self.avaliacao_metricas.to_dict(),
             "motivos": self.motivos,
             "confianca": self.confianca,
+            "falha_luminosidade": bool(self.falha_luminosidade),
+            "indice_luminosidade": float(self.indice_luminosidade),
+            "score_falha_luminosidade": float(self.score_falha_luminosidade),
         }
         if normalizar_tipo_roi(self.tipo_roi) != TIPO_ROI_CIRCULO:
             dados.update(
