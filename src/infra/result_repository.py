@@ -7,8 +7,14 @@ import re
 import threading
 
 import cv2
+import numpy as np
 
 from config import RESULTS_DIR
+from src.core.roi_geometry import (
+    TIPO_ROI_SEGMENTO,
+    normalizar_tipo_roi,
+    pontos_segmento,
+)
 from src.models.analysis_result import LedAnalysisResult
 from src.models.led_selection import LedSelection
 from src.models.output_paths import OutputPaths
@@ -20,6 +26,7 @@ class ResultRepository:
     MAX_FOTOS_PENDENTES = 8
     QUALIDADE_JPEG = 90
     COR_NG_BGR = (255, 0, 0)
+    COR_POUCA_LUZ_BGR = (0, 165, 255)
 
     def __init__(self) -> None:
         self._fila_fotos_ng: Queue = Queue(
@@ -29,17 +36,46 @@ class ResultRepository:
         self._worker_lock = threading.Lock()
         self.ultimo_erro_salvamento_ng: str | None = None
         self.fotos_ng_descartadas = 0
-
-        # O worker nasce na inicialização e fica bloqueado na fila, sem polling.
-        # Assim, o primeiro NG também executa apenas um put_nowait no fluxo crítico.
         self._garantir_worker_fotos_ng()
 
     @staticmethod
     def _resultado_eh_ng(resultado) -> bool:
+        status = str(getattr(resultado, "status", "") or "").strip().upper()
+        if status:
+            return status != "ACESO"
         try:
             return int(getattr(resultado, "valor_binario", 1)) == 0
         except (TypeError, ValueError):
-            return str(getattr(resultado, "status", "")).upper() != "ACESO"
+            return True
+
+    @classmethod
+    def _cor_resultado_ng(cls, resultado):
+        status = str(getattr(resultado, "status", "") or "").strip().upper()
+        return cls.COR_POUCA_LUZ_BGR if status == "POUCA_LUZ" else cls.COR_NG_BGR
+
+    @classmethod
+    def _desenhar_forma_ng(cls, imagem, resultado, cor, preencher=False):
+        tipo = normalizar_tipo_roi(getattr(resultado, "tipo_roi", None))
+        if tipo == TIPO_ROI_SEGMENTO:
+            escala = 1.08 if str(getattr(resultado, "status", "")).upper() == "POUCA_LUZ" else 1.12
+            pts = np.rint(pontos_segmento(resultado, escala=escala)).astype(np.int32)
+            if preencher:
+                cv2.fillConvexPoly(imagem, pts, cor)
+            else:
+                cv2.polylines(imagem, [pts], True, cor, 3, cv2.LINE_AA)
+            return
+
+        centro_x = int(getattr(resultado, "centro_x", 0))
+        centro_y = int(getattr(resultado, "centro_y", 0))
+        raio = max(3, int(getattr(resultado, "raio", 3)))
+        raio_visual = max(4, int(round(raio * 1.25)))
+        cv2.circle(
+            imagem,
+            (centro_x, centro_y),
+            raio_visual,
+            cor,
+            -1 if preencher else 3,
+        )
 
     @staticmethod
     def _normalizar_nome_arquivo(valor: str, padrao: str) -> str:
@@ -50,7 +86,7 @@ class ResultRepository:
 
     @classmethod
     def criar_visualizacao_ng(cls, imagem_original, resultados_led):
-        """Cria uma cópia da placa destacando apenas LEDs NG em azul."""
+        """Cria uma cópia da placa destacando apenas resultados com falha."""
         imagem = imagem_original.copy()
 
         for resultado in resultados_led or ():
@@ -60,17 +96,12 @@ class ResultRepository:
             centro_x = int(getattr(resultado, "centro_x", 0))
             centro_y = int(getattr(resultado, "centro_y", 0))
             raio = max(3, int(getattr(resultado, "raio", 3)))
-            raio_visual = max(4, int(round(raio * 1.25)))
             led_id = str(getattr(resultado, "id", "LED"))
+            status = str(getattr(resultado, "status", "") or "").upper()
+            cor = cls._cor_resultado_ng(resultado)
 
             camada = imagem.copy()
-            cv2.circle(
-                camada,
-                (centro_x, centro_y),
-                raio_visual,
-                cls.COR_NG_BGR,
-                -1,
-            )
+            cls._desenhar_forma_ng(camada, resultado, cor, preencher=True)
             imagem = cv2.addWeighted(
                 camada,
                 0.22,
@@ -78,23 +109,18 @@ class ResultRepository:
                 0.78,
                 0,
             )
-            cv2.circle(
-                imagem,
-                (centro_x, centro_y),
-                raio_visual,
-                cls.COR_NG_BGR,
-                3,
-            )
+            cls._desenhar_forma_ng(imagem, resultado, cor, preencher=False)
             cv2.drawMarker(
                 imagem,
                 (centro_x, centro_y),
-                cls.COR_NG_BGR,
+                cor,
                 markerType=cv2.MARKER_CROSS,
                 markerSize=max(10, int(raio * 1.10)),
                 thickness=2,
             )
 
-            texto = f"{led_id} NG"
+            sufixo = "POUCA LUZ" if status == "POUCA_LUZ" else "NG"
+            texto = f"{led_id} {sufixo}"
             escala_fonte = 0.42
             espessura_fonte = 1
             largura_texto, altura_texto = cv2.getTextSize(
@@ -104,10 +130,7 @@ class ResultRepository:
                 espessura_fonte,
             )[0]
             x_texto = max(4, centro_x - largura_texto // 2)
-            y_texto = max(
-                altura_texto + 8,
-                centro_y - raio_visual - 7,
-            )
+            y_texto = max(altura_texto + 8, centro_y - raio - 14)
             cv2.rectangle(
                 imagem,
                 (x_texto - 4, y_texto - altura_texto - 4),
@@ -121,7 +144,7 @@ class ResultRepository:
                 (x_texto, y_texto),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 escala_fonte,
-                cls.COR_NG_BGR,
+                cor,
                 espessura_fonte,
                 cv2.LINE_AA,
             )
