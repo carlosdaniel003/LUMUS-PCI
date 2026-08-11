@@ -53,6 +53,7 @@ class OperationEngine:
         self._prepared_leds: tuple[PreparedLed, ...] = ()
         self._frame_width = 0
         self._frame_height = 0
+        self._diagnostico_pouca_luz_habilitado = False
 
     @property
     def ready(self) -> bool:
@@ -62,11 +63,19 @@ class OperationEngine:
     def led_count(self) -> int:
         return len(self._prepared_leds)
 
+    @property
+    def diagnostico_pouca_luz_habilitado(self) -> bool:
+        return bool(self._diagnostico_pouca_luz_habilitado)
+
+    def definir_diagnostico_pouca_luz_habilitado(self, habilitado: bool) -> None:
+        self._diagnostico_pouca_luz_habilitado = bool(habilitado)
+
     def invalidate(self) -> None:
         self._classifier = None
         self._prepared_leds = ()
         self._frame_width = 0
         self._frame_height = 0
+        self._diagnostico_pouca_luz_habilitado = False
 
     def prepare(
         self,
@@ -180,7 +189,11 @@ class OperationEngine:
             result.largura = prepared_led.largura
             result.altura = prepared_led.altura
             result.angulo = prepared_led.angulo
-            aplicar_diagnostico_pouca_luz(result, prepared_led.tipo_roi)
+            aplicar_diagnostico_pouca_luz(
+                result,
+                prepared_led.tipo_roi,
+                habilitado=self._diagnostico_pouca_luz_habilitado,
+            )
             results.append(result)
             if result.status != "ACESO":
                 failed_led_ids.append(prepared_led.id)
