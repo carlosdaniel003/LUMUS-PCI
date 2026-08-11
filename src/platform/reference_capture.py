@@ -16,19 +16,19 @@ from config import (
     MAX_RADIUS_PX,
     MIN_RADIUS_PX,
 )
-from src.core.feature_extractor import (
-    extrair_features_referencia_led,
+from src.core.feature_extractor import extrair_features_selecao
+from src.core.roi_geometry import (
+    TIPO_ROI_CIRCULO,
+    bbox_roi,
+    normalizar_tipo_roi,
+    roi_dentro_imagem,
 )
 from src.models.led_selection import LedSelection
 from src.models.reference_sample import ReferenceSample
-from src.platform.fullscreen_led_selection import CTRL_MASK
-from src.ui.main_window_parts.canvas.roi_shape_canvas import (
-    ponto_original_para_canvas,
-)
+from src.platform.bulk_roi_editor import copiar_led
 
 
-TAG_REFERENCIA_CAPTURA = "referencia_captura_overlay"
-MARGEM_RECORTE_REFERENCIA = 1.12
+MARGEM_PREVIEW_REFERENCIA = 0.12
 
 _REFERENCIAS = {
     "aceso": {
@@ -64,36 +64,45 @@ _REFERENCIAS = {
 }
 
 
-def raio_recorte_referencia(raio_roi: int) -> int:
-    return max(1, int(math.ceil(max(1, int(raio_roi)) * MARGEM_RECORTE_REFERENCIA)))
-
-
-def recortar_referencia_circular(
+def recortar_referencia_roi(
     imagem,
-    centro_x: int,
-    centro_y: int,
-    raio_roi: int,
+    roi: LedSelection,
+    margem_relativa: float = MARGEM_PREVIEW_REFERENCIA,
 ):
-    """Recorta um quadrado centrado na ROI circular usada como referência.
+    """Recorta a região visual da ROI com uma pequena margem de contexto.
 
-    A pequena margem faz com que o raio de 45% aplicado por
-    ``extrair_features_referencia_led`` coincida aproximadamente com o raio
-    selecionado pelo operador, além de deixar contexto visível na preview.
+    As features não são extraídas deste retângulo. Elas usam a própria ROI
+    selecionada (círculo ou segmento), exatamente como na análise normal.
     """
-    if imagem is None or getattr(imagem, "size", 0) == 0:
+    if imagem is None or getattr(imagem, "size", 0) == 0 or roi is None:
         return None
 
     altura, largura = imagem.shape[:2]
-    margem = raio_recorte_referencia(raio_roi)
-    x1 = int(centro_x) - margem
-    y1 = int(centro_y) - margem
-    x2 = int(centro_x) + margem + 1
-    y2 = int(centro_y) + margem + 1
-
-    if x1 < 0 or y1 < 0 or x2 > largura or y2 > altura:
+    if not roi_dentro_imagem(roi, largura, altura):
         return None
 
-    recorte = imagem[y1:y2, x1:x2]
+    x1, y1, x2, y2 = bbox_roi(roi)
+    largura_roi = max(1.0, float(x2) - float(x1))
+    altura_roi = max(1.0, float(y2) - float(y1))
+    margem = max(
+        2,
+        int(
+            math.ceil(
+                max(largura_roi, altura_roi)
+                * max(0.0, float(margem_relativa))
+            )
+        ),
+    )
+
+    esquerda = max(0, int(math.floor(float(x1))) - margem)
+    topo = max(0, int(math.floor(float(y1))) - margem)
+    direita = min(largura, int(math.ceil(float(x2))) + margem + 1)
+    base = min(altura, int(math.ceil(float(y2))) + margem + 1)
+
+    if direita <= esquerda or base <= topo:
+        return None
+
+    recorte = imagem[topo:base, esquerda:direita]
     if recorte is None or getattr(recorte, "size", 0) == 0:
         return None
     return recorte.copy()
@@ -106,6 +115,7 @@ def atualizar_configuracao_referencia(
     features: dict,
     raio_atual_px: int,
     settings_padrao: dict | None = None,
+    roi: dict | None = None,
 ) -> dict:
     """Atualiza uma referência sem apagar LEDs, settings ou outras refs."""
     dados = copy.deepcopy(configuracao) if isinstance(configuracao, dict) else {}
@@ -123,10 +133,13 @@ def atualizar_configuracao_referencia(
     if not isinstance(dados.get("settings"), dict):
         dados["settings"] = copy.deepcopy(settings_padrao or {})
 
-    dados[str(chave_referencia)] = {
+    referencia = {
         "image_path": str(caminho_imagem),
         "features": copy.deepcopy(features),
     }
+    if isinstance(roi, dict):
+        referencia["roi"] = copy.deepcopy(roi)
+    dados[str(chave_referencia)] = referencia
     return dados
 
 
@@ -189,7 +202,9 @@ def _criar_photo_preview(imagem, largura_max: int = 176, altura_max: int = 108):
 
 
 class ReferenceCaptureMixin:
-    """Captura e apresenta referências fixas diretamente da imagem principal."""
+    """Usa o editor real de ROIs para definir as três referências fixas."""
+
+    MODO_CAPTURA_REFERENCIA = "capturar_referencia"
 
     def __init__(self, *args, **kwargs) -> None:
         self.imagem_referencia_pouca_luz = None
@@ -197,15 +212,9 @@ class ReferenceCaptureMixin:
         self.features_referencia_pouca_luz = None
 
         self._referencia_captura_tipo = None
-        self._referencia_captura_window = None
-        self._referencia_captura_canvas = None
-        self._referencia_canvas_original = None
-        self._referencia_captura_roi = None
         self._referencia_captura_frame = None
-        self._referencia_captura_raio = MIN_RADIUS_PX
         self._referencia_captura_estado_anterior = None
-        self._referencia_label_zoom = None
-        self._referencia_label_instrucao = None
+        self._referencia_salvando = False
         super().__init__(*args, **kwargs)
 
     # ------------------------------------------------------------------
@@ -214,6 +223,8 @@ class ReferenceCaptureMixin:
     def carregar_referencias_automaticamente_se_necessario(self) -> None:
         super().carregar_referencias_automaticamente_se_necessario()
 
+        # Recarrega as imagens somente para as previews. Não recalcula as
+        # features, pois elas podem ter vindo de um segmento rotacionado.
         for imagem_attr, caminho_attr in (
             ("imagem_referencia_acesa", "caminho_referencia_acesa"),
             ("imagem_referencia_apagada", "caminho_referencia_apagada"),
@@ -232,11 +243,6 @@ class ReferenceCaptureMixin:
         self.imagem_referencia_pouca_luz = self.recarregar_imagem_referencia(
             self.caminho_referencia_pouca_luz
         )
-
-        if self.imagem_referencia_pouca_luz is not None:
-            self.features_referencia_pouca_luz = extrair_features_referencia_led(
-                self.imagem_referencia_pouca_luz
-            )
 
     def abrir_configuracoes(self) -> None:
         self.carregar_referencias_automaticamente_se_necessario()
@@ -273,8 +279,8 @@ class ReferenceCaptureMixin:
             corpo,
             text=(
                 "As referências são carregadas automaticamente. Clique em uma "
-                "referência para abrir a imagem principal em tela cheia, selecione "
-                "o LED e confirme em OK."
+                "referência e desenhe exatamente a ROI que será usada como "
+                "amostra, com o mesmo editor de Selecionar LEDs."
             ),
             font=("Segoe UI", 9),
             fg=self.view.COR_TEXTO_2,
@@ -397,9 +403,6 @@ class ReferenceCaptureMixin:
             pass
         self.root.after(80, lambda: self._abrir_captura_referencia(tipo))
 
-    # ------------------------------------------------------------------
-    # Entrada dos três botões de referência
-    # ------------------------------------------------------------------
     def carregar_referencia_led_aceso(self) -> None:
         self._abrir_captura_referencia("aceso")
 
@@ -410,33 +413,152 @@ class ReferenceCaptureMixin:
         self._abrir_captura_referencia("pouca_luz")
 
     # ------------------------------------------------------------------
-    # Tela cheia de captura
+    # Integração direta com o editor de ROI usado por "Selecionar LEDs"
     # ------------------------------------------------------------------
-    def _captura_referencia_esta_aberta(self) -> bool:
-        janela = self._referencia_captura_window
-        if janela is None:
-            return False
-        try:
-            return bool(janela.winfo_exists())
-        except Exception:
-            return False
+    def _captura_referencia_ativa(self) -> bool:
+        return (
+            self._referencia_captura_tipo in _REFERENCIAS
+            and str(getattr(self, "modo_atual", ""))
+            == self.MODO_CAPTURA_REFERENCIA
+        )
 
-    def _abrir_captura_referencia(self, tipo: str) -> None:
-        if tipo not in _REFERENCIAS or self._captura_referencia_esta_aberta():
+    def _modo_edicao_roi_ativo(self) -> bool:
+        if self._captura_referencia_ativa():
+            return True
+        return super()._modo_edicao_roi_ativo()
+
+    def _leds_editaveis(self):
+        if self._captura_referencia_ativa():
+            return list(getattr(self, "leds_selecionados", []) or ())
+        return super()._leds_editaveis()
+
+    def _substituir_leds_editaveis(self, leds) -> None:
+        if not self._captura_referencia_ativa():
+            super()._substituir_leds_editaveis(leds)
             return
 
-        if getattr(self, "imagem_original", None) is None:
+        novos = [copiar_led(led) for led in (leds or ())]
+        # Uma referência representa exatamente uma ROI. Se outra for criada,
+        # a nova substitui a ROI temporária anterior.
+        if len(novos) > 1:
+            novos = [novos[-1]]
+        self.leds_selecionados = novos
+        self.resultados_led_atual = []
+
+    def evento_clique_esquerdo(self, evento):
+        if self._captura_referencia_ativa():
+            self._congelar_frame_referencia()
+        return super().evento_clique_esquerdo(evento)
+
+    def _evento_soltar_roi(self, evento):
+        # Segmentos passam integralmente pelo editor normal. O círculo precisa
+        # apenas deste adaptador porque o clique legado do app reconhece somente
+        # os modos de inspeção; toda edição posterior usa o mesmo editor normal.
+        if (
+            self._captura_referencia_ativa()
+            and normalizar_tipo_roi(
+                getattr(self, "tipo_roi_edicao", TIPO_ROI_CIRCULO)
+            )
+            == TIPO_ROI_CIRCULO
+            and getattr(self, "_area_roi_mode", None) == "pending_marquee"
+        ):
+            self._area_roi_mode = None
+            coordenadas = self.view.converter_canvas_para_imagem_original(
+                int(getattr(evento, "x", 0)),
+                int(getattr(evento, "y", 0)),
+            )
+            if coordenadas is None:
+                return "break"
+
+            centro_x, centro_y = coordenadas
+            raio = min(
+                MAX_RADIUS_PX,
+                max(
+                    MIN_RADIUS_PX,
+                    int(getattr(self, "raio_atual_px", MIN_RADIUS_PX)),
+                ),
+            )
+            candidato = LedSelection(
+                id="REF_CIRCULO",
+                centro_x=int(centro_x),
+                centro_y=int(centro_y),
+                raio=int(raio),
+                tipo_roi=TIPO_ROI_CIRCULO,
+            )
+            if not roi_dentro_imagem(
+                candidato,
+                int(getattr(self, "largura_original", 0) or 0),
+                int(getattr(self, "altura_original", 0) or 0),
+            ):
+                self.view.atualizar_status(
+                    "ROI de referência não criada: a geometria ultrapassa "
+                    "os limites da imagem."
+                )
+                return "break"
+
+            self._substituir_leds_editaveis([candidato])
+            selecionar = getattr(self, "_selecionar_ids", None)
+            if callable(selecionar):
+                selecionar([candidato.id], mensagem=False)
+            atualizar_pos = getattr(self, "_atualizar_pos_edicao_roi", None)
+            if callable(atualizar_pos):
+                atualizar_pos()
+            self.view.desenhar_canvas(
+                self.leds_selecionados,
+                self.resultados_led_atual,
+            )
+            self.view.atualizar_status(
+                "ROI circular da referência criada. Ajuste como em "
+                "Selecionar LEDs e clique em OK."
+            )
+            return "break"
+
+        return super()._evento_soltar_roi(evento)
+
+    def _congelar_frame_referencia(self) -> None:
+        if not self._captura_referencia_ativa():
+            return
+        if self._referencia_captura_frame is not None:
+            return
+
+        frame = None
+        if bool(getattr(self, "camera_ativa", False)):
+            camera_frame = getattr(self, "camera_frame_atual", None)
+            if camera_frame is not None:
+                frame = camera_frame.copy()
+        if frame is None:
+            imagem = getattr(self, "imagem_original", None)
+            if imagem is not None:
+                frame = imagem.copy()
+        if frame is None:
+            return
+
+        self._referencia_captura_frame = frame
+        self.imagem_original = frame.copy()
+        self.altura_original, self.largura_original = frame.shape[:2]
+
+        # Enquanto a ROI é desenhada/editada, o frame não muda sob ela.
+        if bool(getattr(self, "camera_ativa", False)):
+            self.camera_em_pausa_analise = True
+
+    def _abrir_captura_referencia(self, tipo: str) -> None:
+        if tipo not in _REFERENCIAS:
+            return
+        if bool(getattr(self, "_selecao_tela_cheia_esta_aberta", lambda: False)()):
+            return
+
+        imagem = getattr(self, "imagem_original", None)
+        if imagem is None:
             messagebox.showwarning(
                 "Atenção",
                 "Ative a câmera ou carregue uma imagem antes de criar a referência.",
             )
             return
 
-        if bool(getattr(self, "camera_ativa", False)) and getattr(
-            self,
-            "camera_frame_atual",
-            None,
-        ) is None:
+        if (
+            bool(getattr(self, "camera_ativa", False))
+            and getattr(self, "camera_frame_atual", None) is None
+        ):
             messagebox.showwarning(
                 "Atenção",
                 "Aguarde a câmera exibir uma imagem antes de criar a referência.",
@@ -469,411 +591,131 @@ class ReferenceCaptureMixin:
             "resultados_led_atual": copy.deepcopy(
                 getattr(self, "resultados_led_atual", [])
             ),
+            "imagem_original": imagem.copy(),
+            "caminho_imagem_atual": getattr(self, "caminho_imagem_atual", None),
+            "largura_original": int(getattr(self, "largura_original", 0) or 0),
+            "altura_original": int(getattr(self, "altura_original", 0) or 0),
+            "tipo_roi_edicao": getattr(self, "tipo_roi_edicao", None),
         }
 
         self._referencia_captura_tipo = tipo
-        self._referencia_captura_roi = None
         self._referencia_captura_frame = None
-        self._referencia_captura_raio = min(
-            MAX_RADIUS_PX,
-            max(MIN_RADIUS_PX, int(getattr(self, "raio_atual_px", 15))),
-        )
-
-        self.modo_atual = "capturar_referencia"
+        self._referencia_salvando = False
+        self.modo_atual = self.MODO_CAPTURA_REFERENCIA
         self.guias_leds_fixos_visiveis = False
         self.selecao_manual_camera_ativa = False
         self.leds_selecionados = []
         self.resultados_led_atual = []
         self.view.selecao_manual_camera_visivel = False
-        self.view.atualizar_estado_selecao_led(False)
+        self.view.atualizar_estado_selecao_led(True)
 
-        janela, canvas = self._criar_interface_captura_referencia(tipo)
-        self._referencia_captura_window = janela
-        self._referencia_captura_canvas = canvas
-        self._referencia_canvas_original = self.view.canvas
-        self.view.canvas = canvas
-        self._ativar_zoom_selecao()
-        self._configurar_eventos_captura_referencia(canvas)
+        resetar = getattr(self, "_resetar_editor_roi", None)
+        if callable(resetar):
+            resetar()
 
+        # Reutiliza literalmente a mesma janela, toolbar e bindings de
+        # "Selecionar LEDs": Segmento/Círculo, alças, rotação, zoom e pan.
+        self._abrir_selecao_tela_cheia()
+
+        janela = getattr(self, "_selecao_tela_cheia_window", None)
+        if janela is None:
+            self._restaurar_estado_apos_referencia()
+            return
+
+        dados = _REFERENCIAS[tipo]
         try:
+            janela.title(f"ODIN • {dados['botao']} • Seleção de ROI")
             janela.protocol(
                 "WM_DELETE_WINDOW",
                 self._cancelar_captura_referencia,
             )
-            janela.bind(
-                "<Escape>",
-                lambda _evento: self._cancelar_captura_referencia(),
-            )
-            janela.grab_set()
-            janela.lift()
-            janela.focus_force()
         except Exception:
             pass
 
-        self._redesenhar_referencia_no_canvas_atual()
-        try:
-            janela.after(20, lambda: janela.attributes("-fullscreen", True))
-            janela.after(70, canvas.focus_set)
-        except Exception:
-            pass
-
-    def _criar_interface_captura_referencia(self, tipo: str):
-        dados = _REFERENCIAS[tipo]
-        janela = tk.Toplevel(self.root)
-        janela.title(dados["titulo"])
-        janela.configure(bg="#020617")
-
-        barra = tk.Frame(
-            janela,
-            bg="#07111F",
-            height=70,
-            highlightthickness=1,
-            highlightbackground="#122033",
+        self.view.atualizar_status(
+            f"{dados['botao']}: desenhe uma única ROI exatamente como em "
+            "Selecionar LEDs e clique em OK."
         )
-        barra.pack(side=tk.TOP, fill=tk.X)
-        barra.pack_propagate(False)
 
-        textos = tk.Frame(barra, bg="#07111F")
-        textos.pack(
-            side=tk.LEFT,
-            fill=tk.BOTH,
-            expand=True,
-            padx=(18, 8),
-            pady=8,
-        )
-        tk.Label(
-            textos,
-            text=dados["titulo"].upper(),
-            font=("DejaVu Sans", 12, "bold"),
-            fg="#F9FAFB",
-            bg="#07111F",
-            anchor="w",
-        ).pack(fill=tk.X)
-        self._referencia_label_instrucao = tk.Label(
-            textos,
-            text=(
-                "Clique no LED • scroll ajusta o recorte • Ctrl+scroll aplica zoom • "
-                "rodinha pressionada+arraste move a imagem"
-            ),
-            font=("DejaVu Sans", 8),
-            fg="#AAB8C8",
-            bg="#07111F",
-            anchor="w",
-        )
-        self._referencia_label_instrucao.pack(fill=tk.X, pady=(2, 0))
-
-        tk.Button(
-            barra,
-            text="OK",
-            command=self._confirmar_captura_referencia,
-            font=("DejaVu Sans", 10, "bold"),
-            bg="#D6A900",
-            fg="#111318",
-            activebackground="#F5C518",
-            activeforeground="#111318",
-            relief="flat",
-            bd=0,
-            padx=24,
-            pady=8,
-            cursor="hand2",
-        ).pack(side=tk.RIGHT, padx=(8, 18), pady=13)
-
-        tk.Button(
-            barra,
-            text="Cancelar",
-            command=self._cancelar_captura_referencia,
-            font=("DejaVu Sans", 9, "bold"),
-            bg="#182231",
-            fg="#DCE5EF",
-            activebackground="#243246",
-            activeforeground="#FFFFFF",
-            relief="flat",
-            bd=0,
-            padx=14,
-            pady=8,
-            cursor="hand2",
-        ).pack(side=tk.RIGHT, padx=(6, 0), pady=13)
-
-        self._referencia_label_zoom = tk.Label(
-            barra,
-            text="ZOOM 100%",
-            font=("DejaVu Sans", 9, "bold"),
-            fg="#38BDF8",
-            bg="#07111F",
-            padx=10,
-        )
-        self._referencia_label_zoom.pack(side=tk.RIGHT, padx=(8, 6))
-
-        canvas = tk.Canvas(
-            janela,
-            bg="#020617",
-            highlightthickness=0,
-            cursor="crosshair",
-            bd=0,
-            width=1,
-            height=1,
-        )
-        canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        return janela, canvas
-
-    def _configurar_eventos_captura_referencia(self, canvas) -> None:
-        canvas.bind("<Button-1>", self._evento_selecionar_referencia)
-        canvas.bind(
-            "<Configure>",
-            self.view.evento_redimensionar_canvas_principal,
-        )
-        canvas.bind("<Motion>", self._evento_motion_selecao)
-        canvas.bind("<Leave>", self.view.limpar_lupa_canvas)
-        canvas.bind("<Button-2>", self._evento_iniciar_pan_selecao)
-        canvas.bind("<B2-Motion>", self._evento_arrastar_pan_selecao)
-        canvas.bind("<ButtonRelease-2>", self._evento_finalizar_pan_selecao)
-        for sequencia in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            canvas.bind(sequencia, self._evento_roda_referencia, add="+")
-
-    def _evento_roda_referencia(self, evento) -> str:
-        estado = int(getattr(evento, "state", 0) or 0)
-        if estado & CTRL_MASK:
-            return self._evento_zoom_selecao(evento)
-
-        direcao = self._direcao_scroll(evento)
-        if direcao == 0:
-            return "break"
-
-        self._referencia_captura_raio = min(
-            MAX_RADIUS_PX,
-            max(
-                MIN_RADIUS_PX,
-                int(self._referencia_captura_raio) + direcao,
-            ),
-        )
-        if self._referencia_captura_roi is not None:
-            self._referencia_captura_roi.raio = self._referencia_captura_raio
-        self._desenhar_overlay_referencia()
-        self._atualizar_instrucao_referencia(
-            f"Recorte: {self._referencia_captura_raio}px. Clique no LED e confirme em OK."
-        )
-        return "break"
-
-    def _evento_selecionar_referencia(self, evento) -> str:
-        coordenadas = self.view.converter_canvas_para_imagem_original(
-            int(getattr(evento, "x", 0)),
-            int(getattr(evento, "y", 0)),
-        )
-        if coordenadas is None:
-            self._atualizar_instrucao_referencia(
-                "Clique dentro da imagem para selecionar a referência."
-            )
-            return "break"
-
-        centro_x, centro_y = coordenadas
-        raio = int(self._referencia_captura_raio)
-        margem = raio_recorte_referencia(raio)
-        imagem = getattr(self, "imagem_original", None)
-        if imagem is None:
-            return "break"
-        altura, largura = imagem.shape[:2]
-
-        if (
-            centro_x - margem < 0
-            or centro_y - margem < 0
-            or centro_x + margem >= largura
-            or centro_y + margem >= altura
-        ):
-            self._atualizar_instrucao_referencia(
-                "Seleção muito próxima da borda. Escolha um ponto com espaço para o recorte."
-            )
-            return "break"
-
-        if self._referencia_captura_frame is None:
-            self._referencia_captura_frame = imagem.copy()
-            if bool(getattr(self, "camera_ativa", False)):
-                self.camera_em_pausa_analise = True
-
-        self._referencia_captura_roi = LedSelection(
-            id="REF",
-            centro_x=int(centro_x),
-            centro_y=int(centro_y),
-            raio=raio,
-            tipo_roi="circulo",
-        )
-        self._desenhar_overlay_referencia()
-        self._atualizar_instrucao_referencia(
-            "Referência selecionada e frame congelado. Ajuste o recorte com scroll ou confirme em OK."
-        )
-        return "break"
-
-    def _atualizar_instrucao_referencia(self, texto: str) -> None:
-        label = self._referencia_label_instrucao
-        if label is not None:
-            try:
-                label.configure(text=str(texto))
-            except Exception:
-                pass
-
-    def _desenhar_overlay_referencia(self) -> None:
-        if not self._captura_referencia_esta_aberta():
+    def _confirmar_selecao_tela_cheia(self) -> None:
+        if not self._captura_referencia_ativa():
+            super()._confirmar_selecao_tela_cheia()
             return
-        canvas = self._referencia_captura_canvas
-        roi = self._referencia_captura_roi
-        if canvas is None:
-            return
-        try:
-            canvas.delete(TAG_REFERENCIA_CAPTURA)
-        except Exception:
-            return
-        if roi is None:
-            return
-
-        centro_x, centro_y = ponto_original_para_canvas(
-            self.view,
-            roi.centro_x,
-            roi.centro_y,
-        )
-        raio_canvas = max(
-            4,
-            int(round(roi.raio * float(self.view.escala_exibicao))),
-        )
-        dados = _REFERENCIAS[self._referencia_captura_tipo]
-        cor = dados["cor"]
-        canvas.create_oval(
-            centro_x - raio_canvas,
-            centro_y - raio_canvas,
-            centro_x + raio_canvas,
-            centro_y + raio_canvas,
-            outline=cor,
-            width=3,
-            tags=(TAG_REFERENCIA_CAPTURA,),
-        )
-        canvas.create_line(
-            centro_x - raio_canvas,
-            centro_y,
-            centro_x + raio_canvas,
-            centro_y,
-            fill=cor,
-            width=1,
-            tags=(TAG_REFERENCIA_CAPTURA,),
-        )
-        canvas.create_line(
-            centro_x,
-            centro_y - raio_canvas,
-            centro_x,
-            centro_y + raio_canvas,
-            fill=cor,
-            width=1,
-            tags=(TAG_REFERENCIA_CAPTURA,),
-        )
-        canvas.create_text(
-            centro_x,
-            centro_y - raio_canvas - 14,
-            text="REFERÊNCIA",
-            fill=cor,
-            font=("DejaVu Sans", 8, "bold"),
-            tags=(TAG_REFERENCIA_CAPTURA,),
-        )
-        try:
-            canvas.tag_raise(TAG_REFERENCIA_CAPTURA)
-        except Exception:
-            pass
-
-    def _redesenhar_referencia_no_canvas_atual(self) -> None:
-        imagem = getattr(self, "imagem_original", None)
-        if imagem is None:
-            return
-        self.view.imagem_tk = None
-        self.view._imagem_tk_largura = None
-        self.view._imagem_tk_altura = None
-        self.view.preparar_imagem_para_exibicao(imagem)
-        self.view.desenhar_canvas([], [])
-        self._desenhar_overlay_referencia()
-
-    def _canvas_selecao_atual(self):
-        if self._captura_referencia_esta_aberta():
-            return self._referencia_captura_canvas
-        return super()._canvas_selecao_atual()
-
-    def _atualizar_indicador_zoom_selecao(self) -> None:
-        super()._atualizar_indicador_zoom_selecao()
-        label = self._referencia_label_zoom
-        if label is None:
-            return
-        fator = float(
-            getattr(getattr(self, "view", None), "_selecao_zoom_fator", 1.0)
-            or 1.0
-        )
-        try:
-            label.configure(text=f"ZOOM {int(round(fator * 100))}%")
-        except Exception:
-            pass
-
-    def _redesenhar_apos_zoom_selecao(self) -> None:
-        super()._redesenhar_apos_zoom_selecao()
-        self._desenhar_overlay_referencia()
-
-    def atualizar_frame_camera(self) -> None:
-        super().atualizar_frame_camera()
-        if self._captura_referencia_esta_aberta():
-            self._desenhar_overlay_referencia()
+        self._confirmar_captura_referencia()
 
     # ------------------------------------------------------------------
     # Confirmação, persistência e retorno às Configurações
     # ------------------------------------------------------------------
     def _confirmar_captura_referencia(self) -> None:
+        if self._referencia_salvando:
+            return
+
         tipo = self._referencia_captura_tipo
-        roi = self._referencia_captura_roi
-        if tipo not in _REFERENCIAS or roi is None:
+        rois = list(getattr(self, "leds_selecionados", []) or ())
+        if tipo not in _REFERENCIAS or len(rois) != 1:
             messagebox.showwarning(
                 "Atenção",
-                "Selecione o LED que será usado como referência antes de clicar em OK.",
+                "Desenhe exatamente uma ROI que será usada como referência "
+                "antes de clicar em OK.",
             )
             return
 
+        self._congelar_frame_referencia()
         frame = self._referencia_captura_frame
         if frame is None:
-            imagem = getattr(self, "imagem_original", None)
-            frame = imagem.copy() if imagem is not None else None
+            messagebox.showerror(
+                "Erro",
+                "Não foi possível congelar a imagem usada pela referência.",
+            )
+            return
 
-        recorte = recortar_referencia_circular(
-            frame,
-            roi.centro_x,
-            roi.centro_y,
-            roi.raio,
-        )
+        roi = copiar_led(rois[0])
+        if not roi_dentro_imagem(roi, int(frame.shape[1]), int(frame.shape[0])):
+            messagebox.showerror(
+                "Erro",
+                "A ROI de referência ultrapassa os limites da imagem.",
+            )
+            return
+
+        recorte = recortar_referencia_roi(frame, roi)
         if recorte is None:
             messagebox.showerror(
                 "Erro",
-                "Não foi possível gerar o recorte da referência selecionada.",
+                "Não foi possível gerar a preview da ROI selecionada.",
             )
             return
 
+        # Aqui está a mudança central: as features vêm da mesma geometria
+        # exata selecionada pelo editor normal, inclusive segmento/ângulo.
+        features = extrair_features_selecao(frame, roi)
         dados = _REFERENCIAS[tipo]
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         caminho = CONFIG_DIR / dados["arquivo"]
-        if not cv2.imwrite(str(caminho), recorte):
-            messagebox.showerror(
-                "Erro",
-                "Não foi possível salvar a imagem de referência.",
-            )
-            return
 
-        features = extrair_features_referencia_led(recorte)
-        setattr(self, dados["imagem_attr"], recorte)
-        setattr(self, dados["caminho_attr"], str(caminho))
-        setattr(self, dados["features_attr"], features)
-
+        self._referencia_salvando = True
         try:
+            if not cv2.imwrite(str(caminho), recorte):
+                raise RuntimeError("não foi possível gravar a imagem da referência")
+
+            setattr(self, dados["imagem_attr"], recorte)
+            setattr(self, dados["caminho_attr"], str(caminho))
+            setattr(self, dados["features_attr"], features)
+
             self._persistir_referencia_individual(
                 dados["config_key"],
                 caminho,
                 features,
+                roi,
             )
         except Exception as erro:
+            self._referencia_salvando = False
             messagebox.showerror(
                 "Erro",
-                f"A imagem foi recortada, mas a referência não pôde ser registrada: {erro}",
+                f"Não foi possível salvar a referência: {erro}",
             )
             return
 
-        self._fechar_captura_referencia(
+        self._encerrar_captura_referencia(
             reabrir_configuracoes=True,
             status=f"{dados['botao']} atualizada e salva automaticamente.",
         )
@@ -883,6 +725,7 @@ class ReferenceCaptureMixin:
         chave_referencia: str,
         caminho: Path,
         features,
+        roi: LedSelection,
     ) -> None:
         existente = self.config_repository.carregar_configuracao_existente_sem_alerta()
         settings_padrao = {
@@ -898,6 +741,7 @@ class ReferenceCaptureMixin:
             features=features.to_dict(),
             raio_atual_px=int(getattr(self, "raio_atual_px", MIN_RADIUS_PX)),
             settings_padrao=settings_padrao,
+            roi=roi.to_dict(),
         )
         arquivo = Path(self.config_repository.config_file)
         arquivo.parent.mkdir(parents=True, exist_ok=True)
@@ -911,46 +755,39 @@ class ReferenceCaptureMixin:
         self.configuracao_atual = configuracao
 
     def _cancelar_captura_referencia(self) -> None:
-        self._fechar_captura_referencia(
+        if not self._captura_referencia_ativa():
+            return
+        self._encerrar_captura_referencia(
             reabrir_configuracoes=True,
             status="Captura de referência cancelada.",
         )
 
-    def _fechar_captura_referencia(
+    def _encerrar_captura_referencia(
         self,
         reabrir_configuracoes: bool,
         status: str | None = None,
     ) -> None:
-        if not self._captura_referencia_esta_aberta():
-            return
+        # Fecha a mesma janela de Selecionar LEDs sem executar o comportamento
+        # normal do OK, que alternaria o modo de inspeção.
+        if bool(getattr(self, "_selecao_tela_cheia_esta_aberta", lambda: False)()):
+            super()._fechar_interface_selecao_tela_cheia()
 
-        janela = self._referencia_captura_window
-        canvas_original = self._referencia_canvas_original
+        self._restaurar_estado_apos_referencia()
+        self._referencia_salvando = False
+
+        if status:
+            self.view.atualizar_status(status)
+        self.atualizar_painel_inicial()
+
+        if reabrir_configuracoes:
+            self.root.after(140, self.abrir_configuracoes)
+
+    def _restaurar_estado_apos_referencia(self) -> None:
         estado = self._referencia_captura_estado_anterior or {}
 
-        self._evento_finalizar_pan_selecao()
-        self._desativar_zoom_selecao()
-
-        if canvas_original is not None:
-            self.view.canvas = canvas_original
-
-        try:
-            janela.grab_release()
-        except Exception:
-            pass
-        try:
-            janela.destroy()
-        except Exception:
-            pass
-
-        self._referencia_captura_window = None
-        self._referencia_captura_canvas = None
-        self._referencia_canvas_original = None
         self._referencia_captura_tipo = None
-        self._referencia_captura_roi = None
         self._referencia_captura_frame = None
-        self._referencia_label_zoom = None
-        self._referencia_label_instrucao = None
+        self._referencia_captura_estado_anterior = None
 
         self.modo_atual = estado.get("modo_atual", "ocioso")
         self.camera_em_pausa_analise = bool(
@@ -977,23 +814,40 @@ class ReferenceCaptureMixin:
         self.view.atualizar_estado_selecao_led(
             bool(estado.get("selecao_led_ativa", False))
         )
-        self._referencia_captura_estado_anterior = None
 
-        if getattr(self, "imagem_original", None) is not None:
+        tipo_anterior = estado.get("tipo_roi_edicao")
+        if tipo_anterior is not None:
+            self.tipo_roi_edicao = tipo_anterior
+
+        imagem_restaurada = estado.get("imagem_original")
+        if (
+            bool(getattr(self, "camera_ativa", False))
+            and not self.camera_em_pausa_analise
+            and getattr(self, "camera_frame_atual", None) is not None
+        ):
+            imagem_restaurada = self.camera_frame_atual.copy()
+
+        self.imagem_original = imagem_restaurada
+        self.caminho_imagem_atual = estado.get(
+            "caminho_imagem_atual",
+            getattr(self, "caminho_imagem_atual", None),
+        )
+        self.largura_original = int(estado.get("largura_original", 0) or 0)
+        self.altura_original = int(estado.get("altura_original", 0) or 0)
+
+        if self.imagem_original is not None:
+            self.altura_original, self.largura_original = self.imagem_original.shape[:2]
             self.view.preparar_imagem_para_exibicao(self.imagem_original)
             self.view.desenhar_canvas(
                 self.leds_selecionados,
                 self.resultados_led_atual,
             )
 
-        if status:
-            self.view.atualizar_status(status)
-        self.atualizar_painel_inicial()
+        resetar = getattr(self, "_resetar_editor_roi", None)
+        if callable(resetar):
+            resetar()
 
         try:
             self.root.focus_force()
         except Exception:
             pass
-
-        if reabrir_configuracoes:
-            self.root.after(140, self.abrir_configuracoes)
