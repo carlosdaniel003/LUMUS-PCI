@@ -29,6 +29,14 @@ def _tem_segmentos(leds) -> bool:
     )
 
 
+def _referencia_pouca_luz_ativa(app) -> bool:
+    """Só habilita POUCA_LUZ quando há amostra ativa no contexto atual."""
+    grupos = getattr(app, "_referencias_ativas_por_tipo", None)
+    if isinstance(grupos, dict):
+        return bool(grupos.get("pouca_luz"))
+    return getattr(app, "features_referencia_pouca_luz", None) is not None
+
+
 class SegmentDisplayRuntimeMixin:
     """Mantém a geometria mista nos fluxos legados do ODIN."""
 
@@ -219,6 +227,7 @@ class SegmentDisplayRuntimeMixin:
             )
             return
 
+        diagnostico_pouca_luz_habilitado = _referencia_pouca_luz_ativa(self)
         classificador = ReferenceLedClassifier(
             features_referencia_acesa=self.features_referencia_acesa,
             features_referencia_apagada=self.features_referencia_apagada,
@@ -237,7 +246,11 @@ class SegmentDisplayRuntimeMixin:
             resultado.largura = led.largura
             resultado.altura = led.altura
             resultado.angulo = led.angulo
-            aplicar_diagnostico_pouca_luz(resultado, led.tipo_roi)
+            aplicar_diagnostico_pouca_luz(
+                resultado,
+                led.tipo_roi,
+                habilitado=diagnostico_pouca_luz_habilitado,
+            )
             resultados_led.append(resultado)
 
         self.resultados_led_atual = resultados_led
