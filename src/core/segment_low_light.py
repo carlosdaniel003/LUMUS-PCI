@@ -116,22 +116,39 @@ def avaliar_pouca_luz_segmento(features) -> SegmentLowLightEvaluation:
     )
 
 
-def aplicar_diagnostico_pouca_luz(resultado, tipo_roi=None):
-    """Converte ACESO em POUCA_LUZ somente para ROIs do tipo segmento.
+def _limpar_diagnostico_pouca_luz(resultado):
+    status = str(getattr(resultado, "status", ""))
+    resultado.falha_luminosidade = False
+    resultado.indice_luminosidade = 1.0 if status == STATUS_ACESO else 0.0
+    resultado.score_falha_luminosidade = 0.0
+    return resultado
+
+
+def aplicar_diagnostico_pouca_luz(
+    resultado,
+    tipo_roi=None,
+    habilitado: bool = True,
+):
+    """Converte ACESO em POUCA_LUZ somente quando a classe está habilitada.
+
+    O estado POUCA_LUZ é opcional e depende de existir ao menos uma referência
+    ativa desse estado no projeto atual ou no escopo GLOBAL. Sem essa
+    parametrização, o classificador ACESO/APAGADO é soberano e nenhum resultado
+    pode ser sobrescrito como POUCA_LUZ.
 
     ``valor_binario`` permanece 1 porque existe emissão luminosa. O status é
     que passa a carregar a falha de qualidade; por isso produção e NG devem
-    considerar ``status != ACESO`` como falha.
+    considerar ``status != ACESO`` como falha quando o diagnóstico está ativo.
     """
+    if not bool(habilitado):
+        return _limpar_diagnostico_pouca_luz(resultado)
+
     tipo = normalizar_tipo_roi(
         tipo_roi if tipo_roi is not None else getattr(resultado, "tipo_roi", None)
     )
 
     if tipo != TIPO_ROI_SEGMENTO or str(getattr(resultado, "status", "")) != STATUS_ACESO:
-        resultado.falha_luminosidade = False
-        resultado.indice_luminosidade = 1.0 if str(getattr(resultado, "status", "")) == STATUS_ACESO else 0.0
-        resultado.score_falha_luminosidade = 0.0
-        return resultado
+        return _limpar_diagnostico_pouca_luz(resultado)
 
     avaliacao = avaliar_pouca_luz_segmento(resultado.features)
     resultado.falha_luminosidade = bool(avaliacao.falha)
