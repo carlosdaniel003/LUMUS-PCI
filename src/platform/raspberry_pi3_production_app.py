@@ -56,6 +56,9 @@ from src.platform.raspberry_runtime_fixes import (
 from src.platform.reference_capture import (
     ReferenceCaptureMixin,
 )
+from src.platform.reference_project_sets import (
+    ProjectReferenceSetsMixin,
+)
 from src.platform.segment_display_operation_window import (
     SegmentDisplayOperationWindow,
 )
@@ -74,6 +77,7 @@ from src.platform.segment_project_geometry_persistence import (
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
+    ProjectReferenceSetsMixin,
     ReferenceCaptureMixin,
     FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
