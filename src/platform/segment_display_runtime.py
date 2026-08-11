@@ -12,6 +12,7 @@ from src.core.visual_renderer import criar_imagem_resultados_visuais
 from src.infra.camera_service import CameraService
 from src.models.led_selection import LedSelection
 from src.platform.bulk_roi_editor import copiar_led
+from src.platform.reference_debug_context import criar_contexto_debug_referencias
 
 
 TEMPO_RETORNO_CAMERA_MS = 3000
@@ -267,8 +268,13 @@ class SegmentDisplayRuntimeMixin:
 
         from src.core.debug_formatter import formatar_resultado_textual_multiplos
 
+        contexto_referencias = criar_contexto_debug_referencias(self)
         self.view.escrever_resultados(
-            formatar_resultado_textual_multiplos(resultados_led, output_paths)
+            formatar_resultado_textual_multiplos(
+                resultados_led,
+                output_paths,
+                contexto_referencias=contexto_referencias,
+            )
         )
         self.view.atualizar_faixa_resultado_multiplos(resultados_led)
         self.view.atualizar_status("Análise concluída.")
