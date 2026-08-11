@@ -7,7 +7,7 @@ def criar_tabela_inferior(self) -> None:
     self.frame_tabela.grid(
         row=2,
         column=0,
-        columnspan=3,
+        columnspan=2,
         sticky="nsew",
         padx=0,
         pady=(0, 0),
