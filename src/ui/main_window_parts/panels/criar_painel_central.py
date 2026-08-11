@@ -2,8 +2,8 @@ import tkinter as tk
 
 
 def criar_painel_central(self) -> None:
-    # Mapa e resultado ocupam a mesma linha da câmera. O mapa recebe o dobro
-    # da largura do painel de resultado e toda a altura disponível.
+    # A linha superior contém somente Imagem principal + Resultado geral.
+    # O mapa de intensidade foi movido para a faixa técnica inferior.
     self.frame_central = tk.Frame(
         self.frame_dashboard,
         bg=self.COR_FUNDO_APP,
@@ -11,63 +11,18 @@ def criar_painel_central(self) -> None:
     self.frame_central.grid(
         row=0,
         column=1,
-        columnspan=2,
         sticky="nsew",
         padx=(4, 0),
         pady=(0, 4),
     )
     self.frame_central.grid_rowconfigure(0, weight=1)
-    self.frame_central.grid_columnconfigure(0, weight=4)
-    self.frame_central.grid_columnconfigure(1, weight=2)
-
-    self.frame_mapa = self.criar_card(self.frame_central)
-    self.frame_mapa.grid(
-        row=0,
-        column=0,
-        sticky="nsew",
-        padx=(0, 4),
-    )
-    self.frame_mapa.grid_rowconfigure(1, weight=1)
-    self.frame_mapa.grid_columnconfigure(0, weight=1)
-
-    self.criar_titulo_card(
-        self.frame_mapa,
-        "Mapa de intensidade",
-    ).grid(
-        row=0,
-        column=0,
-        sticky="ew",
-        padx=10,
-        pady=(6, 3),
-    )
-
-    self.canvas_mapa_intensidade = tk.Canvas(
-        self.frame_mapa,
-        bg="#020617",
-        highlightthickness=1,
-        highlightbackground=self.COR_BORDA,
-        bd=0,
-        width=1,
-        height=1,
-    )
-    self.canvas_mapa_intensidade.grid(
-        row=1,
-        column=0,
-        sticky="nsew",
-        padx=6,
-        pady=(0, 6),
-    )
-    self.desenhar_placeholder(
-        self.canvas_mapa_intensidade,
-        "Mapa de intensidade\nEtapa 2",
-    )
+    self.frame_central.grid_columnconfigure(0, weight=1)
 
     self.frame_resultado = self.criar_card(self.frame_central)
     self.frame_resultado.grid(
         row=0,
-        column=1,
+        column=0,
         sticky="nsew",
-        padx=(4, 0),
     )
     self.frame_resultado.grid_columnconfigure(0, weight=1)
     self.frame_resultado.grid_rowconfigure(4, weight=1)
