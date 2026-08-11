@@ -6,6 +6,11 @@ from src.platform.fullscreen_led_selection import (
     CTRL_MASK,
     FullscreenLedSelectionMixin,
 )
+from src.platform.reference_capture import (
+    atualizar_configuracao_referencia,
+    raio_recorte_referencia,
+    recortar_referencia_circular,
+)
 
 
 class FakeEvent:
@@ -214,6 +219,62 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
         self.assertEqual("crosshair", app.view.canvas.cursor)
         self.assertEqual(0, app.view.redraws)
         self.assertEqual(0, app.view.draws)
+
+    def test_recorte_referencia_mantem_roi_centralizada_com_margem(self):
+        imagem = np.zeros((120, 160, 3), dtype=np.uint8)
+        raio = 10
+
+        recorte = recortar_referencia_circular(
+            imagem,
+            centro_x=80,
+            centro_y=60,
+            raio_roi=raio,
+        )
+
+        margem = raio_recorte_referencia(raio)
+        self.assertIsNotNone(recorte)
+        self.assertEqual((margem * 2 + 1, margem * 2 + 1, 3), recorte.shape)
+
+    def test_recorte_referencia_rejeita_area_fora_da_imagem(self):
+        imagem = np.zeros((60, 60, 3), dtype=np.uint8)
+
+        recorte = recortar_referencia_circular(
+            imagem,
+            centro_x=2,
+            centro_y=2,
+            raio_roi=10,
+        )
+
+        self.assertIsNone(recorte)
+
+    def test_referencia_individual_preserva_demais_dados_do_projeto(self):
+        configuracao = {
+            "fixed_leds": [{"id": "SEG_001"}],
+            "settings": {"camera": {"fps": 20}},
+            "reference_on": {
+                "image_path": "aceso.png",
+                "features": {"v_mean": 250.0},
+            },
+        }
+
+        atualizada = atualizar_configuracao_referencia(
+            configuracao=configuracao,
+            chave_referencia="reference_low_light",
+            caminho_imagem="pouca_luz.png",
+            features={"v_mean": 180.0},
+            raio_atual_px=15,
+        )
+
+        self.assertEqual([{"id": "SEG_001"}], atualizada["fixed_leds"])
+        self.assertEqual(
+            "aceso.png",
+            atualizada["reference_on"]["image_path"],
+        )
+        self.assertEqual(
+            "pouca_luz.png",
+            atualizada["reference_low_light"]["image_path"],
+        )
+        self.assertEqual(15, atualizada["default_radius_px"])
 
 
 if __name__ == "__main__":
