@@ -74,6 +74,116 @@ def formatar_painel_inicial(
     return "\n".join(linhas)
 
 
+def _formatar_valor_debug(valor) -> str:
+    if valor is None:
+        return "--"
+    if isinstance(valor, float):
+        return str(round(valor, 6))
+    return str(valor)
+
+
+def _adicionar_contexto_referencias(
+    linhas: list[str],
+    contexto_referencias: dict | None,
+) -> None:
+    if not isinstance(contexto_referencias, dict):
+        return
+
+    grupos = contexto_referencias.get("grupos", {})
+    if not isinstance(grupos, dict):
+        grupos = {}
+
+    linhas.append("")
+    linhas.append("REFERÊNCIAS ATIVAS DA ANÁLISE")
+    linhas.append("=" * 42)
+    linhas.append(
+        f"Projeto de Carregar LEDs: {contexto_referencias.get('projeto', 'SEM PROJETO')}"
+    )
+    linhas.append(
+        "Limite por estado: "
+        f"{contexto_referencias.get('limite_por_estado', 3)}"
+    )
+    classificacao = str(contexto_referencias.get("classificacao") or "").strip()
+    if classificacao:
+        linhas.append(f"Uso: {classificacao}")
+
+    for chave in ("aceso", "apagado", "pouca_luz"):
+        grupo = grupos.get(chave, {})
+        if not isinstance(grupo, dict):
+            continue
+        titulo = str(grupo.get("titulo") or chave.upper())
+        total = int(grupo.get("total", 0) or 0)
+        globais = int(grupo.get("globais", 0) or 0)
+        locais = int(grupo.get("projeto", 0) or 0)
+        linhas.append("")
+        linhas.append(
+            f"{titulo}: {total}/3 ativas | GLOBAL={globais} | PROJETO={locais}"
+        )
+
+        amostras = grupo.get("amostras", [])
+        if not isinstance(amostras, list) or not amostras:
+            linhas.append("  nenhuma amostra ativa")
+        else:
+            for amostra in amostras:
+                if not isinstance(amostra, dict):
+                    continue
+                numero = amostra.get("numero", "?")
+                scope = str(amostra.get("scope") or "project").upper()
+                id_amostra = str(amostra.get("id") or "")
+                id_curto = id_amostra[:10] if id_amostra else "--"
+                arquivo = str(amostra.get("arquivo") or "--")
+                linhas.append(
+                    f"  #{numero} {scope} | id={id_curto} | arquivo={arquivo}"
+                )
+
+                roi = amostra.get("roi", {})
+                if isinstance(roi, dict) and roi:
+                    tipo_roi = str(roi.get("tipo") or "circulo")
+                    centro = (
+                        f"x={_formatar_valor_debug(roi.get('centro_x'))}, "
+                        f"y={_formatar_valor_debug(roi.get('centro_y'))}"
+                    )
+                    if tipo_roi.lower() == "segmento":
+                        geometria = (
+                            f"larg={_formatar_valor_debug(roi.get('largura'))}, "
+                            f"alt={_formatar_valor_debug(roi.get('altura'))}, "
+                            f"ang={_formatar_valor_debug(roi.get('angulo'))}°"
+                        )
+                    else:
+                        geometria = (
+                            f"raio={_formatar_valor_debug(roi.get('raio'))}px"
+                        )
+                    linhas.append(
+                        f"     ROI {tipo_roi}: {centro} | {geometria}"
+                    )
+
+                features = amostra.get("features", {})
+                if isinstance(features, dict) and features:
+                    linhas.append(
+                        "     óptica: "
+                        f"v_mean={_formatar_valor_debug(features.get('v_mean'))} | "
+                        f"v_max={_formatar_valor_debug(features.get('v_max'))} | "
+                        f"v_std={_formatar_valor_debug(features.get('v_std'))} | "
+                        f"s_mean={_formatar_valor_debug(features.get('s_mean'))} | "
+                        f"h_mean={_formatar_valor_debug(features.get('h_mean'))} | "
+                        f"glow={_formatar_valor_debug(features.get('glow_score'))} | "
+                        f"hot250={_formatar_valor_debug(features.get('percent_hot_250'))}"
+                    )
+
+        agregado = grupo.get("agregado", {})
+        if isinstance(agregado, dict) and agregado:
+            linhas.append(
+                "  perfil agregado: "
+                f"v_mean={_formatar_valor_debug(agregado.get('v_mean'))} | "
+                f"v_max={_formatar_valor_debug(agregado.get('v_max'))} | "
+                f"v_std={_formatar_valor_debug(agregado.get('v_std'))} | "
+                f"s_mean={_formatar_valor_debug(agregado.get('s_mean'))} | "
+                f"h_mean={_formatar_valor_debug(agregado.get('h_mean'))} | "
+                f"glow={_formatar_valor_debug(agregado.get('glow_score'))} | "
+                f"hot250={_formatar_valor_debug(agregado.get('percent_hot_250'))}"
+            )
+
+
 def _adicionar_debug_led(linhas: list[str], resultado_led: LedAnalysisResult) -> None:
     features = resultado_led.features
     avaliacao_metricas = resultado_led.avaliacao_metricas
@@ -124,13 +234,19 @@ def _adicionar_debug_led(linhas: list[str], resultado_led: LedAnalysisResult) ->
 def formatar_resultado_textual(
     resultado_led: LedAnalysisResult,
     output_paths: OutputPaths,
+    contexto_referencias: dict | None = None,
 ) -> str:
-    return formatar_resultado_textual_multiplos([resultado_led], output_paths)
+    return formatar_resultado_textual_multiplos(
+        [resultado_led],
+        output_paths,
+        contexto_referencias=contexto_referencias,
+    )
 
 
 def formatar_resultado_textual_multiplos(
     resultados_led: list[LedAnalysisResult],
     output_paths: OutputPaths,
+    contexto_referencias: dict | None = None,
 ) -> str:
     total_leds = len(resultados_led)
     leds_acesos = sum(
@@ -160,6 +276,8 @@ def formatar_resultado_textual_multiplos(
     if total_leds > 0:
         confianca_media = sum(float(item.confianca) for item in resultados_led) / total_leds
         linhas.append(f"Confiança média: {round(confianca_media, 4)}")
+
+    _adicionar_contexto_referencias(linhas, contexto_referencias)
 
     linhas.append("")
     linhas.append("RESUMO POR LED")
