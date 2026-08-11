@@ -81,8 +81,8 @@ def _criar_card_texto(
 
 
 def criar_painel_direito(self) -> None:
-    # Faixa única de diagnóstico: seis cards lado a lado, na ordem usada pelo
-    # operador para investigar a imagem, a ROI, a decisão e o histórico.
+    # Faixa única de diagnóstico: seis cards lado a lado na ordem definida
+    # para investigação visual e técnica da análise.
     self.frame_direito = tk.Frame(
         self.frame_dashboard,
         bg=self.COR_FUNDO_APP,
@@ -115,6 +115,19 @@ def criar_painel_direito(self) -> None:
         padx=(0, 3),
     )
 
+    self.frame_mapa, self.canvas_mapa_intensidade = _criar_card_visual(
+        self,
+        self.frame_direito,
+        "Mapa de intensidade",
+        "Mapa de intensidade\nEtapa 2",
+    )
+    self.frame_mapa.grid(
+        row=0,
+        column=1,
+        sticky="nsew",
+        padx=3,
+    )
+
     self.frame_mascara, self.canvas_mascara = _criar_card_visual(
         self,
         self.frame_direito,
@@ -123,7 +136,7 @@ def criar_painel_direito(self) -> None:
     )
     self.frame_mascara.grid(
         row=0,
-        column=1,
+        column=2,
         sticky="nsew",
         padx=3,
     )
@@ -136,7 +149,7 @@ def criar_painel_direito(self) -> None:
     )
     self.frame_roi_debug.grid(
         row=0,
-        column=2,
+        column=3,
         sticky="nsew",
         padx=3,
     )
@@ -149,7 +162,7 @@ def criar_painel_direito(self) -> None:
     )
     self.frame_debug.grid(
         row=0,
-        column=3,
+        column=4,
         sticky="nsew",
         padx=3,
     )
@@ -163,21 +176,8 @@ def criar_painel_direito(self) -> None:
     )
     self.frame_log_producao.grid(
         row=0,
-        column=4,
-        sticky="nsew",
-        padx=3,
-    )
-    self.texto_log_producao.configure(state=tk.DISABLED)
-
-    self.frame_mapa, self.canvas_mapa_intensidade = _criar_card_visual(
-        self,
-        self.frame_direito,
-        "Mapa de intensidade",
-        "Mapa de intensidade\nEtapa 2",
-    )
-    self.frame_mapa.grid(
-        row=0,
         column=5,
         sticky="nsew",
         padx=(3, 0),
     )
+    self.texto_log_producao.configure(state=tk.DISABLED)
