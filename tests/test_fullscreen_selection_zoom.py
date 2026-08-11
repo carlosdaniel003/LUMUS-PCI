@@ -2,14 +2,15 @@ import unittest
 
 import numpy as np
 
+from src.models.led_selection import LedSelection
 from src.platform.fullscreen_led_selection import (
     CTRL_MASK,
     FullscreenLedSelectionMixin,
 )
 from src.platform.reference_capture import (
+    ReferenceCaptureMixin,
     atualizar_configuracao_referencia,
-    raio_recorte_referencia,
-    recortar_referencia_circular,
+    recortar_referencia_roi,
 )
 
 
@@ -97,6 +98,26 @@ class FakeBase:
 
 
 class FakeApp(FullscreenLedSelectionMixin, FakeBase):
+    pass
+
+
+class FakeReferenceBase:
+    def __init__(self):
+        self.modo_atual = "ocioso"
+        self.leds_selecionados = []
+        self.resultados_led_atual = []
+
+    def _modo_edicao_roi_ativo(self):
+        return False
+
+    def _leds_editaveis(self):
+        return list(self.leds_selecionados)
+
+    def _substituir_leds_editaveis(self, leds):
+        self.leds_selecionados = list(leds)
+
+
+class FakeReferenceApp(ReferenceCaptureMixin, FakeReferenceBase):
     pass
 
 
@@ -204,8 +225,6 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
         app._evento_iniciar_pan_selecao(FakeEvent(x=100, y=100))
         app._evento_arrastar_pan_selecao(FakeEvent(x=0, y=100))
 
-        # Com a imagem encostada à esquerda, arrastar o mouse para a esquerda
-        # deve deslocar imediatamente o viewport para dentro da imagem.
         self.assertAlmostEqual(450.0, app.view._selecao_zoom_centro_visual_x)
 
     def test_botao_do_meio_sem_zoom_nao_inicia_pan(self):
@@ -220,34 +239,87 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
         self.assertEqual(0, app.view.redraws)
         self.assertEqual(0, app.view.draws)
 
-    def test_recorte_referencia_mantem_roi_centralizada_com_margem(self):
+    def test_recorte_referencia_circular_usa_geometria_da_roi(self):
         imagem = np.zeros((120, 160, 3), dtype=np.uint8)
-        raio = 10
-
-        recorte = recortar_referencia_circular(
-            imagem,
+        roi = LedSelection(
+            id="REF_CIRCULO",
             centro_x=80,
             centro_y=60,
-            raio_roi=raio,
+            raio=10,
+            tipo_roi="circulo",
         )
 
-        margem = raio_recorte_referencia(raio)
+        recorte = recortar_referencia_roi(imagem, roi)
+
         self.assertIsNotNone(recorte)
-        self.assertEqual((margem * 2 + 1, margem * 2 + 1, 3), recorte.shape)
+        self.assertGreater(recorte.shape[0], 20)
+        self.assertGreater(recorte.shape[1], 20)
 
-    def test_recorte_referencia_rejeita_area_fora_da_imagem(self):
+    def test_recorte_referencia_aceita_segmento_rotacionado(self):
+        imagem = np.zeros((180, 220, 3), dtype=np.uint8)
+        roi = LedSelection(
+            id="SEG_REF",
+            centro_x=110,
+            centro_y=90,
+            raio=35,
+            tipo_roi="segmento",
+            largura=70,
+            altura=16,
+            angulo=37.0,
+        )
+
+        recorte = recortar_referencia_roi(imagem, roi)
+
+        self.assertIsNotNone(recorte)
+        self.assertGreater(recorte.shape[0], 20)
+        self.assertGreater(recorte.shape[1], 40)
+
+    def test_recorte_referencia_rejeita_roi_fora_da_imagem(self):
         imagem = np.zeros((60, 60, 3), dtype=np.uint8)
-
-        recorte = recortar_referencia_circular(
-            imagem,
+        roi = LedSelection(
+            id="REF_INVALIDA",
             centro_x=2,
             centro_y=2,
-            raio_roi=10,
+            raio=10,
+            tipo_roi="circulo",
         )
+
+        recorte = recortar_referencia_roi(imagem, roi)
 
         self.assertIsNone(recorte)
 
-    def test_referencia_individual_preserva_demais_dados_do_projeto(self):
+    def test_modo_referencia_e_editor_roi_real_e_limita_uma_roi(self):
+        app = FakeReferenceApp()
+        app._referencia_captura_tipo = "aceso"
+        app.modo_atual = app.MODO_CAPTURA_REFERENCIA
+        primeira = LedSelection(
+            id="SEG_001",
+            centro_x=40,
+            centro_y=40,
+            raio=20,
+            tipo_roi="segmento",
+            largura=40,
+            altura=12,
+            angulo=0,
+        )
+        segunda = LedSelection(
+            id="SEG_002",
+            centro_x=80,
+            centro_y=60,
+            raio=22,
+            tipo_roi="segmento",
+            largura=44,
+            altura=12,
+            angulo=15,
+        )
+
+        self.assertTrue(app._modo_edicao_roi_ativo())
+        app._substituir_leds_editaveis([primeira, segunda])
+
+        self.assertEqual(1, len(app.leds_selecionados))
+        self.assertEqual("SEG_002", app.leds_selecionados[0].id)
+
+    def test_referencia_individual_preserva_dados_e_geometria_da_roi(self):
         configuracao = {
             "fixed_leds": [{"id": "SEG_001"}],
             "settings": {"camera": {"fps": 20}},
@@ -256,6 +328,16 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
                 "features": {"v_mean": 250.0},
             },
         }
+        roi = LedSelection(
+            id="SEG_REF",
+            centro_x=120,
+            centro_y=80,
+            raio=30,
+            tipo_roi="segmento",
+            largura=58,
+            altura=14,
+            angulo=22.5,
+        )
 
         atualizada = atualizar_configuracao_referencia(
             configuracao=configuracao,
@@ -263,6 +345,7 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
             caminho_imagem="pouca_luz.png",
             features={"v_mean": 180.0},
             raio_atual_px=15,
+            roi=roi.to_dict(),
         )
 
         self.assertEqual([{"id": "SEG_001"}], atualizada["fixed_leds"])
@@ -273,6 +356,14 @@ class FullscreenSelectionZoomTests(unittest.TestCase):
         self.assertEqual(
             "pouca_luz.png",
             atualizada["reference_low_light"]["image_path"],
+        )
+        self.assertEqual(
+            "segmento",
+            atualizada["reference_low_light"]["roi"]["tipo_roi"],
+        )
+        self.assertAlmostEqual(
+            22.5,
+            atualizada["reference_low_light"]["roi"]["angulo"],
         )
         self.assertEqual(15, atualizada["default_radius_px"])
 
