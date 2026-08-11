@@ -13,18 +13,18 @@ def criar_area_dashboard(self) -> None:
         pady=(0, 8),
     )
 
-    # A primeira linha concentra os dois elementos críticos da operação:
-    # câmera ao vivo e mapa de intensidade. As visualizações auxiliares e o
-    # histórico usam faixas compactas com altura previsível.
+    # Linha superior: somente os dois elementos de decisão da operação.
+    # Linha inferior: todas as visualizações e textos de diagnóstico em uma
+    # única faixa. O histórico permanece compacto na terceira linha.
     self.frame_dashboard.grid_rowconfigure(
         0,
         weight=1,
-        minsize=260,
+        minsize=270,
     )
     self.frame_dashboard.grid_rowconfigure(
         1,
         weight=0,
-        minsize=128,
+        minsize=152,
     )
     self.frame_dashboard.grid_rowconfigure(
         2,
@@ -32,12 +32,10 @@ def criar_area_dashboard(self) -> None:
         minsize=72,
     )
 
-    # Não usar larguras mínimas rígidas nem uniform. Isso evita que a soma dos
-    # tamanhos solicitados ultrapasse a resolução disponível no Raspberry Pi.
-    # A câmera recebe a maior parcela, seguida do mapa e do resultado técnico.
+    # A imagem principal recebe a maior parte do topo. O resultado geral fica
+    # visível ao lado sem disputar espaço com as ferramentas de diagnóstico.
     self.frame_dashboard.grid_columnconfigure(0, weight=7)
-    self.frame_dashboard.grid_columnconfigure(1, weight=4)
-    self.frame_dashboard.grid_columnconfigure(2, weight=2)
+    self.frame_dashboard.grid_columnconfigure(1, weight=3)
 
     self.criar_painel_principal()
     self.criar_painel_central()
