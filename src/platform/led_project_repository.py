@@ -64,11 +64,17 @@ def _normalizar_projetos(configuracao: dict) -> dict:
             leds = dados.get("fixed_leds", [])
             if not isinstance(leds, list):
                 leds = []
+            referencias = dados.get("references", {})
+            if not isinstance(referencias, dict):
+                referencias = {}
 
+            # As referências pertencem ao mesmo projeto das máscaras. Elas são
+            # preservadas em qualquer normalização, salvamento ou renomeação.
             projetos[nome] = {
                 "name": nome,
                 "fixed_leds": leds,
                 "updated_at": dados.get("updated_at"),
+                "references": referencias,
             }
 
     leds_legados = configuracao.get("fixed_leds", [])
@@ -77,6 +83,7 @@ def _normalizar_projetos(configuracao: dict) -> dict:
             "name": "PADRÃO",
             "fixed_leds": leds_legados,
             "updated_at": None,
+            "references": {},
         }
 
     configuracao["led_projects"] = projetos
@@ -187,6 +194,7 @@ def instalar_repositorio_projetos_led() -> None:
                 "name": nome,
                 "fixed_leds": [],
                 "updated_at": None,
+                "references": {},
             }
             ordem.append(nome)
 
@@ -218,6 +226,7 @@ def instalar_repositorio_projetos_led() -> None:
             "name": nome,
             "fixed_leds": [],
             "updated_at": datetime.now(timezone.utc).isoformat(),
+            "references": {},
         }
         ordem.append(nome)
         settings = _obter_settings(configuracao)
@@ -251,6 +260,7 @@ def instalar_repositorio_projetos_led() -> None:
         if novo == atual:
             return True
 
+        # Copia o projeto inteiro; o bloco references acompanha o novo nome.
         dados = dict(projetos.pop(atual))
         dados["name"] = novo
         dados["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -280,6 +290,8 @@ def instalar_repositorio_projetos_led() -> None:
         if not nome or nome not in projetos:
             return False
 
+        # Remover o projeto remove junto somente suas referências locais.
+        # Referências globais permanecem em reference_sets.global.
         projetos.pop(nome)
         ordem = [item for item in ordem if item != nome]
         settings = _obter_settings(configuracao)
@@ -353,11 +365,20 @@ def instalar_repositorio_projetos_led() -> None:
             led_fixo.to_dict()
             for led_fixo in leds_para_salvar
         ]
-        projetos[nome] = {
-            "name": nome,
-            "fixed_leds": dados_leds,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
+
+        # Atualiza apenas as máscaras e mantém as referências já associadas
+        # ao projeto. Isso é essencial para que Salvar LEDs não apague refs.
+        projeto_existente = dict(projetos.get(nome, {}))
+        projeto_existente.update(
+            {
+                "name": nome,
+                "fixed_leds": dados_leds,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        projeto_existente.setdefault("references", {})
+        projetos[nome] = projeto_existente
+
         if nome not in ordem:
             ordem.append(nome)
         settings["active_led_project"] = nome
