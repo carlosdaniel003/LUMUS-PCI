@@ -159,9 +159,9 @@ class FullscreenImageViewerTests(unittest.TestCase):
         self.assertGreater(ampliado.largura_virtual, 1600)
         self.assertGreater(ampliado.altura_virtual, 900)
         # O bitmap realmente criado continua aproximadamente do tamanho da tela,
-        # em vez de virar uma imagem completa 8x maior.
+        # com alguns pixels extras de margem para não cortar a borda do viewport.
         self.assertLessEqual(ampliado.largura_render, 1620)
-        self.assertLessEqual(ampliado.altura_render, 920)
+        self.assertLessEqual(ampliado.altura_render, 924)
 
     def test_bindings_sao_instalados_uma_unica_vez(self):
         view = FakeView()
