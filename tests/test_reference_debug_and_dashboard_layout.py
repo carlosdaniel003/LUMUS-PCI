@@ -148,11 +148,11 @@ class DashboardLayoutTests(unittest.TestCase):
         fonte = inspect.getsource(criar_painel_direito)
         titulos = [
             '"Imagem de teste • Canal V"',
+            '"Mapa de intensidade"',
             '"Máscara / ROI"',
             '"ROI ampliado"',
             '"Debug técnico"',
             '"Log produção"',
-            '"Mapa de intensidade"',
         ]
         posicoes = [fonte.index(titulo) for titulo in titulos]
         self.assertEqual(posicoes, sorted(posicoes))
