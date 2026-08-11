@@ -102,6 +102,19 @@ class RaspberryPi3ProductionApp(
         instalar_preservacao_segmentos_resolution_sync()
         super().__init__(root)
 
+    def _tem_referencia_pouca_luz_ativa(self) -> bool:
+        grupos = getattr(self, "_referencias_ativas_por_tipo", None)
+        if isinstance(grupos, dict):
+            return bool(grupos.get("pouca_luz"))
+        return getattr(self, "features_referencia_pouca_luz", None) is not None
+
+    def preparar_tela_operacao(self) -> None:
+        resultado = super().preparar_tela_operacao()
+        self.operacao_engine.definir_diagnostico_pouca_luz_habilitado(
+            self._tem_referencia_pouca_luz_ativa()
+        )
+        return resultado
+
     def _instalar_tela_operacao(self) -> None:
         self.operacao_window = SegmentDisplayOperationWindow(
             root=self.root,
