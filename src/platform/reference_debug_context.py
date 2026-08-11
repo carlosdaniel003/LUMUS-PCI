@@ -129,12 +129,24 @@ def criar_contexto_debug_referencias(app) -> dict:
             ),
         }
 
+    pouca_luz_habilitada = bool(grupos.get("pouca_luz", {}).get("total", 0))
+    if pouca_luz_habilitada:
+        classificacao = (
+            "ACESO/APAGADO usam o perfil agregado das referências ativas; "
+            "POUCA_LUZ está HABILITADO porque há referência ativa e pode "
+            "reclassificar segmentos acesos pelo diagnóstico óptico."
+        )
+    else:
+        classificacao = (
+            "ACESO/APAGADO usam o perfil agregado das referências ativas; "
+            "POUCA_LUZ está DESABILITADO porque não há referência ativa. "
+            "Resultados ACESO/APAGADO não podem ser sobrescritos para POUCA_LUZ."
+        )
+
     return {
         "projeto": projeto or "SEM PROJETO",
         "limite_por_estado": 3,
         "grupos": grupos,
-        "classificacao": (
-            "ACESO/APAGADO usam o perfil agregado das referências ativas; "
-            "POUCA_LUZ permanece no diagnóstico óptico calibrado."
-        ),
+        "pouca_luz_habilitada": pouca_luz_habilitada,
+        "classificacao": classificacao,
     }
