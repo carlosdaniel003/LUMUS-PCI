@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import math
 import tkinter as tk
+from dataclasses import dataclass
 
 import cv2
 
 from src.ui.main_window_parts.image.exibir_imagem_em_canvas import (
     preparar_imagem_auxiliar_visual,
+)
+from src.ui.main_window_parts.image.selection_zoom import (
+    ZOOM_SELECAO_MIN,
+    limitar_fator_zoom_selecao,
+    proximo_fator_zoom_selecao,
 )
 
 
@@ -16,6 +23,28 @@ VISUALIZACOES_TELA_CHEIA = {
     "mascara": "Máscara / ROI",
     "roi_debug": "ROI ampliado",
 }
+
+VISUALIZACOES_AUXILIARES_COM_ZOOM = frozenset(
+    {"heatmap", "canal_v", "mascara", "roi_debug"}
+)
+CTRL_MASK = 0x0004
+
+
+@dataclass(frozen=True)
+class FullscreenZoomViewport:
+    escala: float
+    largura_virtual: int
+    altura_virtual: int
+    deslocamento_virtual_x: int
+    deslocamento_virtual_y: int
+    origem_imagem_x: int
+    origem_imagem_y: int
+    fim_imagem_x: int
+    fim_imagem_y: int
+    largura_render: int
+    altura_render: int
+    deslocamento_render_x: int
+    deslocamento_render_y: int
 
 
 def calcular_encaixe_imagem(
@@ -44,6 +73,138 @@ def calcular_encaixe_imagem(
     x = int((largura_canvas - largura_final) / 2)
     y = int((altura_canvas - altura_final) / 2)
     return escala, largura_final, altura_final, x, y
+
+
+def _limitar_deslocamento_zoom(
+    deslocamento: float,
+    tamanho_virtual: int,
+    tamanho_canvas: int,
+) -> int:
+    if tamanho_virtual <= tamanho_canvas:
+        return int(round((tamanho_canvas - tamanho_virtual) / 2.0))
+    minimo = tamanho_canvas - tamanho_virtual
+    return int(round(max(float(minimo), min(0.0, float(deslocamento)))))
+
+
+def calcular_viewport_zoom_tela_cheia(
+    largura_imagem: int,
+    altura_imagem: int,
+    largura_canvas: int,
+    altura_canvas: int,
+    fator_zoom: float,
+    centro_imagem_x: float | None = None,
+    centro_imagem_y: float | None = None,
+    margem: int = 18,
+) -> FullscreenZoomViewport:
+    """Calcula zoom/pan renderizando apenas a área visível da imagem.
+
+    Em 100% mantém exatamente o mesmo encaixe do visualizador anterior.
+    Em zoom alto, a imagem completa existe apenas virtualmente; somente o
+    recorte que cruza o canvas é redimensionado e convertido em PhotoImage.
+    """
+    largura_imagem = max(1, int(largura_imagem))
+    altura_imagem = max(1, int(altura_imagem))
+    largura_canvas = max(1, int(largura_canvas))
+    altura_canvas = max(1, int(altura_canvas))
+    fator_zoom = limitar_fator_zoom_selecao(fator_zoom)
+
+    escala_base, _, _, _, _ = calcular_encaixe_imagem(
+        largura_imagem,
+        altura_imagem,
+        largura_canvas,
+        altura_canvas,
+        margem=margem,
+    )
+    escala = max(1e-9, float(escala_base) * fator_zoom)
+    largura_virtual = max(1, int(round(largura_imagem * escala)))
+    altura_virtual = max(1, int(round(altura_imagem * escala)))
+
+    if fator_zoom <= ZOOM_SELECAO_MIN:
+        centro_imagem_x = largura_imagem / 2.0
+        centro_imagem_y = altura_imagem / 2.0
+    else:
+        if centro_imagem_x is None:
+            centro_imagem_x = largura_imagem / 2.0
+        if centro_imagem_y is None:
+            centro_imagem_y = altura_imagem / 2.0
+
+    centro_imagem_x = max(
+        0.0,
+        min(float(largura_imagem), float(centro_imagem_x)),
+    )
+    centro_imagem_y = max(
+        0.0,
+        min(float(altura_imagem), float(centro_imagem_y)),
+    )
+
+    deslocamento_x = _limitar_deslocamento_zoom(
+        largura_canvas / 2.0 - centro_imagem_x * escala,
+        largura_virtual,
+        largura_canvas,
+    )
+    deslocamento_y = _limitar_deslocamento_zoom(
+        altura_canvas / 2.0 - centro_imagem_y * escala,
+        altura_virtual,
+        altura_canvas,
+    )
+
+    margem_imagem = 1
+    origem_x = max(
+        0,
+        int(math.floor(max(0.0, -deslocamento_x / escala))) - margem_imagem,
+    )
+    origem_y = max(
+        0,
+        int(math.floor(max(0.0, -deslocamento_y / escala))) - margem_imagem,
+    )
+    fim_x = min(
+        largura_imagem,
+        int(
+            math.ceil(
+                min(
+                    float(largura_imagem),
+                    (largura_canvas - deslocamento_x) / escala,
+                )
+            )
+        )
+        + margem_imagem,
+    )
+    fim_y = min(
+        altura_imagem,
+        int(
+            math.ceil(
+                min(
+                    float(altura_imagem),
+                    (altura_canvas - deslocamento_y) / escala,
+                )
+            )
+        )
+        + margem_imagem,
+    )
+
+    fim_x = max(origem_x + 1, fim_x)
+    fim_y = max(origem_y + 1, fim_y)
+
+    largura_render = max(1, int(round((fim_x - origem_x) * escala)))
+    altura_render = max(1, int(round((fim_y - origem_y) * escala)))
+    deslocamento_render_x = int(round(deslocamento_x + origem_x * escala))
+    deslocamento_render_y = int(round(deslocamento_y + origem_y * escala))
+
+    return FullscreenZoomViewport(
+        escala=escala,
+        largura_virtual=largura_virtual,
+        altura_virtual=altura_virtual,
+        deslocamento_virtual_x=deslocamento_x,
+        deslocamento_virtual_y=deslocamento_y,
+        origem_imagem_x=origem_x,
+        origem_imagem_y=origem_y,
+        fim_imagem_x=fim_x,
+        fim_imagem_y=fim_y,
+        largura_render=largura_render,
+        altura_render=altura_render,
+        deslocamento_render_x=deslocamento_render_x,
+        deslocamento_render_y=deslocamento_render_y,
+    )
 
 
 def _codificar_ppm_bgr(imagem_bgr) -> bytes:
@@ -87,6 +248,225 @@ def _normalizar_lista(valor):
     if isinstance(valor, (list, tuple)):
         return list(valor)
     return [valor]
+
+
+def _visualizacao_auxiliar_com_zoom(self) -> bool:
+    return (
+        getattr(self, "chave_imagem_tela_cheia", None)
+        in VISUALIZACOES_AUXILIARES_COM_ZOOM
+    )
+
+
+def _direcao_scroll(evento) -> int:
+    delta = int(getattr(evento, "delta", 0) or 0)
+    if delta > 0:
+        return 1
+    if delta < 0:
+        return -1
+    numero = getattr(evento, "num", None)
+    if numero == 4:
+        return 1
+    if numero == 5:
+        return -1
+    return 0
+
+
+def _viewport_zoom_atual(self) -> FullscreenZoomViewport | None:
+    if not _visualizacao_auxiliar_com_zoom(self):
+        return None
+    canvas = getattr(self, "canvas_imagem_tela_cheia", None)
+    chave = getattr(self, "chave_imagem_tela_cheia", None)
+    imagem = _imagem_fonte(self, chave) if chave else None
+    if canvas is None or imagem is None:
+        return None
+
+    altura_imagem, largura_imagem = imagem.shape[:2]
+    return calcular_viewport_zoom_tela_cheia(
+        largura_imagem=largura_imagem,
+        altura_imagem=altura_imagem,
+        largura_canvas=max(1, int(canvas.winfo_width())),
+        altura_canvas=max(1, int(canvas.winfo_height())),
+        fator_zoom=getattr(self, "_fullscreen_zoom_fator", ZOOM_SELECAO_MIN),
+        centro_imagem_x=getattr(self, "_fullscreen_zoom_centro_x", None),
+        centro_imagem_y=getattr(self, "_fullscreen_zoom_centro_y", None),
+    )
+
+
+def _finalizar_pan_imagem_tela_cheia(self, _evento=None) -> str:
+    self._fullscreen_pan_ativo = False
+    self._fullscreen_pan_ultimo_x = None
+    self._fullscreen_pan_ultimo_y = None
+    canvas = getattr(self, "canvas_imagem_tela_cheia", None)
+    if canvas is not None:
+        try:
+            canvas.configure(cursor="arrow")
+        except Exception:
+            pass
+    return "break"
+
+
+def evento_zoom_imagem_tela_cheia(self, evento) -> str | None:
+    """Ctrl+scroll aplica zoom ancorado no cursor aos quatro painéis técnicos."""
+    if not _visualizacao_auxiliar_com_zoom(self):
+        return None
+
+    estado = int(getattr(evento, "state", 0) or 0)
+    if not (estado & CTRL_MASK):
+        return None
+
+    direcao = _direcao_scroll(evento)
+    if direcao == 0:
+        return "break"
+
+    viewport_atual = _viewport_zoom_atual(self)
+    if viewport_atual is None:
+        return "break"
+
+    chave = getattr(self, "chave_imagem_tela_cheia", None)
+    imagem = _imagem_fonte(self, chave)
+    canvas = getattr(self, "canvas_imagem_tela_cheia", None)
+    if imagem is None or canvas is None:
+        return "break"
+
+    altura_imagem, largura_imagem = imagem.shape[:2]
+    largura_canvas = max(1, int(canvas.winfo_width()))
+    altura_canvas = max(1, int(canvas.winfo_height()))
+    fator_atual = limitar_fator_zoom_selecao(
+        getattr(self, "_fullscreen_zoom_fator", ZOOM_SELECAO_MIN)
+    )
+    novo_fator = proximo_fator_zoom_selecao(fator_atual, direcao)
+    if abs(novo_fator - fator_atual) < 1e-9:
+        return "break"
+
+    if novo_fator <= ZOOM_SELECAO_MIN:
+        self._fullscreen_zoom_centro_x = None
+        self._fullscreen_zoom_centro_y = None
+        _finalizar_pan_imagem_tela_cheia(self)
+    else:
+        escala_base = viewport_atual.escala / max(fator_atual, 1e-9)
+        nova_escala = max(1e-9, escala_base * novo_fator)
+        ponteiro_x = float(getattr(evento, "x", largura_canvas / 2.0))
+        ponteiro_y = float(getattr(evento, "y", altura_canvas / 2.0))
+        dentro = (
+            viewport_atual.deslocamento_virtual_x <= ponteiro_x
+            < viewport_atual.deslocamento_virtual_x
+            + viewport_atual.largura_virtual
+            and viewport_atual.deslocamento_virtual_y <= ponteiro_y
+            < viewport_atual.deslocamento_virtual_y
+            + viewport_atual.altura_virtual
+        )
+
+        if dentro:
+            ancora_x = (
+                ponteiro_x - viewport_atual.deslocamento_virtual_x
+            ) / viewport_atual.escala
+            ancora_y = (
+                ponteiro_y - viewport_atual.deslocamento_virtual_y
+            ) / viewport_atual.escala
+            centro_x = ancora_x + (
+                largura_canvas / 2.0 - ponteiro_x
+            ) / nova_escala
+            centro_y = ancora_y + (
+                altura_canvas / 2.0 - ponteiro_y
+            ) / nova_escala
+        else:
+            centro_x = getattr(self, "_fullscreen_zoom_centro_x", None)
+            centro_y = getattr(self, "_fullscreen_zoom_centro_y", None)
+            if centro_x is None:
+                centro_x = largura_imagem / 2.0
+            if centro_y is None:
+                centro_y = altura_imagem / 2.0
+
+        self._fullscreen_zoom_centro_x = max(
+            0.0,
+            min(float(largura_imagem), float(centro_x)),
+        )
+        self._fullscreen_zoom_centro_y = max(
+            0.0,
+            min(float(altura_imagem), float(centro_y)),
+        )
+
+    self._fullscreen_zoom_fator = novo_fator
+    _agendar_redesenho(self)
+    return "break"
+
+
+def evento_iniciar_pan_imagem_tela_cheia(self, evento) -> str:
+    """Inicia pan com a rodinha pressionada quando existe zoom."""
+    if not _visualizacao_auxiliar_com_zoom(self):
+        return "break"
+    fator = limitar_fator_zoom_selecao(
+        getattr(self, "_fullscreen_zoom_fator", ZOOM_SELECAO_MIN)
+    )
+    if fator <= ZOOM_SELECAO_MIN:
+        return "break"
+
+    self._fullscreen_pan_ativo = True
+    self._fullscreen_pan_ultimo_x = float(getattr(evento, "x", 0.0))
+    self._fullscreen_pan_ultimo_y = float(getattr(evento, "y", 0.0))
+    canvas = getattr(self, "canvas_imagem_tela_cheia", None)
+    if canvas is not None:
+        try:
+            canvas.configure(cursor="fleur")
+        except Exception:
+            pass
+    return "break"
+
+
+def evento_arrastar_pan_imagem_tela_cheia(self, evento) -> str:
+    if not bool(getattr(self, "_fullscreen_pan_ativo", False)):
+        return "break"
+
+    viewport = _viewport_zoom_atual(self)
+    chave = getattr(self, "chave_imagem_tela_cheia", None)
+    imagem = _imagem_fonte(self, chave) if chave else None
+    canvas = getattr(self, "canvas_imagem_tela_cheia", None)
+    if viewport is None or imagem is None or canvas is None:
+        return "break"
+
+    atual_x = float(getattr(evento, "x", 0.0))
+    atual_y = float(getattr(evento, "y", 0.0))
+    ultimo_x = getattr(self, "_fullscreen_pan_ultimo_x", None)
+    ultimo_y = getattr(self, "_fullscreen_pan_ultimo_y", None)
+    if ultimo_x is None or ultimo_y is None:
+        self._fullscreen_pan_ultimo_x = atual_x
+        self._fullscreen_pan_ultimo_y = atual_y
+        return "break"
+
+    delta_x = atual_x - float(ultimo_x)
+    delta_y = atual_y - float(ultimo_y)
+    self._fullscreen_pan_ultimo_x = atual_x
+    self._fullscreen_pan_ultimo_y = atual_y
+
+    largura_canvas = max(1, int(canvas.winfo_width()))
+    altura_canvas = max(1, int(canvas.winfo_height()))
+    altura_imagem, largura_imagem = imagem.shape[:2]
+
+    # Usa o centro efetivamente renderizado. Isso elimina a zona morta quando
+    # o viewport está encostado em alguma borda, igual ao pan de Selecionar LEDs.
+    centro_efetivo_x = (
+        largura_canvas / 2.0 - viewport.deslocamento_virtual_x
+    ) / viewport.escala
+    centro_efetivo_y = (
+        altura_canvas / 2.0 - viewport.deslocamento_virtual_y
+    ) / viewport.escala
+
+    self._fullscreen_zoom_centro_x = max(
+        0.0,
+        min(
+            float(largura_imagem),
+            centro_efetivo_x - delta_x / viewport.escala,
+        ),
+    )
+    self._fullscreen_zoom_centro_y = max(
+        0.0,
+        min(
+            float(altura_imagem),
+            centro_efetivo_y - delta_y / viewport.escala,
+        ),
+    )
+    _agendar_redesenho(self)
+    return "break"
 
 
 def _desenhar_overlay_resultados(
@@ -280,20 +660,58 @@ def redesenhar_imagem_tela_cheia(self) -> None:
     altura_imagem, largura_imagem = imagem_bgr.shape[:2]
     largura_canvas = max(1, int(canvas.winfo_width()))
     altura_canvas = max(1, int(canvas.winfo_height()))
-    escala, largura_final, altura_final, x, y = calcular_encaixe_imagem(
-        largura_imagem,
-        altura_imagem,
-        largura_canvas,
-        altura_canvas,
-    )
 
-    if largura_final != largura_imagem or altura_final != altura_imagem:
-        interpolacao = cv2.INTER_AREA if escala < 1.0 else cv2.INTER_LINEAR
-        imagem_bgr = cv2.resize(
-            imagem_bgr,
-            (largura_final, altura_final),
-            interpolation=interpolacao,
+    if chave in VISUALIZACOES_AUXILIARES_COM_ZOOM:
+        viewport = calcular_viewport_zoom_tela_cheia(
+            largura_imagem=largura_imagem,
+            altura_imagem=altura_imagem,
+            largura_canvas=largura_canvas,
+            altura_canvas=altura_canvas,
+            fator_zoom=getattr(self, "_fullscreen_zoom_fator", ZOOM_SELECAO_MIN),
+            centro_imagem_x=getattr(self, "_fullscreen_zoom_centro_x", None),
+            centro_imagem_y=getattr(self, "_fullscreen_zoom_centro_y", None),
         )
+        recorte = imagem_bgr[
+            viewport.origem_imagem_y:viewport.fim_imagem_y,
+            viewport.origem_imagem_x:viewport.fim_imagem_x,
+        ]
+        if recorte is None or getattr(recorte, "size", 0) == 0:
+            return
+        if (
+            recorte.shape[1] != viewport.largura_render
+            or recorte.shape[0] != viewport.altura_render
+        ):
+            interpolacao = (
+                cv2.INTER_AREA
+                if viewport.escala < 1.0
+                else cv2.INTER_LINEAR
+            )
+            imagem_bgr = cv2.resize(
+                recorte,
+                (viewport.largura_render, viewport.altura_render),
+                interpolation=interpolacao,
+            )
+        else:
+            imagem_bgr = recorte
+        escala = viewport.escala
+        x = viewport.deslocamento_render_x
+        y = viewport.deslocamento_render_y
+        self._fullscreen_zoom_viewport = viewport
+    else:
+        escala, largura_final, altura_final, x, y = calcular_encaixe_imagem(
+            largura_imagem,
+            altura_imagem,
+            largura_canvas,
+            altura_canvas,
+        )
+        if largura_final != largura_imagem or altura_final != altura_imagem:
+            interpolacao = cv2.INTER_AREA if escala < 1.0 else cv2.INTER_LINEAR
+            imagem_bgr = cv2.resize(
+                imagem_bgr,
+                (largura_final, altura_final),
+                interpolation=interpolacao,
+            )
+        self._fullscreen_zoom_viewport = None
 
     try:
         dados_ppm = _codificar_ppm_bgr(imagem_bgr)
@@ -379,6 +797,13 @@ def fechar_imagem_tela_cheia(self, _evento=None) -> None:
     self.imagem_tela_cheia_tk = None
     self.chave_imagem_tela_cheia = None
     self.janela_imagem_tela_cheia = None
+    self._fullscreen_zoom_fator = ZOOM_SELECAO_MIN
+    self._fullscreen_zoom_centro_x = None
+    self._fullscreen_zoom_centro_y = None
+    self._fullscreen_zoom_viewport = None
+    self._fullscreen_pan_ativo = False
+    self._fullscreen_pan_ultimo_x = None
+    self._fullscreen_pan_ultimo_y = None
 
     if janela is not None:
         try:
@@ -424,9 +849,15 @@ def abrir_imagem_tela_cheia(
         anchor="w",
     ).pack(side=tk.LEFT, padx=(20, 12), pady=12)
 
+    ajuda = "Esc para fechar"
+    if chave in VISUALIZACOES_AUXILIARES_COM_ZOOM:
+        ajuda = (
+            "Ctrl+scroll: zoom • rodinha pressionada+arraste: mover • "
+            "Esc para fechar"
+        )
     tk.Label(
         cabecalho,
-        text="Esc para fechar",
+        text=ajuda,
         bg=self.COR_TOPO,
         fg=self.COR_TEXTO_3,
         font=("Segoe UI", 9),
@@ -464,8 +895,46 @@ def abrir_imagem_tela_cheia(
     self.chave_imagem_tela_cheia = chave
     self.imagem_tela_cheia_tk = None
     self._redesenho_imagem_tela_cheia_pendente = None
+    self._fullscreen_zoom_fator = ZOOM_SELECAO_MIN
+    self._fullscreen_zoom_centro_x = None
+    self._fullscreen_zoom_centro_y = None
+    self._fullscreen_zoom_viewport = None
+    self._fullscreen_pan_ativo = False
+    self._fullscreen_pan_ultimo_x = None
+    self._fullscreen_pan_ultimo_y = None
 
     canvas.bind("<Configure>", lambda _e: _agendar_redesenho(self), add="+")
+    if chave in VISUALIZACOES_AUXILIARES_COM_ZOOM:
+        canvas.bind(
+            "<MouseWheel>",
+            lambda evento: evento_zoom_imagem_tela_cheia(self, evento),
+            add="+",
+        )
+        canvas.bind(
+            "<Button-4>",
+            lambda evento: evento_zoom_imagem_tela_cheia(self, evento),
+            add="+",
+        )
+        canvas.bind(
+            "<Button-5>",
+            lambda evento: evento_zoom_imagem_tela_cheia(self, evento),
+            add="+",
+        )
+        canvas.bind(
+            "<Button-2>",
+            lambda evento: evento_iniciar_pan_imagem_tela_cheia(self, evento),
+            add="+",
+        )
+        canvas.bind(
+            "<B2-Motion>",
+            lambda evento: evento_arrastar_pan_imagem_tela_cheia(self, evento),
+            add="+",
+        )
+        canvas.bind(
+            "<ButtonRelease-2>",
+            lambda evento: _finalizar_pan_imagem_tela_cheia(self, evento),
+            add="+",
+        )
 
     try:
         janela.attributes("-fullscreen", True)
