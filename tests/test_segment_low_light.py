@@ -1,6 +1,7 @@
 import inspect
 import unittest
 
+from src.core.operation_engine import OperationEngine
 from src.core.segment_low_light import (
     STATUS_POUCA_LUZ,
     aplicar_diagnostico_pouca_luz,
@@ -10,6 +11,7 @@ from src.infra.result_repository import ResultRepository
 from src.models.analysis_result import LedAnalysisResult
 from src.models.led_features import LedFeatures
 from src.models.metric_evaluation import MetricEvaluation
+import src.platform.raspberry_pi3_production_app as production_module
 import src.platform.segment_display_runtime as runtime_module
 
 
@@ -23,6 +25,11 @@ class SegmentLowLightTests(unittest.TestCase):
         28: (239.3210, 168.7270, 171.7660, 0.634354, 212.1918),
         29: (240.9204, 157.3820, 172.5555, 0.663455, 213.3783),
     }
+
+    # SEG_028 do ensaio DISPLAY_7 de 2026-08-11. O classificador ACESO/APAGADO
+    # deu 9 votos para ACESO e 0 para APAGADO, mas o diagnóstico calibrado de
+    # pouca luz o sobrescrevia quando não existia nenhuma referência POUCA_LUZ.
+    DISPLAY_7_SEG_028 = (250.7648, 223.4050, 166.3736, 0.761006, 213.0562)
 
     NORMAIS = {
         1: (254.7118, 92.9654, 27.6721, 0.986694, 249.0939),
@@ -100,6 +107,26 @@ class SegmentLowLightTests(unittest.TestCase):
         self.assertGreater(resultado.score_falha_luminosidade, 0.8)
         self.assertLess(resultado.indice_luminosidade, 1.0)
 
+    def test_display_7_sem_referencia_pouca_luz_permanece_aceso(self):
+        resultado = self._resultado(self._features(self.DISPLAY_7_SEG_028))
+
+        # Confirma que os limites ópticos antigos isoladamente tentariam marcar
+        # esta amostra como POUCA_LUZ.
+        self.assertTrue(avaliar_pouca_luz_segmento(resultado.features).falha)
+
+        aplicar_diagnostico_pouca_luz(
+            resultado,
+            "segmento",
+            habilitado=False,
+        )
+
+        self.assertEqual("ACESO", resultado.status)
+        self.assertEqual(1, resultado.valor_binario)
+        self.assertFalse(resultado.falha_luminosidade)
+        self.assertEqual(0.0, resultado.score_falha_luminosidade)
+        self.assertEqual(1.0, resultado.indice_luminosidade)
+        self.assertEqual([], resultado.motivos)
+
     def test_circulo_nao_recebe_classificacao_de_segmento(self):
         resultado = self._resultado(
             self._features(self.AMOSTRAS[23]),
@@ -130,6 +157,32 @@ class SegmentLowLightTests(unittest.TestCase):
             codigo.index("aplicar_diagnostico_pouca_luz"),
             codigo.index("resultados_led.append"),
         )
+
+    def test_runtime_habilita_pouca_luz_somente_com_referencia_ativa(self):
+        codigo = inspect.getsource(runtime_module.SegmentDisplayRuntimeMixin.analisar_led_selecionado)
+        self.assertIn(
+            "diagnostico_pouca_luz_habilitado = _referencia_pouca_luz_ativa(self)",
+            codigo,
+        )
+        self.assertIn("habilitado=diagnostico_pouca_luz_habilitado", codigo)
+
+    def test_motor_de_operacao_respeita_trava_de_pouca_luz(self):
+        engine = OperationEngine()
+        self.assertFalse(engine.diagnostico_pouca_luz_habilitado)
+        engine.definir_diagnostico_pouca_luz_habilitado(True)
+        self.assertTrue(engine.diagnostico_pouca_luz_habilitado)
+        engine.invalidate()
+        self.assertFalse(engine.diagnostico_pouca_luz_habilitado)
+
+        codigo = inspect.getsource(OperationEngine.analyze)
+        self.assertIn("habilitado=self._diagnostico_pouca_luz_habilitado", codigo)
+
+    def test_perfil_producao_sincroniza_trava_com_referencia_ativa(self):
+        codigo = inspect.getsource(
+            production_module.RaspberryPi3ProductionApp.preparar_tela_operacao
+        )
+        self.assertIn("_tem_referencia_pouca_luz_ativa", codigo)
+        self.assertIn("definir_diagnostico_pouca_luz_habilitado", codigo)
 
 
 if __name__ == "__main__":
