@@ -604,6 +604,7 @@ class ReferenceCaptureMixin:
         self.modo_atual = self.MODO_CAPTURA_REFERENCIA
         self.guias_leds_fixos_visiveis = False
         self.selecao_manual_camera_ativa = False
+        self.leds_manuais_camera = []
         self.leds_selecionados = []
         self.resultados_led_atual = []
         self.view.selecao_manual_camera_visivel = False
