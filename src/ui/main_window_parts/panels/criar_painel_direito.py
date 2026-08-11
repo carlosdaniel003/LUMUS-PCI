@@ -81,6 +81,8 @@ def _criar_card_texto(
 
 
 def criar_painel_direito(self) -> None:
+    # Faixa única de diagnóstico: seis cards lado a lado, na ordem usada pelo
+    # operador para investigar a imagem, a ROI, a decisão e o histórico.
     self.frame_direito = tk.Frame(
         self.frame_dashboard,
         bg=self.COR_FUNDO_APP,
@@ -88,32 +90,21 @@ def criar_painel_direito(self) -> None:
     self.frame_direito.grid(
         row=1,
         column=0,
-        columnspan=3,
+        columnspan=2,
         sticky="nsew",
         pady=(0, 4),
     )
     self.frame_direito.grid_rowconfigure(0, weight=1)
-    self.frame_direito.grid_columnconfigure(0, weight=7)
-    self.frame_direito.grid_columnconfigure(1, weight=3)
-
-    self.frame_visuais_direita = tk.Frame(
-        self.frame_direito,
-        bg=self.COR_FUNDO_APP,
-    )
-    self.frame_visuais_direita.grid(
-        row=0,
-        column=0,
-        sticky="nsew",
-        padx=(0, 4),
-    )
-    self.frame_visuais_direita.grid_rowconfigure(0, weight=1)
-    self.frame_visuais_direita.grid_columnconfigure(0, weight=3)
-    self.frame_visuais_direita.grid_columnconfigure(1, weight=2)
-    self.frame_visuais_direita.grid_columnconfigure(2, weight=2)
+    for coluna in range(6):
+        self.frame_direito.grid_columnconfigure(
+            coluna,
+            weight=1,
+            uniform="faixa_diagnostico",
+        )
 
     self.frame_imagem_teste, self.canvas_imagem_teste = _criar_card_visual(
         self,
-        self.frame_visuais_direita,
+        self.frame_direito,
         "Imagem de teste • Canal V",
         "Imagem processada\nEtapa 2",
     )
@@ -126,7 +117,7 @@ def criar_painel_direito(self) -> None:
 
     self.frame_mascara, self.canvas_mascara = _criar_card_visual(
         self,
-        self.frame_visuais_direita,
+        self.frame_direito,
         "Máscara / ROI",
         "Máscara visual\nEtapa 2",
     )
@@ -139,7 +130,7 @@ def criar_painel_direito(self) -> None:
 
     self.frame_roi_debug, self.canvas_roi_debug = _criar_card_visual(
         self,
-        self.frame_visuais_direita,
+        self.frame_direito,
         "ROI ampliado",
         "ROI debug\nEtapa 2",
     )
@@ -147,51 +138,46 @@ def criar_painel_direito(self) -> None:
         row=0,
         column=2,
         sticky="nsew",
-        padx=(3, 0),
+        padx=3,
     )
-
-    self.frame_textos_direita = tk.Frame(
-        self.frame_direito,
-        bg=self.COR_FUNDO_APP,
-    )
-    self.frame_textos_direita.grid(
-        row=0,
-        column=1,
-        sticky="nsew",
-        padx=(4, 0),
-    )
-    self.frame_textos_direita.grid_rowconfigure(0, weight=1)
-    for coluna in range(2):
-        self.frame_textos_direita.grid_columnconfigure(
-            coluna,
-            weight=1,
-            uniform="cards_texto_direita",
-        )
 
     self.frame_debug, self.texto_resultados = _criar_card_texto(
         self,
-        self.frame_textos_direita,
+        self.frame_direito,
         "Debug técnico",
         "texto_resultados",
     )
     self.frame_debug.grid(
         row=0,
-        column=0,
+        column=3,
         sticky="nsew",
-        padx=(0, 3),
+        padx=3,
     )
 
     self.frame_log_producao, self.texto_log_producao = _criar_card_texto(
         self,
-        self.frame_textos_direita,
+        self.frame_direito,
         "Log produção",
         "texto_log_producao",
         "Nenhuma análise de produção registrada.",
     )
     self.frame_log_producao.grid(
         row=0,
-        column=1,
+        column=4,
+        sticky="nsew",
+        padx=3,
+    )
+    self.texto_log_producao.configure(state=tk.DISABLED)
+
+    self.frame_mapa, self.canvas_mapa_intensidade = _criar_card_visual(
+        self,
+        self.frame_direito,
+        "Mapa de intensidade",
+        "Mapa de intensidade\nEtapa 2",
+    )
+    self.frame_mapa.grid(
+        row=0,
+        column=5,
         sticky="nsew",
         padx=(3, 0),
     )
-    self.texto_log_producao.configure(state=tk.DISABLED)
