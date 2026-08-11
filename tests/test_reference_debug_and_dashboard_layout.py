@@ -32,15 +32,7 @@ class FakeApp:
             glow_score=12.0,
             percent_hot_250=0.0,
         )
-        self.features_referencia_pouca_luz = LedFeatures(
-            v_mean=205.0,
-            v_max=242.0,
-            v_std=17.0,
-            s_mean=170.0,
-            h_mean=178.0,
-            glow_score=180.0,
-            percent_hot_250=0.22,
-        )
+        self.features_referencia_pouca_luz = None
         self._referencias_ativas_por_tipo = {
             "aceso": [
                 {
@@ -114,6 +106,7 @@ class ReferenceDebugContextTests(unittest.TestCase):
             250.0,
             contexto["grupos"]["aceso"]["agregado"]["v_mean"],
         )
+        self.assertFalse(contexto["pouca_luz_habilitada"])
 
     def test_debug_textual_exibe_referencias_que_participaram_da_analise(self):
         contexto = criar_contexto_debug_referencias(FakeApp())
@@ -130,7 +123,11 @@ class ReferenceDebugContextTests(unittest.TestCase):
         self.assertIn("ROI segmento", texto)
         self.assertIn("perfil agregado: v_mean=250.0", texto)
         self.assertIn("POUCA LUZ: 0/3 ativas", texto)
-        self.assertIn("POUCA_LUZ permanece no diagnóstico óptico calibrado", texto)
+        self.assertIn("POUCA_LUZ está DESABILITADO", texto)
+        self.assertIn(
+            "Resultados ACESO/APAGADO não podem ser sobrescritos para POUCA_LUZ",
+            texto,
+        )
 
 
 class DashboardLayoutTests(unittest.TestCase):
