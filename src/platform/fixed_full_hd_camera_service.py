@@ -20,10 +20,19 @@ from src.platform.threaded_camera_service import (
 
 
 class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
-    """Captura fixa em 1920x1080 a 20 FPS, sem fallback de resolução."""
+    """1080p fixo no Linux e captura nativa/negociada no Windows.
+
+    No Raspberry/Linux a operação continua estritamente em 1920x1080 a 20 FPS.
+    No Windows o driver escolhe resolução, FPS e formato como nas APIs nativas
+    do sistema. Isso evita ciclos de reconexão em câmeras USB que funcionam no
+    Windows, mas não aceitam imediatamente o perfil MJPG 1080p imposto pelo
+    OpenCV.
+    """
 
     RESOLUTION_MISMATCH_BEFORE_SWITCH = 3
     RESOLUTION_PROBE_FRAMES = 4
+    WINDOWS_FAILURES_BEFORE_RECONNECT = 60
+    WINDOWS_CORRUPTED_BEFORE_RECONNECT = 60
 
     def __init__(
         self,
@@ -33,8 +42,12 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
         fps: int = CAMERA_FPS,
         **kwargs,
     ) -> None:
-        configuracoes = self._fixed_settings(
-            kwargs.pop("configuracoes_camera", None)
+        self._windows_native_mode = sys.platform.startswith("win")
+        configuracoes_origem = kwargs.pop("configuracoes_camera", None)
+        configuracoes = (
+            self._windows_native_settings(configuracoes_origem)
+            if self._windows_native_mode
+            else self._fixed_settings(configuracoes_origem)
         )
         self._resolution_mismatch_count = 0
         super().__init__(
@@ -45,6 +58,18 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
             configuracoes_camera=configuracoes,
             **kwargs,
         )
+
+        if self._windows_native_mode:
+            # Câmeras USB podem levar alguns ciclos para começar a entregar
+            # quadros estáveis. Não tratamos pequenos engasgos como desconexão.
+            self.falhas_antes_reconexao = max(
+                int(self.falhas_antes_reconexao),
+                self.WINDOWS_FAILURES_BEFORE_RECONNECT,
+            )
+            self.FRAMES_CORROMPIDOS_ANTES_RECONEXAO = max(
+                int(self.FRAMES_CORROMPIDOS_ANTES_RECONEXAO),
+                self.WINDOWS_CORRUPTED_BEFORE_RECONNECT,
+            )
 
     @staticmethod
     def _fixed_settings(configuracoes_camera: dict | None) -> dict:
@@ -62,6 +87,21 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
         return configuracoes
 
     @staticmethod
+    def _windows_native_settings(configuracoes_camera: dict | None) -> dict:
+        configuracoes = dict(configuracoes_camera or {})
+        configuracoes.update(
+            {
+                "resolution_mode": "auto",
+                "width": CAMERA_WIDTH,
+                "height": CAMERA_HEIGHT,
+                "fps_mode": "auto",
+                "fps": 0,
+                "format": "AUTO",
+            }
+        )
+        return configuracoes
+
+    @staticmethod
     def _is_fixed_candidate(
         candidato: LinuxCameraBackendCandidate,
     ) -> bool:
@@ -74,6 +114,16 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
         self,
         configuracoes_camera: dict | None,
     ) -> None:
+        if self._windows_native_mode:
+            super().atualizar_configuracoes_camera(
+                self._windows_native_settings(configuracoes_camera)
+            )
+            # atualizar_configuracoes_camera marca controles pendentes, mas não
+            # recalcula sozinho o perfil de transporte. Mantemos o transporte
+            # em modo automático mesmo após salvar as configurações da câmera.
+            self._aplicar_perfil_camera_inicial()
+            return
+
         self.largura = CAMERA_WIDTH
         self.altura = CAMERA_HEIGHT
         self.fps = CAMERA_FPS
@@ -143,7 +193,24 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
         super()._reiniciar_estado_fluxo()
         self._resolution_mismatch_count = 0
 
+    def _travar_controles_automaticos_atuais(self) -> None:
+        if self._windows_native_mode:
+            # No modo de compatibilidade Windows mantemos exposição, foco e
+            # balanço de branco sob responsabilidade do driver, como acontece
+            # na experiência nativa do Windows. Controles manuais explicitamente
+            # configurados ainda são aplicados no primeiro frame.
+            return
+        super()._travar_controles_automaticos_atuais()
+
     def _publicar_frame_otimizado(self, frame, estavel: bool) -> None:
+        if self._windows_native_mode:
+            # Aceita a resolução realmente negociada pelo driver. As ROIs já
+            # possuem adaptação por resolução, então não há razão para derrubar
+            # uma câmera funcional por não entregar exatamente 1920x1080.
+            self._resolution_mismatch_count = 0
+            super()._publicar_frame_otimizado(frame, estavel=estavel)
+            return
+
         altura_real, largura_real = frame.shape[:2]
         if (
             int(largura_real) != CAMERA_WIDTH
@@ -178,9 +245,16 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
         diagnostico = super().obter_diagnostico_fluxo()
         diagnostico.update(
             {
-                "perfil_camera_fixo": True,
-                "resolucao_fixa": (CAMERA_WIDTH, CAMERA_HEIGHT),
-                "fps_fixo": CAMERA_FPS,
+                "perfil_camera_fixo": not self._windows_native_mode,
+                "windows_native_mode": bool(self._windows_native_mode),
+                "resolucao_fixa": (
+                    None
+                    if self._windows_native_mode
+                    else (CAMERA_WIDTH, CAMERA_HEIGHT)
+                ),
+                "fps_fixo": (
+                    None if self._windows_native_mode else CAMERA_FPS
+                ),
                 "divergencias_resolucao": int(
                     self._resolution_mismatch_count
                 ),
