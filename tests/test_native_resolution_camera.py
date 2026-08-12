@@ -32,7 +32,7 @@ class FixedResolutionCameraTests(unittest.TestCase):
         self.assertEqual(((1920, 1080),), CAMERA_RESOLUTION_FALLBACKS)
         self.assertEqual(50, FRAME_INTERVAL_MS)
 
-    def test_configuracao_ignora_resolucao_e_fps_diferentes(self):
+    def test_configuracao_linux_ignora_resolucao_e_fps_diferentes(self):
         configuracoes = FixedFullHdCameraService._fixed_settings(
             {
                 "resolution_mode": "uhd",
@@ -51,6 +51,39 @@ class FixedResolutionCameraTests(unittest.TestCase):
         self.assertEqual(20, configuracoes["fps"])
         self.assertEqual("MJPG", configuracoes["format"])
         self.assertEqual(180, configuracoes["rotation"])
+
+    def test_windows_usa_transporte_nativo_negociado(self):
+        configuracoes = FixedFullHdCameraService._windows_native_settings(
+            {
+                "resolution_mode": "full_hd",
+                "fps_mode": "manual",
+                "fps": 20,
+                "format": "MJPG",
+                "rotation": 180,
+            }
+        )
+        self.assertEqual("auto", configuracoes["resolution_mode"])
+        self.assertEqual("auto", configuracoes["fps_mode"])
+        self.assertEqual(0, configuracoes["fps"])
+        self.assertEqual("AUTO", configuracoes["format"])
+        self.assertEqual(180, configuracoes["rotation"])
+
+    def test_instancia_windows_nao_exige_1080p_e_tolera_hiccups(self):
+        with patch(
+            "src.platform.fixed_full_hd_camera_service.sys.platform",
+            "win32",
+        ):
+            service = FixedFullHdCameraService(indice_camera=1)
+
+        self.assertTrue(service._windows_native_mode)
+        self.assertTrue(service.perfil_automatico)
+        self.assertEqual(0, service.fps)
+        self.assertEqual("AUTO", service.formato_camera)
+        self.assertGreaterEqual(service.falhas_antes_reconexao, 60)
+        self.assertGreaterEqual(
+            service.FRAMES_CORROMPIDOS_ANTES_RECONEXAO,
+            60,
+        )
 
     def test_linux_oferece_somente_candidatos_1080p(self):
         service = object.__new__(FixedFullHdCameraService)
