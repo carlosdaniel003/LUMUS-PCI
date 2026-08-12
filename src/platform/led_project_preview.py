@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import re
 import tkinter as tk
+from pathlib import Path
 
+import cv2
+
+from config import CONFIG_DIR
 from src.core.roi_geometry import (
     TIPO_ROI_SEGMENTO,
     bbox_roi,
     normalizar_tipo_roi,
     pontos_segmento,
+)
+from src.platform.led_project_preview_store import (
+    definir_preview_projeto_led,
+    obter_preview_projeto_led,
 )
 
 
@@ -15,6 +26,8 @@ PREVIEW_ALTURA = 150
 PREVIEW_BASE_LARGURA = 1920
 PREVIEW_BASE_ALTURA = 1080
 PREVIEW_MARGEM = 10
+PREVIEW_JPEG_QUALIDADE = 84
+PREVIEW_DIR = CONFIG_DIR / "led_project_previews"
 
 
 def calcular_transformacao_preview(
@@ -62,8 +75,118 @@ def _projetar_ponto(
     )
 
 
+def _criar_photo_preview_real(imagem, largura: int, altura: int):
+    if imagem is None or getattr(imagem, "size", 0) == 0:
+        return None
+    largura = max(1, int(largura))
+    altura = max(1, int(altura))
+    interpolacao = (
+        cv2.INTER_AREA
+        if largura < imagem.shape[1] or altura < imagem.shape[0]
+        else cv2.INTER_LINEAR
+    )
+    reduzida = cv2.resize(
+        imagem,
+        (largura, altura),
+        interpolation=interpolacao,
+    )
+    sucesso, buffer = cv2.imencode(".png", reduzida)
+    if not sucesso:
+        return None
+    dados = base64.b64encode(buffer).decode("ascii")
+    return tk.PhotoImage(data=dados)
+
+
+def _slug_preview_projeto(nome: str) -> str:
+    normalizado = str(nome or "").strip()
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", normalizado).strip("_").lower()
+    slug = slug or "projeto"
+    digest = hashlib.sha1(normalizado.encode("utf-8")).hexdigest()[:8]
+    return f"{slug}_{digest}"
+
+
 class LedProjectPreviewMixin:
-    """Acrescenta preview sem substituir o gerenciador existente de projetos."""
+    """Acrescenta preview real sem substituir o gerenciador de projetos."""
+
+    def _salvar_leds_no_projeto(
+        self,
+        nome_projeto: str,
+        parent=None,
+        confirmar_substituicao: bool = True,
+    ) -> bool:
+        salvo = super()._salvar_leds_no_projeto(
+            nome_projeto,
+            parent=parent,
+            confirmar_substituicao=confirmar_substituicao,
+        )
+        if salvo:
+            self._anexar_snapshot_real_ao_projeto(nome_projeto)
+            self._led_project_preview_revision = (
+                int(getattr(self, "_led_project_preview_revision", 0)) + 1
+            )
+        return salvo
+
+    def _fonte_snapshot_projeto(self):
+        candidatos = []
+        if getattr(self, "camera_ativa", False):
+            candidatos.append(getattr(self, "camera_frame_atual", None))
+        candidatos.extend(
+            (
+                getattr(self, "imagem_original", None),
+                getattr(self, "camera_frame_atual", None),
+            )
+        )
+        for imagem in candidatos:
+            if imagem is None or getattr(imagem, "size", 0) == 0:
+                continue
+            try:
+                return imagem.copy()
+            except Exception:
+                continue
+        return None
+
+    def _anexar_snapshot_real_ao_projeto(self, nome_projeto: str) -> bool:
+        imagem = self._fonte_snapshot_projeto()
+        if imagem is None:
+            return False
+
+        try:
+            PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+            caminho = PREVIEW_DIR / f"{_slug_preview_projeto(nome_projeto)}.jpg"
+            sucesso = cv2.imwrite(
+                str(caminho),
+                imagem,
+                [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_JPEG_QUALIDADE],
+            )
+            if not sucesso:
+                return False
+            return definir_preview_projeto_led(
+                self.config_repository,
+                nome_projeto,
+                str(caminho),
+            )
+        except Exception:
+            return False
+
+    def _carregar_snapshot_real_projeto(self, nome_projeto: str):
+        dados = obter_preview_projeto_led(
+            self.config_repository,
+            nome_projeto,
+        )
+        if not isinstance(dados, dict):
+            return None, None
+
+        caminho = str(dados.get("image_path") or "").strip()
+        if not caminho:
+            return None, None
+        arquivo = Path(caminho)
+        if not arquivo.exists() or not arquivo.is_file():
+            return None, caminho
+
+        imagem = cv2.imread(str(arquivo), cv2.IMREAD_COLOR)
+        if imagem is None or getattr(imagem, "size", 0) == 0:
+            return None, caminho
+        return imagem, caminho
 
     def _selecionar_projeto_led_existente(self, projetos: list[str]) -> str | None:
         token = object()
@@ -179,46 +302,61 @@ class LedProjectPreviewMixin:
         )
         canvas.pack(padx=10, pady=(0, 6))
 
-        tk.Label(
+        label_legenda = tk.Label(
             painel,
-            text="Amarelo: ROIs salvas",
+            text="Imagem real • amarelo: ROIs salvas",
             font=("Segoe UI", 7),
             fg="#64748B",
             bg="#0B1728",
             anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=(0, 8))
+            justify=tk.LEFT,
+        )
+        label_legenda.pack(fill=tk.X, padx=10, pady=(0, 8))
 
-        estado = {"nome": None, "quantidade": None}
+        estado = {
+            "nome": None,
+            "quantidade": None,
+            "revision": None,
+        }
 
         def atualizar_preview(_evento=None) -> None:
             try:
                 nome = self._nome_projeto_da_selecao(lista)
+                revision = int(getattr(self, "_led_project_preview_revision", 0))
                 if nome is None:
                     self._desenhar_preview_projeto(
                         canvas,
                         label_nome,
                         label_qtd,
+                        label_legenda,
                         None,
                         [],
                     )
                     estado["nome"] = None
                     estado["quantidade"] = 0
+                    estado["revision"] = revision
                     return
 
                 leds = self.config_repository.carregar_leds_fixos(projeto=nome)
                 quantidade = len(leds)
-                if estado["nome"] == nome and estado["quantidade"] == quantidade:
+                if (
+                    estado["nome"] == nome
+                    and estado["quantidade"] == quantidade
+                    and estado["revision"] == revision
+                ):
                     return
 
                 self._desenhar_preview_projeto(
                     canvas,
                     label_nome,
                     label_qtd,
+                    label_legenda,
                     nome,
                     leds,
                 )
                 estado["nome"] = nome
                 estado["quantidade"] = quantidade
+                estado["revision"] = revision
             except tk.TclError:
                 return
 
@@ -292,31 +430,22 @@ class LedProjectPreviewMixin:
             return None
         return str(nomes[indice])
 
-    def _dimensoes_base_preview(self, leds) -> tuple[int, int]:
-        for imagem in (
-            getattr(self, "camera_frame_atual", None),
-            getattr(self, "imagem_original", None),
-        ):
-            shape = getattr(imagem, "shape", None)
-            if shape is not None and len(shape) >= 2:
-                altura = int(shape[0])
-                largura = int(shape[1])
-                if largura > 0 and altura > 0:
-                    return largura, altura
-        return PREVIEW_BASE_LARGURA, PREVIEW_BASE_ALTURA
-
     def _desenhar_preview_projeto(
         self,
         canvas,
         label_nome,
         label_qtd,
+        label_legenda,
         nome: str | None,
         leds,
     ) -> None:
         canvas.delete("all")
+        canvas._odin_photo_preview = None
+
         if not nome:
             label_nome.configure(text="Nenhum projeto")
             label_qtd.configure(text="Selecione uma configuração")
+            label_legenda.configure(text="Imagem real • amarelo: ROIs salvas")
             canvas.create_text(
                 PREVIEW_LARGURA / 2,
                 PREVIEW_ALTURA / 2,
@@ -332,7 +461,14 @@ class LedProjectPreviewMixin:
             text=f"{len(leds)} ROI{'s' if len(leds) != 1 else ''} salva{'s' if len(leds) != 1 else ''}"
         )
 
-        if not leds:
+        imagem, caminho = self._carregar_snapshot_real_projeto(nome)
+        if imagem is None:
+            label_legenda.configure(
+                text=(
+                    "Imagem real ainda não anexada.\n"
+                    "Salve os LEDs deste projeto para criar a preview."
+                )
+            )
             canvas.create_rectangle(
                 8,
                 8,
@@ -343,37 +479,49 @@ class LedProjectPreviewMixin:
             )
             canvas.create_text(
                 PREVIEW_LARGURA / 2,
-                PREVIEW_ALTURA / 2,
-                text="SEM LEDs",
+                PREVIEW_ALTURA / 2 - 8,
+                text="SEM IMAGEM REAL",
+                fill="#94A3B8",
+                font=("Segoe UI", 8, "bold"),
+            )
+            canvas.create_text(
+                PREVIEW_LARGURA / 2,
+                PREVIEW_ALTURA / 2 + 10,
+                text="salve o projeto para anexar",
                 fill="#64748B",
-                font=("Segoe UI", 9, "bold"),
+                font=("Segoe UI", 7),
             )
             return
 
-        largura_base, altura_base = self._dimensoes_base_preview(leds)
-        escala, offset_x, offset_y, largura_base, altura_base = (
-            calcular_transformacao_preview(
-                leds,
-                largura_canvas=PREVIEW_LARGURA,
-                altura_canvas=PREVIEW_ALTURA,
-                largura_base=largura_base,
-                altura_base=altura_base,
-            )
+        altura_imagem, largura_imagem = imagem.shape[:2]
+        escala, offset_x, offset_y, _, _ = calcular_transformacao_preview(
+            [],
+            largura_canvas=PREVIEW_LARGURA,
+            altura_canvas=PREVIEW_ALTURA,
+            largura_base=largura_imagem,
+            altura_base=altura_imagem,
         )
+        largura_desenho = max(1, int(round(largura_imagem * escala)))
+        altura_desenho = max(1, int(round(altura_imagem * escala)))
+        foto = _criar_photo_preview_real(
+            imagem,
+            largura_desenho,
+            altura_desenho,
+        )
+        if foto is not None:
+            canvas._odin_photo_preview = foto
+            canvas.create_image(
+                offset_x,
+                offset_y,
+                image=foto,
+                anchor="nw",
+            )
 
-        x1, y1 = _projetar_ponto(0, 0, escala, offset_x, offset_y)
-        x2, y2 = _projetar_ponto(
-            largura_base,
-            altura_base,
-            escala,
+        canvas.create_rectangle(
             offset_x,
             offset_y,
-        )
-        canvas.create_rectangle(
-            x1,
-            y1,
-            x2,
-            y2,
+            offset_x + largura_desenho,
+            offset_y + altura_desenho,
             outline="#334155",
             width=1,
         )
@@ -394,9 +542,9 @@ class LedProjectPreviewMixin:
                 if len(coords) >= 6:
                     canvas.create_polygon(
                         *coords,
-                        fill="#3A3208",
+                        fill="",
                         outline="#FACC15",
-                        width=1,
+                        width=2,
                     )
                 continue
 
@@ -413,7 +561,9 @@ class LedProjectPreviewMixin:
                 centro_y - raio,
                 centro_x + raio,
                 centro_y + raio,
-                fill="#3A3208",
+                fill="",
                 outline="#FACC15",
-                width=1,
+                width=2,
             )
+
+        label_legenda.configure(text="Imagem real salva • amarelo: ROIs salvas")
