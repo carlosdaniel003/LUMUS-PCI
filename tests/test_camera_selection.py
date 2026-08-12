@@ -1,8 +1,11 @@
 import inspect
 import unittest
 
+import cv2
+
 from src.platform.camera_selection import (
     CameraSelectionMixin,
+    _configurar_capture_preview,
     camera_backends_preferidos,
     criar_classe_camera_indice_estrito,
 )
@@ -26,15 +29,44 @@ class _CameraBaseFake:
         return tuple(_Candidato(indice) for indice in (0, 1, 2, 3))
 
 
+class _CaptureFake:
+    def __init__(self):
+        self.definicoes = []
+
+    def set(self, propriedade, valor):
+        self.definicoes.append((propriedade, valor))
+        return True
+
+
 class CameraSelectionTests(unittest.TestCase):
     def test_perfil_final_inclui_seletor_camera(self):
         self.assertIn(CameraSelectionMixin, RaspberryPi3ProductionApp.__mro__)
 
-    def test_windows_prioriza_directshow_e_linux_v4l2(self):
+    def test_windows_prioriza_media_foundation_e_linux_v4l2(self):
         windows = camera_backends_preferidos("win32")
         linux = camera_backends_preferidos("linux")
-        self.assertEqual("DirectShow", windows[0][1])
+        self.assertEqual("Media Foundation", windows[0][1])
+        self.assertEqual(cv2.CAP_MSMF, windows[0][0])
+        self.assertEqual("DirectShow", windows[1][1])
         self.assertEqual("V4L2", linux[0][1])
+
+    def test_preview_windows_nao_forca_resolucao_fps_ou_fourcc(self):
+        capture = _CaptureFake()
+        _configurar_capture_preview(capture, plataforma="win32")
+        propriedades = [item[0] for item in capture.definicoes]
+        self.assertNotIn(cv2.CAP_PROP_FRAME_WIDTH, propriedades)
+        self.assertNotIn(cv2.CAP_PROP_FRAME_HEIGHT, propriedades)
+        self.assertNotIn(cv2.CAP_PROP_FPS, propriedades)
+        self.assertNotIn(cv2.CAP_PROP_FOURCC, propriedades)
+
+    def test_preview_linux_mantem_probe_leve_configurado(self):
+        capture = _CaptureFake()
+        _configurar_capture_preview(capture, plataforma="linux")
+        propriedades = [item[0] for item in capture.definicoes]
+        self.assertIn(cv2.CAP_PROP_FRAME_WIDTH, propriedades)
+        self.assertIn(cv2.CAP_PROP_FRAME_HEIGHT, propriedades)
+        self.assertIn(cv2.CAP_PROP_FPS, propriedades)
+        self.assertIn(cv2.CAP_PROP_FOURCC, propriedades)
 
     def test_classe_estrita_mantem_apenas_indice_escolhido(self):
         classe = criar_classe_camera_indice_estrito(_CameraBaseFake)
