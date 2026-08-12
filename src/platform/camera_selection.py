@@ -17,6 +17,7 @@ CAMERA_SELECTOR_REFRESH_MS = 70
 CAMERA_SELECTOR_PROBE_WIDTH = 640
 CAMERA_SELECTOR_PROBE_HEIGHT = 360
 CAMERA_SELECTOR_PROBE_FPS = 15
+CAMERA_SELECTOR_PROBE_FRAMES = 8
 
 
 _CAMERA_STRICT_CLASS_CACHE: dict[type, type] = {}
@@ -25,9 +26,12 @@ _CAMERA_STRICT_CLASS_CACHE: dict[type, type] = {}
 def camera_backends_preferidos(plataforma: str | None = None):
     plataforma = str(plataforma or sys.platform).lower()
     if plataforma.startswith("win"):
+        # O Windows moderno usa Media Foundation como caminho nativo para
+        # dispositivos de câmera. Tentamos esse backend primeiro e deixamos
+        # DirectShow apenas como fallback para webcams antigas.
         return (
-            (cv2.CAP_DSHOW, "DirectShow"),
             (cv2.CAP_MSMF, "Media Foundation"),
+            (cv2.CAP_DSHOW, "DirectShow"),
             (cv2.CAP_ANY, "Automático"),
         )
     if plataforma.startswith("linux"):
@@ -38,23 +42,34 @@ def camera_backends_preferidos(plataforma: str | None = None):
     return ((cv2.CAP_ANY, "Automático"),)
 
 
-def _configurar_capture_preview(capture) -> None:
-    try:
-        capture.set(
-            cv2.CAP_PROP_FOURCC,
-            cv2.VideoWriter_fourcc(*"MJPG"),
-        )
-    except Exception:
-        pass
-    for propriedade, valor in (
-        (cv2.CAP_PROP_FRAME_WIDTH, CAMERA_SELECTOR_PROBE_WIDTH),
-        (cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_SELECTOR_PROBE_HEIGHT),
-        (cv2.CAP_PROP_FPS, CAMERA_SELECTOR_PROBE_FPS),
-    ):
+def _configurar_capture_preview(
+    capture,
+    plataforma: str | None = None,
+) -> None:
+    plataforma = str(plataforma or sys.platform).lower()
+
+    # No Windows não forçamos FOURCC, resolução nem FPS na descoberta. O
+    # driver negocia exatamente como ocorre nas APIs nativas do sistema. Isso
+    # evita que uma câmera USB que funciona no app Configurações seja rejeitada
+    # só porque não aceitou MJPG 640x360 durante o probe.
+    if not plataforma.startswith("win"):
         try:
-            capture.set(propriedade, valor)
+            capture.set(
+                cv2.CAP_PROP_FOURCC,
+                cv2.VideoWriter_fourcc(*"MJPG"),
+            )
         except Exception:
             pass
+        for propriedade, valor in (
+            (cv2.CAP_PROP_FRAME_WIDTH, CAMERA_SELECTOR_PROBE_WIDTH),
+            (cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_SELECTOR_PROBE_HEIGHT),
+            (cv2.CAP_PROP_FPS, CAMERA_SELECTOR_PROBE_FPS),
+        ):
+            try:
+                capture.set(propriedade, valor)
+            except Exception:
+                pass
+
     try:
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     except Exception:
@@ -80,7 +95,7 @@ def abrir_camera_preview(indice: int):
 
         _configurar_capture_preview(capture)
         frame_valido = None
-        for _ in range(3):
+        for _ in range(CAMERA_SELECTOR_PROBE_FRAMES):
             try:
                 sucesso, frame = capture.read()
             except Exception:
