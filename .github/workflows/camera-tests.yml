@@ -59,6 +59,7 @@ jobs:
             src/platform/reference_project_store.py \
             src/platform/reference_project_sets.py \
             src/platform/reference_debug_context.py \
+            src/platform/led_project_preview.py \
             src/platform/fullscreen_led_selection.py \
             src/platform/display_awake_runtime.py \
             src/platform/display_theme.py \
@@ -115,6 +116,7 @@ jobs:
             tests.test_fullscreen_selection_zoom \
             tests.test_reference_project_sets \
             tests.test_reference_debug_and_dashboard_layout \
+            tests.test_led_project_preview \
             tests.test_selection_zoom \
             tests.test_fullscreen_image_viewer \
             tests.test_main_image_rotation \
