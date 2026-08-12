@@ -4,6 +4,7 @@ import unittest
 import cv2
 
 from src.platform.camera_selection import (
+    CAMERA_SELECTOR_RELEASE_GRACE_MS,
     CameraSelectionMixin,
     _configurar_capture_preview,
     camera_backends_preferidos,
@@ -67,6 +68,13 @@ class CameraSelectionTests(unittest.TestCase):
         self.assertIn(cv2.CAP_PROP_FRAME_HEIGHT, propriedades)
         self.assertIn(cv2.CAP_PROP_FPS, propriedades)
         self.assertIn(cv2.CAP_PROP_FOURCC, propriedades)
+
+    def test_seletor_da_tempo_para_windows_liberar_handle_usb(self):
+        self.assertGreaterEqual(CAMERA_SELECTOR_RELEASE_GRACE_MS, 250)
+        fonte = inspect.getsource(
+            CameraSelectionMixin._confirmar_camera_selecionada
+        )
+        self.assertIn("CAMERA_SELECTOR_RELEASE_GRACE_MS", fonte)
 
     def test_classe_estrita_mantem_apenas_indice_escolhido(self):
         classe = criar_classe_camera_indice_estrito(_CameraBaseFake)
