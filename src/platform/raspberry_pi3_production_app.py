@@ -40,6 +40,9 @@ from src.platform.led_mask_resolution_sync import (
 from src.platform.led_project_preview import (
     LedProjectPreviewMixin,
 )
+from src.platform.led_project_preview_store import (
+    instalar_preview_projeto_led_store,
+)
 from src.platform.led_project_repository import (
     instalar_repositorio_projetos_led,
 )
@@ -102,6 +105,7 @@ class RaspberryPi3ProductionApp(
         raspberry_pi3_profile.RaspberryPi3CameraService = FixedFullHdCameraService
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
+        instalar_preview_projeto_led_store()
         instalar_repositorio_mascaras_absolutas()
         instalar_preservacao_segmentos_resolution_sync()
         super().__init__(root)
