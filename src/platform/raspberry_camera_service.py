@@ -18,6 +18,8 @@ from src.platform.raspberry_pi3_settings import (
 class RaspberryPi3CameraService(CameraService):
     """CameraService compatível com Windows e Raspberry Pi OS."""
 
+    WINDOWS_OPEN_PROBE_FRAMES = 8
+
     CONTROLES_AVANCADOS = (
         "auto_exposure",
         "exposure",
@@ -61,9 +63,12 @@ class RaspberryPi3CameraService(CameraService):
     @staticmethod
     def _backends_preferidos():
         if sys.platform.startswith("win"):
+            # Media Foundation é o caminho moderno do Windows para câmeras e
+            # tende a negociar dispositivos USB da mesma forma que os painéis
+            # nativos do sistema. DirectShow continua disponível como fallback.
             return (
-                (cv2.CAP_DSHOW, "DirectShow"),
                 (cv2.CAP_MSMF, "Media Foundation"),
+                (cv2.CAP_DSHOW, "DirectShow"),
                 (cv2.CAP_ANY, "automático"),
             )
 
@@ -126,6 +131,29 @@ class RaspberryPi3CameraService(CameraService):
         if self._capture is not None:
             self._aplicar_configuracoes_hardware()
 
+    def _capture_entrega_frame_inicial(self, capture) -> bool:
+        """Só aceita um backend que realmente entrega imagem utilizável.
+
+        Alguns drivers USB no Windows retornam isOpened()=True pelo DirectShow
+        e depois não entregam nenhum frame. Antes isso prendia o ODIN em um
+        ciclo infinito de reconexão no mesmo backend. Agora o backend só é
+        escolhido após um probe real; se falhar, tentamos o próximo backend.
+        """
+        tentativas = (
+            self.WINDOWS_OPEN_PROBE_FRAMES
+            if sys.platform.startswith("win")
+            else 3
+        )
+        for _ in range(max(1, int(tentativas))):
+            try:
+                sucesso, frame = capture.read()
+            except Exception:
+                sucesso, frame = False, None
+            frame = self._normalizar_frame(frame) if sucesso else None
+            if self._frame_basico_valido(frame):
+                return True
+        return False
+
     def _abrir_camera(self) -> bool:
         self._liberar_camera()
         indices = self._indices_candidatos()
@@ -145,9 +173,10 @@ class RaspberryPi3CameraService(CameraService):
         backend_name = "automático"
         indice_selecionado = None
 
-        # O backend é priorizado antes do índice. Assim, no Windows, o ODIN
-        # tenta DirectShow no índice preferido e logo depois no índice 0, sem
-        # esperar Media Foundation em um índice ausente.
+        # O backend é validado por frame, não apenas por isOpened(). Assim, se
+        # Media Foundation ou DirectShow abrirem o dispositivo sem produzir
+        # imagem, o serviço tenta o próximo backend em vez de reconectar para
+        # sempre no mesmo caminho defeituoso.
         for backend, candidate_name in backends:
             for indice in indices:
                 try:
@@ -155,17 +184,31 @@ class RaspberryPi3CameraService(CameraService):
                 except Exception:
                     candidate = None
 
-                if candidate is not None and candidate.isOpened():
-                    capture = candidate
-                    backend_name = candidate_name
-                    indice_selecionado = indice
-                    break
+                if candidate is None or not candidate.isOpened():
+                    if candidate is not None:
+                        try:
+                            candidate.release()
+                        except Exception:
+                            pass
+                    continue
 
-                if candidate is not None:
+                self._aplicar_perfil_capture(candidate)
+                try:
+                    candidate.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                except Exception:
+                    pass
+
+                if not self._capture_entrega_frame_inicial(candidate):
                     try:
                         candidate.release()
                     except Exception:
                         pass
+                    continue
+
+                capture = candidate
+                backend_name = candidate_name
+                indice_selecionado = indice
+                break
 
             if capture is not None:
                 break
@@ -174,8 +217,8 @@ class RaspberryPi3CameraService(CameraService):
             self._capture = None
             self._agendar_reconexao(
                 (
-                    f"Nenhuma câmera abriu nos índices {indices_texto} "
-                    f"pelos backends {nomes_backend}."
+                    f"Nenhuma câmera entregou imagem nos índices "
+                    f"{indices_texto} pelos backends {nomes_backend}."
                 )
             )
             return False
@@ -184,20 +227,14 @@ class RaspberryPi3CameraService(CameraService):
         self._indice_camera_ativo = int(indice_selecionado)
         self._capture = capture
         self._backend_name = backend_name
-        self._aplicar_perfil_capture(capture)
-
-        try:
-            capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        except Exception:
-            pass
 
         self._controles_pendentes = True
         self._falhas_consecutivas = 0
         self._definir_estado(
             self.ESTADO_ESTABILIZANDO,
             (
-                f"Câmera {self.indice_camera} aberta via "
-                f"{backend_name}. Aguardando primeiro frame..."
+                f"Câmera {self.indice_camera} validada via "
+                f"{backend_name}. Estabilizando fluxo..."
             ),
         )
         return True
