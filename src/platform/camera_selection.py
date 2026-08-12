@@ -18,6 +18,7 @@ CAMERA_SELECTOR_PROBE_WIDTH = 640
 CAMERA_SELECTOR_PROBE_HEIGHT = 360
 CAMERA_SELECTOR_PROBE_FPS = 15
 CAMERA_SELECTOR_PROBE_FRAMES = 8
+CAMERA_SELECTOR_RELEASE_GRACE_MS = 300
 
 
 _CAMERA_STRICT_CLASS_CACHE: dict[type, type] = {}
@@ -496,7 +497,13 @@ class CameraSelectionMixin:
         except Exception:
             pass
         if callback is not None:
-            self.root.after(20, lambda: callback(int(indice)))
+            # Algumas câmeras USB precisam de alguns centenas de milissegundos
+            # para o Windows liberar o handle usado pela preview. Reabrir em
+            # apenas 20 ms podia iniciar exatamente o ciclo conecta/reconecta.
+            self.root.after(
+                CAMERA_SELECTOR_RELEASE_GRACE_MS,
+                lambda: callback(int(indice)),
+            )
 
     def _fechar_seletor_camera(self) -> None:
         janela = self._camera_selector_window
