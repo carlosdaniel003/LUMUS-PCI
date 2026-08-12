@@ -37,6 +37,9 @@ from src.platform.gpio_raspberry_app import (
 from src.platform.led_mask_resolution_sync import (
     ResolutionSynchronizedLedMasksMixin,
 )
+from src.platform.led_project_preview import (
+    LedProjectPreviewMixin,
+)
 from src.platform.led_project_repository import (
     instalar_repositorio_projetos_led,
 )
@@ -77,6 +80,7 @@ from src.platform.segment_project_geometry_persistence import (
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
+    LedProjectPreviewMixin,
     ProjectReferenceSetsMixin,
     ReferenceCaptureMixin,
     FullscreenLedSelectionMixin,
