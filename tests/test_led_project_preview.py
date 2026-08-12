@@ -1,10 +1,20 @@
 import inspect
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
+from src.infra.config_repository import ConfigRepository
 from src.models.led_selection import LedSelection
 from src.platform.led_project_preview import (
     LedProjectPreviewMixin,
     calcular_transformacao_preview,
+)
+from src.platform.led_project_preview_store import (
+    CHAVE_PREVIEWS_PROJETO,
+    definir_preview_projeto_led,
+    instalar_preview_projeto_led_store,
+    obter_preview_projeto_led,
 )
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 
@@ -72,6 +82,47 @@ class LedProjectPreviewMathTests(unittest.TestCase):
         self.assertGreater(altura, 1080)
 
 
+class LedProjectPreviewStoreTests(unittest.TestCase):
+    def test_snapshot_fica_vinculado_ao_nome_do_projeto(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            arquivo = Path(pasta) / "config.json"
+            arquivo.write_text(
+                json.dumps(
+                    {
+                        "project": "ODIN",
+                        "led_projects": {
+                            "DISPLAY_7": {
+                                "name": "DISPLAY_7",
+                                "fixed_leds": [],
+                                "references": {},
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            repository = ConfigRepository(arquivo)
+
+            self.assertTrue(
+                definir_preview_projeto_led(
+                    repository,
+                    "DISPLAY_7",
+                    "/tmp/display_7.jpg",
+                )
+            )
+            dados = obter_preview_projeto_led(repository, "DISPLAY_7")
+            self.assertEqual("/tmp/display_7.jpg", dados["image_path"])
+            configuracao = repository.carregar_configuracao_existente_sem_alerta()
+            self.assertIn(CHAVE_PREVIEWS_PROJETO, configuracao)
+
+    def test_store_instala_acompanhamento_de_renomear_e_remover(self):
+        fonte = inspect.getsource(instalar_preview_projeto_led_store)
+        self.assertIn("renomear_projeto_led_com_preview", fonte)
+        self.assertIn("remover_projeto_led_com_preview", fonte)
+        self.assertIn("previews[novo] = previews.pop(atual)", fonte)
+        self.assertIn("previews.pop(nome, None)", fonte)
+
+
 class LedProjectPreviewIntegrationTests(unittest.TestCase):
     def test_perfil_display_inclui_mixin_de_preview(self):
         mro = RaspberryPi3ProductionApp.__mro__
@@ -83,6 +134,32 @@ class LedProjectPreviewIntegrationTests(unittest.TestCase):
         )
         self.assertIn("_instalar_preview_gerenciador_leds", fonte)
         self.assertIn("super()._selecionar_projeto_led_existente", fonte)
+
+    def test_salvar_projeto_anexa_snapshot_real_sem_mudar_fluxo(self):
+        fonte = inspect.getsource(LedProjectPreviewMixin._salvar_leds_no_projeto)
+        self.assertIn("super()._salvar_leds_no_projeto", fonte)
+        self.assertIn("_anexar_snapshot_real_ao_projeto", fonte)
+
+        fonte_snapshot = inspect.getsource(
+            LedProjectPreviewMixin._anexar_snapshot_real_ao_projeto
+        )
+        self.assertIn("cv2.imwrite", fonte_snapshot)
+        self.assertIn("definir_preview_projeto_led", fonte_snapshot)
+
+    def test_preview_usa_imagem_real_com_rois_desenhadas_por_cima(self):
+        fonte = inspect.getsource(LedProjectPreviewMixin._desenhar_preview_projeto)
+        pos_imagem = fonte.index("canvas.create_image")
+        pos_segmento = fonte.index("canvas.create_polygon")
+        pos_circulo = fonte.index("canvas.create_oval")
+        self.assertLess(pos_imagem, pos_segmento)
+        self.assertLess(pos_imagem, pos_circulo)
+        self.assertIn('outline="#FACC15"', fonte)
+        self.assertIn('fill=""', fonte)
+
+    def test_projeto_antigo_sem_snapshot_pede_novo_salvamento(self):
+        fonte = inspect.getsource(LedProjectPreviewMixin._desenhar_preview_projeto)
+        self.assertIn("SEM IMAGEM REAL", fonte)
+        self.assertIn("Salve os LEDs deste projeto", fonte)
 
     def test_preview_acompanha_selecao_sem_mudar_lista(self):
         fonte = inspect.getsource(
