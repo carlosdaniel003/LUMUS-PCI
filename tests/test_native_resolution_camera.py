@@ -68,6 +68,31 @@ class FixedResolutionCameraTests(unittest.TestCase):
         self.assertEqual("AUTO", configuracoes["format"])
         self.assertEqual(180, configuracoes["rotation"])
 
+    def test_windows_sem_controle_manual_deixa_driver_intacto(self):
+        configuracoes = {
+            "exposure_auto": True,
+            "focus_auto": True,
+            "white_balance_auto": True,
+        }
+        self.assertFalse(
+            FixedFullHdCameraService._windows_tem_controle_manual_explicito(
+                configuracoes
+            )
+        )
+
+    def test_windows_respeita_controle_manual_explicito(self):
+        configuracoes = {
+            "exposure_auto": False,
+            "exposure_enabled": True,
+            "focus_auto": True,
+            "white_balance_auto": True,
+        }
+        self.assertTrue(
+            FixedFullHdCameraService._windows_tem_controle_manual_explicito(
+                configuracoes
+            )
+        )
+
     def test_instancia_windows_nao_exige_1080p_e_tolera_hiccups(self):
         with patch(
             "src.platform.fixed_full_hd_camera_service.sys.platform",
