@@ -60,6 +60,7 @@ jobs:
             src/platform/reference_project_sets.py \
             src/platform/reference_debug_context.py \
             src/platform/led_project_preview.py \
+            src/platform/led_project_preview_store.py \
             src/platform/fullscreen_led_selection.py \
             src/platform/display_awake_runtime.py \
             src/platform/display_theme.py \
