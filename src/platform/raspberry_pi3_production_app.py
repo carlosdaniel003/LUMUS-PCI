@@ -9,6 +9,9 @@ from src.platform.automatic_led_detection import (
 from src.platform.camera_advanced_config import (
     instalar_normalizacao_config_repository,
 )
+from src.platform.camera_selection import (
+    CameraSelectionMixin,
+)
 from src.platform.camera_stability_runtime import (
     RaspberryCameraStabilityMixin,
 )
@@ -83,6 +86,7 @@ from src.platform.segment_project_geometry_persistence import (
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
+    CameraSelectionMixin,
     LedProjectPreviewMixin,
     ProjectReferenceSetsMixin,
     ReferenceCaptureMixin,
