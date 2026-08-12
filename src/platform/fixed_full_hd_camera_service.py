@@ -102,6 +102,40 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
         return configuracoes
 
     @staticmethod
+    def _windows_tem_controle_manual_explicito(configuracoes: dict) -> bool:
+        if any(
+            bool(configuracoes.get(chave, False))
+            for chave in (
+                "pan_enabled",
+                "tilt_enabled",
+                "contrast_enabled",
+                "sharpness_enabled",
+                "saturation_enabled",
+                "gain_enabled",
+                "brightness_enabled",
+                "gamma_enabled",
+            )
+        ):
+            return True
+
+        if (
+            not bool(configuracoes.get("exposure_auto", True))
+            and bool(configuracoes.get("exposure_enabled", False))
+        ):
+            return True
+        if (
+            not bool(configuracoes.get("focus_auto", True))
+            and bool(configuracoes.get("focus_enabled", False))
+        ):
+            return True
+        if (
+            not bool(configuracoes.get("white_balance_auto", True))
+            and bool(configuracoes.get("white_balance_enabled", False))
+        ):
+            return True
+        return False
+
+    @staticmethod
     def _is_fixed_candidate(
         candidato: LinuxCameraBackendCandidate,
     ) -> bool:
@@ -130,6 +164,34 @@ class FixedFullHdCameraService(ThreadedRaspberryPi3CameraService):
         super().atualizar_configuracoes_camera(
             self._fixed_settings(configuracoes_camera)
         )
+
+    def _aplicar_configuracoes_hardware(self) -> None:
+        if not self._windows_native_mode:
+            super()._aplicar_configuracoes_hardware()
+            return
+
+        if not self._controles_pendentes:
+            return
+
+        configuracoes = self.obter_configuracoes_camera()
+        if self._windows_tem_controle_manual_explicito(configuracoes):
+            # Se o usuário pediu algum controle manual, respeitamos a
+            # configuração e usamos o caminho completo já existente.
+            super()._aplicar_configuracoes_hardware()
+            return
+
+        # Sem pedido manual, não fazemos capture.set() nos controles da câmera.
+        # Isso replica melhor o Windows, evita drivers USB sensíveis a escritas
+        # de propriedades logo após a abertura e mantém os automáticos do
+        # próprio dispositivo funcionando livremente.
+        for nome in tuple(self._status_controles_camera.keys()):
+            self._registrar_status_controle(
+                nome,
+                "padrao_driver_windows",
+                valor_solicitado=None,
+                valor_lido=None,
+            )
+        self._controles_pendentes = False
 
     def _candidatos_linux(
         self,
