@@ -41,6 +41,7 @@ jobs:
             src/models/analysis_result.py \
             src/platform/threaded_camera_service.py \
             src/platform/fixed_full_hd_camera_service.py \
+            src/platform/camera_selection.py \
             src/platform/native_resolution_config.py \
             src/platform/led_mask_resolution_sync.py \
             src/platform/fixed_mask_geometry_guard.py \
@@ -103,6 +104,7 @@ jobs:
             tests.test_v4l2_controls \
             tests.test_frame_integrity \
             tests.test_camera_stability_runtime \
+            tests.test_camera_selection \
             tests.test_led_mask_resolution_sync \
             tests.test_display_awake_runtime \
             tests.test_fullscreen_native \
