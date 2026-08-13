@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-from src.ui.main_window_parts.settings.abrir_janela_configuracoes_ao_vivo import (
-    abrir_janela_configuracoes_ao_vivo,
+from src.ui.main_window_parts.settings.camera_live_ui_behavior import (
+    abrir_janela_configuracoes_sem_saltos,
 )
 
 
 class CameraLiveSettingsMixin:
-    """Aplica controles da aba Câmera sem salvar ou reiniciar o stream."""
+    """Aplica controles da aba Camera sem salvar ou reiniciar o stream."""
 
     def abrir_configuracoes(self) -> None:
         camera_service = getattr(self, "camera_service", None)
-        estado_conectada = getattr(
-            camera_service,
-            "ESTADO_CONECTADA",
-            "conectada",
-        )
+        estado_conectada = getattr(camera_service, "ESTADO_CONECTADA", "conectada")
         camera_conectada = bool(
             getattr(self, "camera_ativa", False)
             and camera_service is not None
@@ -22,29 +18,43 @@ class CameraLiveSettingsMixin:
         )
 
         status_controles_camera = {}
+        valores_hardware = {}
         if camera_service is not None:
             try:
-                status_controles_camera = (
-                    camera_service.obter_status_controles_camera()
-                )
+                status_controles_camera = camera_service.obter_status_controles_camera()
             except Exception:
                 status_controles_camera = {}
+            obter_valores = getattr(
+                camera_service,
+                "obter_valores_controles_camera_ao_vivo",
+                None,
+            )
+            if callable(obter_valores):
+                try:
+                    valores_hardware = dict(obter_valores())
+                except Exception:
+                    valores_hardware = {}
 
-        abrir_janela_configuracoes_ao_vivo(
+        configuracoes_interface = dict(self.configuracoes_camera or {})
+        for nome, valor in valores_hardware.items():
+            if not bool(configuracoes_interface.get(f"{nome}_enabled", False)):
+                configuracoes_interface[nome] = valor
+
+        self._camera_live_ultima_config = self._normalizar_configuracoes_camera_ao_vivo(
+            configuracoes_interface
+        )
+
+        abrir_janela_configuracoes_sem_saltos(
             self.view,
             salvar_resultados_analise=self.salvar_resultados_analise,
             raio_atual_px=self.raio_atual_px,
-            configuracoes_camera=self.configuracoes_camera,
+            configuracoes_camera=configuracoes_interface,
             camera_conectada=camera_conectada,
             status_controles_camera=status_controles_camera,
             callback_salvar=self.salvar_configuracoes_sistema,
             callback_camera_ao_vivo=self.aplicar_configuracoes_camera_ao_vivo,
-            callback_cancelar_camera_ao_vivo=(
-                self.restaurar_configuracoes_camera_ao_vivo
-            ),
-            callback_status_camera_ao_vivo=(
-                self.obter_status_configuracoes_camera_ao_vivo
-            ),
+            callback_cancelar_camera_ao_vivo=self.restaurar_configuracoes_camera_ao_vivo,
+            callback_status_camera_ao_vivo=self.obter_status_configuracoes_camera_ao_vivo,
         )
 
     def _normalizar_configuracoes_camera_ao_vivo(
@@ -64,36 +74,64 @@ class CameraLiveSettingsMixin:
                 pass
         return origem
 
-    def aplicar_configuracoes_camera_ao_vivo(
-        self,
-        configuracoes_camera: dict | None,
-    ) -> bool:
-        """Envia o estado atual da UI para a câmera, sem persistir em disco."""
+    @staticmethod
+    def _chaves_camera_alteradas(anterior: dict, atual: dict) -> list[str]:
+        chaves = [
+            chave
+            for chave, valor in atual.items()
+            if anterior.get(chave) != valor
+        ]
+        chaves.extend(chave for chave in anterior if chave not in atual)
+        return chaves
+
+    def _enviar_configuracoes_camera_ao_vivo(self, configuracoes: dict) -> bool:
         camera_service = getattr(self, "camera_service", None)
         if camera_service is None or not getattr(self, "camera_ativa", False):
             return False
 
+        anterior = dict(
+            getattr(
+                self,
+                "_camera_live_ultima_config",
+                self.configuracoes_camera or {},
+            )
+        )
+        chaves_alteradas = self._chaves_camera_alteradas(anterior, configuracoes)
+        self._camera_live_ultima_config = dict(configuracoes)
+        if not chaves_alteradas:
+            return True
+
+        aplicar_pontual = getattr(
+            camera_service,
+            "atualizar_configuracoes_camera_ao_vivo",
+            None,
+        )
+        try:
+            if callable(aplicar_pontual):
+                aplicar_pontual(configuracoes, chaves_alteradas)
+            else:
+                camera_service.atualizar_configuracoes_camera(configuracoes)
+        except Exception:
+            return False
+        return True
+
+    def aplicar_configuracoes_camera_ao_vivo(
+        self,
+        configuracoes_camera: dict | None,
+    ) -> bool:
         configuracoes = self._normalizar_configuracoes_camera_ao_vivo(
             configuracoes_camera
         )
-        try:
-            camera_service.atualizar_configuracoes_camera(configuracoes)
-        except Exception:
-            return False
-
-        # ThreadedRaspberryPi3CameraService marca os controles como pendentes.
-        # A própria thread que já possui o VideoCapture faz os capture.set() no
-        # próximo frame, evitando release(), reconexão ou disputa entre threads.
-        return True
+        return self._enviar_configuracoes_camera_ao_vivo(configuracoes)
 
     def restaurar_configuracoes_camera_ao_vivo(
         self,
         configuracoes_camera: dict | None,
     ) -> bool:
-        """Restaura na câmera os valores anteriores quando a janela é cancelada."""
-        return self.aplicar_configuracoes_camera_ao_vivo(
+        configuracoes = self._normalizar_configuracoes_camera_ao_vivo(
             configuracoes_camera
         )
+        return self._enviar_configuracoes_camera_ao_vivo(configuracoes)
 
     def obter_status_configuracoes_camera_ao_vivo(self) -> dict:
         camera_service = getattr(self, "camera_service", None)
