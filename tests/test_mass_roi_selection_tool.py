@@ -4,10 +4,44 @@ import inspect
 import unittest
 
 from src.models.led_selection import LedSelection
+from src.platform.display_theme import aplicar_tema_arvore
 from src.platform.freeform_segment_roi import FreeformSegmentDrawingMixin
 from src.platform.fullscreen_led_selection import FullscreenLedSelectionMixin
 from src.platform.mass_roi_selection_tool import MassRoiSelectionToolMixin
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
+from src.platform.roi_toolbar_theme import eh_botao_ferramenta_roi
+
+
+class FakeToolbarButton:
+    def __init__(self, texto: str, ativo: bool):
+        self._opcoes = {
+            "background": "#D6A900" if ativo else "#182231",
+            "foreground": "#111318" if ativo else "#DCE5EF",
+            "activebackground": "#F5C518" if ativo else "#243246",
+            "activeforeground": "#111318" if ativo else "#FFFFFF",
+            "highlightbackground": "#122033",
+            "highlightcolor": "#122033",
+            "text": texto,
+            "state": "normal",
+        }
+        self.bindings = {}
+
+    def winfo_class(self):
+        return "Button"
+
+    def winfo_children(self):
+        return ()
+
+    def cget(self, opcao):
+        if opcao not in self._opcoes:
+            raise KeyError(opcao)
+        return self._opcoes[opcao]
+
+    def configure(self, **opcoes):
+        self._opcoes.update(opcoes)
+
+    def bind(self, sequence, callback, add=None):
+        self.bindings[sequence] = callback
 
 
 class MassRoiSelectionToolTests(unittest.TestCase):
@@ -23,6 +57,29 @@ class MassRoiSelectionToolTests(unittest.TestCase):
         self.assertIn('bg="#D6A900" if ativo', fonte)
         self.assertIn("_botao_tipo_roi_segmento", fonte)
         self.assertIn("_botao_tipo_roi_circulo", fonte)
+
+    def test_tema_nao_apaga_amarelo_da_ferramenta_ativa(self):
+        textos = (
+            "▰ Segmento",
+            "● Círculo",
+            "✎ Segmento por pontos",
+            "▣ Seleção em massa",
+        )
+        for texto in textos:
+            with self.subTest(texto=texto):
+                self.assertTrue(eh_botao_ferramenta_roi(texto))
+                botao = FakeToolbarButton(texto, ativo=True)
+                aplicar_tema_arvore(botao)
+                self.assertEqual("#D6A900", botao._opcoes["background"])
+                self.assertEqual("#111318", botao._opcoes["foreground"])
+                self.assertNotIn("<Leave>", botao.bindings)
+                self.assertNotIn("<Enter>", botao.bindings)
+
+    def test_tema_preserva_estado_escuro_das_ferramentas_inativas(self):
+        botao = FakeToolbarButton("▰ Segmento", ativo=False)
+        aplicar_tema_arvore(botao)
+        self.assertEqual("#182231", botao._opcoes["background"])
+        self.assertEqual("#DCE5EF", botao._opcoes["foreground"])
 
     def test_modo_massa_forca_caminho_de_marquee_sem_exigir_shift(self):
         fonte = inspect.getsource(MassRoiSelectionToolMixin.evento_clique_esquerdo)
