@@ -1,0 +1,107 @@
+import threading
+import unittest
+from types import SimpleNamespace
+
+import cv2
+
+from src.platform.camera_live_settings import CameraLiveSettingsMixin
+from src.platform.camera_live_control_service import CameraLiveControlServiceMixin
+from src.platform.live_fixed_full_hd_camera_service import LiveFixedFullHdCameraService
+from src.platform.verified_live_camera_service import VerifiedCameraControlMixin
+
+
+class _ServicePerfilFake:
+    indice_camera = 1
+    _backend_name = "Media Foundation"
+
+    def obter_snapshot(self):
+        return SimpleNamespace(
+            resolucao=(640, 480),
+            fps_real=30.0,
+            formato_real="MJPG",
+        )
+
+    def obter_diagnostico_fluxo(self):
+        return {
+            "backend_ativo": "Media Foundation",
+            "fps_medido": 29.8,
+            "backend_formato": "MJPG",
+        }
+
+
+class _CaptureRecusaFoco:
+    def get(self, prop):
+        if prop == cv2.CAP_PROP_FOCUS:
+            return 120.0
+        return 0.0
+
+    def set(self, prop, value):
+        if prop == cv2.CAP_PROP_FOCUS:
+            return False
+        return True
+
+
+class _BaseFake:
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._capture = _CaptureRecusaFoco()
+        self._configuracoes_camera = {}
+        self._controles_pendentes = False
+        self._status_controles_camera = {}
+
+    def _registrar_status_controle(self, nome, status, valor_solicitado=None, valor_lido=None):
+        self._status_controles_camera[nome] = {
+            "status": status,
+            "valor_solicitado": valor_solicitado,
+            "valor_lido": valor_lido,
+        }
+
+
+class _ServicoVerificadoFake(
+    VerifiedCameraControlMixin,
+    CameraLiveControlServiceMixin,
+    _BaseFake,
+):
+    pass
+
+
+class CameraRuntimeProfileAndSupportTests(unittest.TestCase):
+    def test_perfil_da_interface_reflete_stream_real(self):
+        perfil = CameraLiveSettingsMixin._obter_perfil_camera_real(
+            _ServicePerfilFake()
+        )
+        self.assertEqual((640, 480), perfil["resolucao"])
+        self.assertEqual(30.0, perfil["fps"])
+        self.assertEqual("MJPG", perfil["formato"])
+        self.assertEqual("Media Foundation", perfil["backend"])
+        self.assertEqual(1, perfil["indice"])
+
+    def test_servico_final_tem_controle_pontual_ao_vivo(self):
+        self.assertTrue(
+            issubclass(
+                LiveFixedFullHdCameraService,
+                CameraLiveControlServiceMixin,
+            )
+        )
+        self.assertTrue(
+            hasattr(
+                LiveFixedFullHdCameraService,
+                "atualizar_configuracoes_camera_ao_vivo",
+            )
+        )
+
+    def test_foco_e_bloqueado_quando_driver_recusa_escrita(self):
+        service = _ServicoVerificadoFake()
+        service._aplicar_habilitacao_manual(
+            service._capture,
+            "focus",
+            True,
+        )
+        status = service._status_controles_camera["focus"]
+        self.assertEqual("nao_suportado", status["status"])
+        self.assertTrue(status["bloqueado"])
+        self.assertIn("recusou", status["motivo"].lower())
+
+
+if __name__ == "__main__":
+    unittest.main()
