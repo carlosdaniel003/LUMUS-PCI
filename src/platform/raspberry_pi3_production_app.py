@@ -3,6 +3,9 @@ from __future__ import annotations
 import tkinter as tk
 
 import src.platform.raspberry_pi3_profile as raspberry_pi3_profile
+from src.platform.analysis_response_metrics import (
+    AnalysisResponseMetricsMixin,
+)
 from src.platform.automatic_led_detection import (
     AutomaticLedDetectionMixin,
 )
@@ -108,6 +111,7 @@ class RaspberryPi3ProductionApp(
     FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
     SegmentProjectGeometryPersistenceMixin,
+    AnalysisResponseMetricsMixin,
     SegmentDisplayRuntimeMixin,
     SegmentDisplayRoiEditorMixin,
     ResolutionSynchronizedLedMasksMixin,
