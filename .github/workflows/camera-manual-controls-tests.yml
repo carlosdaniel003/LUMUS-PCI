@@ -28,10 +28,14 @@ jobs:
       - name: Compile camera live modules
         run: |
           python -m py_compile \
+            src/platform/camera_selection.py \
+            src/platform/responsive_camera_selection.py \
+            src/platform/responsive_camera_selection_installer.py \
             src/platform/camera_live_control_service.py \
             src/platform/live_fixed_full_hd_camera_service.py \
             src/platform/camera_live_settings.py \
-            src/ui/main_window_parts/settings/camera_live_ui_behavior.py
+            src/ui/main_window_parts/settings/camera_live_ui_behavior.py \
+            tests/test_responsive_camera_selection.py
 
       - name: Test manual restore and live settings
         run: |
@@ -39,4 +43,5 @@ jobs:
             tests.test_camera_manual_restore \
             tests.test_camera_live_settings \
             tests.test_camera_selection \
+            tests.test_responsive_camera_selection \
             -v
