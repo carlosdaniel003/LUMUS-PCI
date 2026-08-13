@@ -28,9 +28,9 @@ def criar_barra_metadados(self) -> None:
         "Placa",
         "MANUAL",
     )
-    self.label_meta_lado = self.criar_item_metadado(
-        "Lado",
-        "A (Frente)",
+    self.label_meta_rois_analisadas = self.criar_item_metadado(
+        "ROIs analisadas",
+        "0",
     )
     self.label_meta_roi = self.criar_item_metadado(
         "ROI",
