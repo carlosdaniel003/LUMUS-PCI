@@ -34,5 +34,14 @@ def _instalar_selecao_massa_no_editor() -> None:
     )
 
 
+def _instalar_estado_persistente_toolbar_roi() -> None:
+    from src.platform.roi_toolbar_theme import (
+        instalar_preservacao_estado_toolbar_roi,
+    )
+
+    instalar_preservacao_estado_toolbar_roi()
+
+
 _instalar_persistencia_segmento_livre_global()
 _instalar_selecao_massa_no_editor()
+_instalar_estado_persistente_toolbar_roi()
