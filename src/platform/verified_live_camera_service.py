@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from src.platform.live_fixed_full_hd_camera_service import LiveFixedFullHdCameraService
 
-
-class VerifiedLiveCameraService(LiveFixedFullHdCameraService):
+class VerifiedCameraControlMixin:
     """Confirma se o driver aceita o controle antes de liberar o ajuste."""
 
     def _status_verificado(self, nome, status, solicitado=None, lido=None, bloqueado=False, motivo=None):
