@@ -1,6 +1,16 @@
 def atualizar_estado_tela_ao_vivo(self, ativa: bool) -> None:
     self.tela_ao_vivo_ativa = bool(ativa)
 
+    botao_screenshot = getattr(self, "botao_screenshot_principal", None)
+    if botao_screenshot is not None:
+        try:
+            botao_screenshot.config(
+                state="normal" if ativa else "disabled",
+                cursor="hand2" if ativa else "arrow",
+            )
+        except Exception:
+            pass
+
     if not hasattr(self, "botao_tela_ao_vivo"):
         return
 
