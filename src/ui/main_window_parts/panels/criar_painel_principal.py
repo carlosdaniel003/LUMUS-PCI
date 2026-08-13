@@ -39,6 +39,33 @@ def criar_painel_principal(self) -> None:
         sticky="w",
     )
 
+    callback_screenshot = self.callbacks.get("capturar_screenshot_camera")
+    self.botao_screenshot_principal = tk.Button(
+        frame_titulo_principal,
+        text="▣ Screenshot",
+        command=(callback_screenshot if callable(callback_screenshot) else lambda: None),
+        bg=self.COR_CARD_2,
+        fg=self.COR_AMARELO,
+        disabledforeground=self.COR_TEXTO_3,
+        activebackground=self.COR_BORDA,
+        activeforeground=self.COR_TEXTO,
+        relief=tk.FLAT,
+        bd=0,
+        highlightthickness=0,
+        font=("Segoe UI", 8, "bold"),
+        padx=10,
+        pady=2,
+        cursor="hand2",
+        takefocus=True,
+        state=tk.DISABLED,
+    )
+    self.botao_screenshot_principal.grid(
+        row=0,
+        column=1,
+        sticky="e",
+        padx=(8, 0),
+    )
+
     self.botao_rotacao_principal = tk.Button(
         frame_titulo_principal,
         text="↻ 0°",
@@ -58,7 +85,7 @@ def criar_painel_principal(self) -> None:
     )
     self.botao_rotacao_principal.grid(
         row=0,
-        column=1,
+        column=2,
         sticky="e",
         padx=(8, 0),
     )

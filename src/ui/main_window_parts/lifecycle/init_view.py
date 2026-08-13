@@ -25,6 +25,7 @@ def __init__(self, root: tk.Tk, callbacks: dict, raio_atual_px: int) -> None:
     self.tela_ao_vivo_ativa = False
     self.botao_selecionar_leds = None
     self.botao_tela_ao_vivo = None
+    self.botao_screenshot_principal = None
     self.tela_cheia_ativa = False
     self.relogio_visivel = True
     self.botao_toggle_relogio = None
