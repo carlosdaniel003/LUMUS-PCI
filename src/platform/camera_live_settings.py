@@ -1,12 +1,56 @@
 from __future__ import annotations
 
-from src.ui.main_window_parts.settings.camera_live_ui_behavior import (
-    abrir_janela_configuracoes_sem_saltos,
+from src.platform.verified_live_camera_service import (
+    instalar_validacao_controles_camera,
 )
+from src.ui.main_window_parts.settings.camera_runtime_profile_ui import (
+    abrir_janela_configuracoes_com_status_real,
+)
+
+
+instalar_validacao_controles_camera()
 
 
 class CameraLiveSettingsMixin:
     """Aplica controles da aba Camera sem salvar ou reiniciar o stream."""
+
+    @staticmethod
+    def _obter_perfil_camera_real(camera_service) -> dict:
+        if camera_service is None:
+            return {}
+
+        perfil = {}
+        try:
+            snapshot = camera_service.obter_snapshot()
+        except Exception:
+            snapshot = None
+
+        if snapshot is not None:
+            resolucao = getattr(snapshot, "resolucao", None)
+            if resolucao:
+                perfil["resolucao"] = tuple(resolucao)
+            fps = getattr(snapshot, "fps_real", None)
+            if fps is not None:
+                perfil["fps"] = fps
+            formato = getattr(snapshot, "formato_real", None)
+            if formato:
+                perfil["formato"] = formato
+
+        try:
+            diagnostico = camera_service.obter_diagnostico_fluxo()
+        except Exception:
+            diagnostico = {}
+
+        if not perfil.get("fps"):
+            perfil["fps"] = diagnostico.get("fps_medido")
+        if not perfil.get("formato"):
+            perfil["formato"] = diagnostico.get("backend_formato")
+        perfil["backend"] = (
+            diagnostico.get("backend_ativo")
+            or getattr(camera_service, "_backend_name", "")
+        )
+        perfil["indice"] = getattr(camera_service, "indice_camera", None)
+        return perfil
 
     def abrir_configuracoes(self) -> None:
         camera_service = getattr(self, "camera_service", None)
@@ -19,6 +63,7 @@ class CameraLiveSettingsMixin:
 
         status_controles_camera = {}
         valores_hardware = {}
+        perfil_camera_real = self._obter_perfil_camera_real(camera_service)
         if camera_service is not None:
             try:
                 status_controles_camera = camera_service.obter_status_controles_camera()
@@ -44,16 +89,8 @@ class CameraLiveSettingsMixin:
             configuracoes_interface
         )
 
-        # CameraLiveSettingsMixin entrou antes de ProjectReferenceSetsMixin no
-        # MRO do perfil display. Se abrirmos a janela diretamente daqui, o
-        # abrir_configuracoes() das referências fica oculto e a interface de
-        # até três referências por estado deixa de ser reconstruída.
-        #
-        # Em vez disso, deixamos a cadeia cooperativa de super() seguir. Apenas
-        # substituímos temporariamente o método da View que cria a janela pela
-        # versão com controles de câmera ao vivo. Assim ProjectReferenceSetsMixin
-        # continua carregando/reconstruindo GLOBAL/PROJETO e seus previews após
-        # a criação da mesma janela.
+        # Mantém a cadeia cooperativa para que ProjectReferenceSetsMixin continue
+        # reconstruindo as referências múltiplas GLOBAL/PROJETO na mesma janela.
         view = self.view
         abrir_view_original = view.abrir_janela_configuracoes
 
@@ -61,9 +98,10 @@ class CameraLiveSettingsMixin:
             kwargs["configuracoes_camera"] = configuracoes_interface
             kwargs["camera_conectada"] = camera_conectada
             kwargs["status_controles_camera"] = status_controles_camera
-            return abrir_janela_configuracoes_sem_saltos(
+            return abrir_janela_configuracoes_com_status_real(
                 view,
                 *args,
+                perfil_camera_real=perfil_camera_real,
                 callback_camera_ao_vivo=self.aplicar_configuracoes_camera_ao_vivo,
                 callback_cancelar_camera_ao_vivo=(
                     self.restaurar_configuracoes_camera_ao_vivo
