@@ -89,6 +89,14 @@ class CameraRuntimeProfileAndSupportTests(unittest.TestCase):
                 "atualizar_configuracoes_camera_ao_vivo",
             )
         )
+        self.assertIs(
+            LiveFixedFullHdCameraService._aplicar_habilitacao_manual,
+            VerifiedCameraControlMixin._aplicar_habilitacao_manual,
+        )
+        self.assertIs(
+            LiveFixedFullHdCameraService._aplicar_valor_manual,
+            VerifiedCameraControlMixin._aplicar_valor_manual,
+        )
 
     def test_foco_e_bloqueado_quando_driver_recusa_escrita(self):
         service = _ServicoVerificadoFake()
