@@ -1,18 +1,8 @@
 from __future__ import annotations
 
-import src.platform.fixed_full_hd_camera_service as fixed_camera_module
-from src.platform.live_fixed_full_hd_camera_service import (
-    LiveFixedFullHdCameraService,
-)
 from src.ui.main_window_parts.settings.camera_live_ui_behavior import (
     abrir_janela_configuracoes_sem_saltos,
 )
-
-
-# raspberry_pi3_production_app importa CameraLiveSettingsMixin antes de importar
-# FixedFullHdCameraService. Substituímos o símbolo do módulo nesse ponto para o
-# perfil display receber o serviço estendido sem alterar a estrutura do app.
-fixed_camera_module.FixedFullHdCameraService = LiveFixedFullHdCameraService
 
 
 class CameraLiveSettingsMixin:
@@ -54,18 +44,41 @@ class CameraLiveSettingsMixin:
             configuracoes_interface
         )
 
-        abrir_janela_configuracoes_sem_saltos(
-            self.view,
-            salvar_resultados_analise=self.salvar_resultados_analise,
-            raio_atual_px=self.raio_atual_px,
-            configuracoes_camera=configuracoes_interface,
-            camera_conectada=camera_conectada,
-            status_controles_camera=status_controles_camera,
-            callback_salvar=self.salvar_configuracoes_sistema,
-            callback_camera_ao_vivo=self.aplicar_configuracoes_camera_ao_vivo,
-            callback_cancelar_camera_ao_vivo=self.restaurar_configuracoes_camera_ao_vivo,
-            callback_status_camera_ao_vivo=self.obter_status_configuracoes_camera_ao_vivo,
-        )
+        # CameraLiveSettingsMixin entrou antes de ProjectReferenceSetsMixin no
+        # MRO do perfil display. Se abrirmos a janela diretamente daqui, o
+        # abrir_configuracoes() das referências fica oculto e a interface de
+        # até três referências por estado deixa de ser reconstruída.
+        #
+        # Em vez disso, deixamos a cadeia cooperativa de super() seguir. Apenas
+        # substituímos temporariamente o método da View que cria a janela pela
+        # versão com controles de câmera ao vivo. Assim ProjectReferenceSetsMixin
+        # continua carregando/reconstruindo GLOBAL/PROJETO e seus previews após
+        # a criação da mesma janela.
+        view = self.view
+        abrir_view_original = view.abrir_janela_configuracoes
+
+        def abrir_view_ao_vivo(*args, **kwargs):
+            kwargs["configuracoes_camera"] = configuracoes_interface
+            kwargs["camera_conectada"] = camera_conectada
+            kwargs["status_controles_camera"] = status_controles_camera
+            return abrir_janela_configuracoes_sem_saltos(
+                view,
+                *args,
+                callback_camera_ao_vivo=self.aplicar_configuracoes_camera_ao_vivo,
+                callback_cancelar_camera_ao_vivo=(
+                    self.restaurar_configuracoes_camera_ao_vivo
+                ),
+                callback_status_camera_ao_vivo=(
+                    self.obter_status_configuracoes_camera_ao_vivo
+                ),
+                **kwargs,
+            )
+
+        view.abrir_janela_configuracoes = abrir_view_ao_vivo
+        try:
+            return super().abrir_configuracoes()
+        finally:
+            view.abrir_janela_configuracoes = abrir_view_original
 
     def _normalizar_configuracoes_camera_ao_vivo(
         self,
@@ -103,7 +116,7 @@ class CameraLiveSettingsMixin:
             getattr(
                 self,
                 "_camera_live_ultima_config",
-                self.configuracoes_camera or {},
+                getattr(self, "configuracoes_camera", {}) or {},
             )
         )
         chaves_alteradas = self._chaves_camera_alteradas(anterior, configuracoes)
