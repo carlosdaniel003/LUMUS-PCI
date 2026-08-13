@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.platform.camera_live_control_service import CameraLiveControlServiceMixin
+
 
 class VerifiedCameraControlMixin:
     """Confirma se o driver aceita o controle antes de liberar o ajuste."""
@@ -18,7 +20,12 @@ class VerifiedCameraControlMixin:
 
     def _aplicar_habilitacao_manual(self, capture, nome: str, habilitado: bool) -> None:
         if not habilitado:
-            return super()._aplicar_habilitacao_manual(capture, nome, False)
+            return CameraLiveControlServiceMixin._aplicar_habilitacao_manual(
+                self,
+                capture,
+                nome,
+                False,
+            )
 
         propriedade = self._propriedade_manual(nome)
         baseline = self._garantir_baseline(capture, nome)
@@ -89,3 +96,20 @@ class VerifiedCameraControlMixin:
             False,
             "O driver não confirmou mudança do valor." if ignorado else None,
         )
+
+
+def instalar_validacao_controles_camera() -> None:
+    """Aplica a validação à classe usada pelo perfil final sem mudar o MRO."""
+    from src.platform.live_fixed_full_hd_camera_service import (
+        LiveFixedFullHdCameraService,
+    )
+
+    LiveFixedFullHdCameraService._status_verificado = (
+        VerifiedCameraControlMixin._status_verificado
+    )
+    LiveFixedFullHdCameraService._aplicar_habilitacao_manual = (
+        VerifiedCameraControlMixin._aplicar_habilitacao_manual
+    )
+    LiveFixedFullHdCameraService._aplicar_valor_manual = (
+        VerifiedCameraControlMixin._aplicar_valor_manual
+    )
