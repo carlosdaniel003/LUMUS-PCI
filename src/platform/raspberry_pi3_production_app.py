@@ -31,6 +31,12 @@ from src.platform.fixed_mask_geometry_guard import (
     FixedMaskGeometryGuardMixin,
     instalar_repositorio_mascaras_absolutas,
 )
+from src.platform.freeform_segment_persistence import (
+    instalar_persistencia_segmento_livre,
+)
+from src.platform.freeform_segment_roi import (
+    FreeformSegmentDrawingMixin,
+)
 from src.platform.fullscreen_led_selection import (
     FullscreenLedSelectionMixin,
 )
@@ -94,6 +100,7 @@ class RaspberryPi3ProductionApp(
     LedProjectPreviewMixin,
     ProjectReferenceSetsMixin,
     ReferenceCaptureMixin,
+    FreeformSegmentDrawingMixin,
     FullscreenLedSelectionMixin,
     FixedMaskGeometryGuardMixin,
     SegmentProjectGeometryPersistenceMixin,
@@ -107,11 +114,12 @@ class RaspberryPi3ProductionApp(
     AutomaticLedDetectionMixin,
     GPIOEnabledRaspberryPi3ODINApp,
 ):
-    """Perfil final do display com ROI circular e segmento chanfrado."""
+    """Perfil final do display com ROI circular e segmentos convencionais/livres."""
 
     def __init__(self, root: tk.Tk) -> None:
         raspberry_pi3_profile.RaspberryPi3CameraService = LiveFixedFullHdCameraService
         instalar_normalizacao_config_repository()
+        instalar_persistencia_segmento_livre()
         instalar_repositorio_projetos_led()
         instalar_preview_projeto_led_store()
         instalar_repositorio_mascaras_absolutas()

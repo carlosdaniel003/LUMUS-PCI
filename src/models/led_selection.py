@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import math
 from dataclasses import dataclass
 
 from src.core.roi_geometry import (
@@ -25,6 +28,21 @@ class LedSelection:
     largura: int | None = None
     altura: int | None = None
     angulo: float = 0.0
+    pontos_segmento_livre: list[tuple[float, float]] | None = None
+
+    @staticmethod
+    def _normalizar_pontos_segmento_livre(pontos) -> list[tuple[float, float]] | None:
+        if not isinstance(pontos, (list, tuple)):
+            return None
+        normalizados: list[tuple[float, float]] = []
+        for ponto in pontos:
+            if not isinstance(ponto, (list, tuple)) or len(ponto) < 2:
+                continue
+            try:
+                normalizados.append((float(ponto[0]), float(ponto[1])))
+            except (TypeError, ValueError):
+                continue
+        return normalizados if len(normalizados) >= 3 else None
 
     def __post_init__(self) -> None:
         self.tipo_roi = normalizar_tipo_roi(self.tipo_roi)
@@ -32,16 +50,37 @@ class LedSelection:
         self.centro_y = int(self.centro_y)
         self.raio = max(1, int(self.raio))
         self.angulo = normalizar_angulo_segmento(self.angulo)
+        self.pontos_segmento_livre = self._normalizar_pontos_segmento_livre(
+            self.pontos_segmento_livre
+        )
 
         if self.tipo_roi == TIPO_ROI_SEGMENTO:
-            largura, altura = dimensoes_segmento(self)
-            self.largura = int(largura)
-            self.altura = int(altura)
-            self.raio = raio_compatibilidade_segmento(largura, altura)
+            if self.pontos_segmento_livre:
+                xs = [p[0] for p in self.pontos_segmento_livre]
+                ys = [p[1] for p in self.pontos_segmento_livre]
+                self.largura = max(1, int(math.ceil(max(xs) - min(xs))))
+                self.altura = max(1, int(math.ceil(max(ys) - min(ys))))
+                self.raio = max(
+                    2,
+                    int(
+                        math.ceil(
+                            max(
+                                math.hypot(float(x), float(y))
+                                for x, y in self.pontos_segmento_livre
+                            )
+                        )
+                    ),
+                )
+            else:
+                largura, altura = dimensoes_segmento(self)
+                self.largura = int(largura)
+                self.altura = int(altura)
+                self.raio = raio_compatibilidade_segmento(largura, altura)
         else:
             self.largura = None
             self.altura = None
             self.angulo = 0.0
+            self.pontos_segmento_livre = None
 
     @classmethod
     def from_dict(cls, dados: dict | None) -> "LedSelection | None":
@@ -80,6 +119,9 @@ class LedSelection:
         )
         largura_segmento = obter_int("largura", "roi_width", "segment_width")
         altura_segmento = obter_int("altura", "roi_height", "segment_height")
+        pontos_segmento_livre = cls._normalizar_pontos_segmento_livre(
+            dados.get("pontos_segmento_livre", dados.get("segment_points"))
+        )
 
         raio_origem = dados.get("raio")
         if raio_origem is None and tipo == TIPO_ROI_SEGMENTO:
@@ -104,6 +146,7 @@ class LedSelection:
             largura=largura_segmento,
             altura=altura_segmento,
             angulo=obter_float("angulo", "angle") or 0.0,
+            pontos_segmento_livre=pontos_segmento_livre,
         )
 
     @property
@@ -113,6 +156,10 @@ class LedSelection:
     @property
     def eh_circulo(self) -> bool:
         return self.tipo_roi == TIPO_ROI_CIRCULO
+
+    @property
+    def eh_segmento_livre(self) -> bool:
+        return self.eh_segmento and bool(self.pontos_segmento_livre)
 
     def possui_coordenadas_normalizadas(self) -> bool:
         return (
@@ -142,6 +189,11 @@ class LedSelection:
             largura=self.largura,
             altura=self.altura,
             angulo=self.angulo,
+            pontos_segmento_livre=(
+                list(self.pontos_segmento_livre)
+                if self.pontos_segmento_livre
+                else None
+            ),
         )
 
     def adaptar_para_resolucao(
@@ -181,10 +233,19 @@ class LedSelection:
             centro_y = int(self.centro_y)
             raio = int(self.raio)
 
+        pontos_segmento_livre = None
         if self.eh_segmento:
-            largura = max(1, int(round((self.largura or 48) * escala_x)))
-            altura = max(1, int(round((self.altura or 14) * escala_y)))
-            raio = raio_compatibilidade_segmento(largura, altura)
+            if self.pontos_segmento_livre:
+                pontos_segmento_livre = [
+                    (float(x) * escala_x, float(y) * escala_y)
+                    for x, y in self.pontos_segmento_livre
+                ]
+                largura = max(1, int(round((self.largura or 1) * escala_x)))
+                altura = max(1, int(round((self.altura or 1) * escala_y)))
+            else:
+                largura = max(1, int(round((self.largura or 48) * escala_x)))
+                altura = max(1, int(round((self.altura or 14) * escala_y)))
+                raio = raio_compatibilidade_segmento(largura, altura)
         else:
             largura = None
             altura = None
@@ -204,11 +265,10 @@ class LedSelection:
             largura=largura,
             altura=altura,
             angulo=self.angulo,
+            pontos_segmento_livre=pontos_segmento_livre,
         )
 
     def to_dict(self) -> dict:
-        # Círculos mantêm exatamente o formato histórico para não modificar
-        # projetos existentes nem quebrar integrações que esperam quatro campos.
         dados = {
             "id": self.id,
             "centro_x": int(self.centro_x),
@@ -216,7 +276,6 @@ class LedSelection:
             "raio": int(self.raio),
         }
 
-        # Somente a nova geometria precisa declarar explicitamente sua forma.
         if self.eh_segmento:
             dados.update(
                 {
@@ -226,6 +285,11 @@ class LedSelection:
                     "angulo": float(self.angulo),
                 }
             )
+            if self.pontos_segmento_livre:
+                dados["pontos_segmento_livre"] = [
+                    [float(x), float(y)]
+                    for x, y in self.pontos_segmento_livre
+                ]
 
         if self.possui_coordenadas_normalizadas():
             dados["normalized"] = {

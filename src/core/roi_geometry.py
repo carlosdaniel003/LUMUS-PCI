@@ -34,7 +34,38 @@ def normalizar_angulo_segmento(valor) -> float:
     return float(angulo)
 
 
+def _pontos_livres_locais(alvo) -> np.ndarray | None:
+    pontos = getattr(alvo, "pontos_segmento_livre", None)
+    if not isinstance(pontos, (list, tuple)) or len(pontos) < 3:
+        return None
+    try:
+        array = np.asarray(pontos, dtype=np.float32).reshape(-1, 2)
+    except Exception:
+        return None
+    return array if len(array) >= 3 else None
+
+
 def dimensoes_segmento(alvo) -> tuple[int, int]:
+    pontos_livres = _pontos_livres_locais(alvo)
+    if pontos_livres is not None:
+        largura = max(
+            1,
+            int(
+                math.ceil(
+                    float(np.max(pontos_livres[:, 0]) - np.min(pontos_livres[:, 0]))
+                )
+            ),
+        )
+        altura = max(
+            1,
+            int(
+                math.ceil(
+                    float(np.max(pontos_livres[:, 1]) - np.min(pontos_livres[:, 1]))
+                )
+            ),
+        )
+        return largura, altura
+
     largura = getattr(alvo, "largura", None)
     altura = getattr(alvo, "altura", None)
     raio = max(1, int(getattr(alvo, "raio", 1) or 1))
@@ -98,12 +129,16 @@ def pontos_segmento(
     alvo,
     escala: float = 1.0,
 ) -> np.ndarray:
-    largura, altura = dimensoes_segmento(alvo)
     escala = max(0.05, float(escala))
-    locais = _pontos_segmento_local(
-        max(SEGMENTO_LARGURA_MINIMA, int(round(largura * escala))),
-        max(SEGMENTO_ALTURA_MINIMA, int(round(altura * escala))),
-    )
+    pontos_livres = _pontos_livres_locais(alvo)
+    if pontos_livres is not None:
+        locais = pontos_livres.copy() * float(escala)
+    else:
+        largura, altura = dimensoes_segmento(alvo)
+        locais = _pontos_segmento_local(
+            max(SEGMENTO_LARGURA_MINIMA, int(round(largura * escala))),
+            max(SEGMENTO_ALTURA_MINIMA, int(round(altura * escala))),
+        )
 
     angulo = math.radians(
         normalizar_angulo_segmento(getattr(alvo, "angulo", 0.0))
@@ -176,7 +211,7 @@ def criar_mascara_roi_global(
     mascara = np.zeros((int(altura), int(largura)), dtype=np.uint8)
     if normalizar_tipo_roi(getattr(alvo, "tipo_roi", None)) == TIPO_ROI_SEGMENTO:
         poligono = np.rint(pontos_segmento(alvo, escala=escala)).astype(np.int32)
-        cv2.fillConvexPoly(mascara, poligono, 255)
+        cv2.fillPoly(mascara, [poligono], 255)
         return mascara
 
     centro = (
@@ -199,14 +234,15 @@ def _mascaras_segmento_locais(alvo, x1: int, y1: int, x2: int, y2: int):
     poligono = pontos_segmento(alvo).copy()
     poligono[:, 0] -= float(x1)
     poligono[:, 1] -= float(y1)
-    cv2.fillConvexPoly(
+    cv2.fillPoly(
         principal,
-        np.rint(poligono).astype(np.int32),
+        [np.rint(poligono).astype(np.int32)],
         255,
     )
 
     largura_segmento, altura_segmento = dimensoes_segmento(alvo)
-    espessura = max(1, int(round(min(largura_segmento, altura_segmento) * 0.18)))
+    menor_dimensao = max(1, min(largura_segmento, altura_segmento))
+    espessura = max(1, int(round(menor_dimensao * 0.18)))
     kernel_interno = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE,
         (espessura * 2 + 1, espessura * 2 + 1),
@@ -215,7 +251,7 @@ def _mascaras_segmento_locais(alvo, x1: int, y1: int, x2: int, y2: int):
     if not np.any(interno):
         interno = principal.copy()
 
-    espessura_anel = max(1, int(round(min(largura_segmento, altura_segmento) * 0.28)))
+    espessura_anel = max(1, int(round(menor_dimensao * 0.28)))
     kernel_anel = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE,
         (espessura_anel * 2 + 1, espessura_anel * 2 + 1),
