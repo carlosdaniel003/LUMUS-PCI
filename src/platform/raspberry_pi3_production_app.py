@@ -12,6 +12,9 @@ from src.platform.camera_advanced_config import (
 from src.platform.camera_live_settings import (
     CameraLiveSettingsMixin,
 )
+from src.platform.camera_screenshot import (
+    CameraScreenshotMixin,
+)
 from src.platform.camera_selection import (
     CameraSelectionMixin,
 )
@@ -96,6 +99,7 @@ class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
     CameraSelectionMixin,
+    CameraScreenshotMixin,
     CameraLiveSettingsMixin,
     LedProjectPreviewMixin,
     ProjectReferenceSetsMixin,
