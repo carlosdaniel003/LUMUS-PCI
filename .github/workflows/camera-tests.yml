@@ -55,6 +55,7 @@ jobs:
             src/platform/rotated_preview_roi_editor.py \
             src/platform/freeform_segment_roi.py \
             src/platform/freeform_segment_persistence.py \
+            src/platform/mass_roi_selection_tool.py \
             src/platform/segment_display_roi_editor.py \
             src/platform/segment_display_runtime.py \
             src/platform/segment_project_geometry_persistence.py \
@@ -124,6 +125,7 @@ jobs:
             tests.test_fullscreen_led_selection \
             tests.test_fullscreen_selection_zoom \
             tests.test_freeform_segment_roi \
+            tests.test_mass_roi_selection_tool \
             tests.test_reference_project_sets \
             tests.test_reference_debug_and_dashboard_layout \
             tests.test_led_project_preview \
