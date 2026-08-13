@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from src.platform.camera_live_control_service import CameraLiveControlServiceMixin
+from src.platform.responsive_camera_selection_installer import (
+    instalar_seletor_camera_responsivo,
+)
 
 
 class VerifiedCameraControlMixin:
@@ -99,7 +102,9 @@ class VerifiedCameraControlMixin:
 
 
 def instalar_validacao_controles_camera() -> None:
-    """Aplica a validação à classe usada pelo perfil final sem mudar o MRO."""
+    """Aplica validação de câmera e a seleção visual não bloqueante."""
+    instalar_seletor_camera_responsivo()
+
     from src.platform.live_fixed_full_hd_camera_service import (
         LiveFixedFullHdCameraService,
     )
