@@ -27,9 +27,6 @@ from src.platform.display_theme import (
     DISPLAY_YELLOW_DARK,
     DisplayThemeMixin,
 )
-from src.platform.fixed_full_hd_camera_service import (
-    FixedFullHdCameraService,
-)
 from src.platform.fixed_mask_geometry_guard import (
     FixedMaskGeometryGuardMixin,
     instalar_repositorio_mascaras_absolutas,
@@ -51,6 +48,9 @@ from src.platform.led_project_preview_store import (
 )
 from src.platform.led_project_repository import (
     instalar_repositorio_projetos_led,
+)
+from src.platform.live_fixed_full_hd_camera_service import (
+    LiveFixedFullHdCameraService,
 )
 from src.platform.native_resolution_config import (
     NativeResolutionConfigMixin,
@@ -110,7 +110,7 @@ class RaspberryPi3ProductionApp(
     """Perfil final do display com ROI circular e segmento chanfrado."""
 
     def __init__(self, root: tk.Tk) -> None:
-        raspberry_pi3_profile.RaspberryPi3CameraService = FixedFullHdCameraService
+        raspberry_pi3_profile.RaspberryPi3CameraService = LiveFixedFullHdCameraService
         instalar_normalizacao_config_repository()
         instalar_repositorio_projetos_led()
         instalar_preview_projeto_led_store()
