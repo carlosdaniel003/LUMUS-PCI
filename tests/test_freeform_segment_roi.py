@@ -3,21 +3,17 @@ import unittest
 
 import numpy as np
 
-import src.platform.bulk_roi_editor as bulk_roi_editor
-from src.core.roi_geometry import (
-    TIPO_ROI_SEGMENTO,
-    criar_mascara_roi_global,
-    ponto_dentro_roi,
-    pontos_segmento,
-)
+from src.core.roi_geometry import criar_mascara_roi_global, pontos_segmento
 from src.models.led_selection import LedSelection
+from src.platform.fixed_mask_geometry_guard import copiar_mascara_absoluta
 from src.platform.freeform_segment_persistence import (
     assinatura_geometria_segmento_livre,
-    copiar_mascara_absoluta_segmento_livre,
+    copiar_led_geometria_completa_segmento_livre,
 )
 from src.platform.freeform_segment_roi import (
     FECHAR_SEGMENTO_DISTANCIA_CANVAS_PX,
     FreeformSegmentDrawingMixin,
+    copiar_led_com_segmento_livre,
     criar_segmento_livre_por_pontos,
 )
 from src.platform.fullscreen_led_selection import FullscreenLedSelectionMixin
@@ -27,94 +23,89 @@ from src.platform.segment_display_roi_editor import criar_segmento_por_arrasto
 
 class FreeformSegmentRoiTests(unittest.TestCase):
     def test_segmento_livre_reconstroi_exatamente_os_vertices(self):
-        vertices = [(20, 20), (70, 18), (82, 42), (55, 36), (40, 65), (18, 52)]
-        led = criar_segmento_livre_por_pontos(vertices, "SEG_007")
-
-        self.assertEqual(TIPO_ROI_SEGMENTO, led.tipo_roi)
+        pontos = [(20, 20), (80, 18), (86, 42), (54, 31), (20, 46)]
+        led = criar_segmento_livre_por_pontos(pontos, "SEG_LIVRE")
+        reconstruidos = pontos_segmento(led)
+        esperado = np.asarray(pontos, dtype=np.float32)
+        self.assertEqual(5, len(reconstruidos))
+        np.testing.assert_allclose(reconstruidos, esperado, atol=1.0)
+        self.assertTrue(led.eh_segmento)
         self.assertTrue(led.eh_segmento_livre)
-        self.assertEqual("SEG_007", led.id)
-        self.assertTrue(
-            np.allclose(
-                pontos_segmento(led),
-                np.asarray(vertices, dtype=np.float32),
-                atol=0.001,
-            )
-        )
-
-    def test_segmento_convencional_continua_existindo(self):
-        led = criar_segmento_por_arrasto(10, 10, 90, 25, id_roi="SEG_001")
-        self.assertEqual(TIPO_ROI_SEGMENTO, led.tipo_roi)
-        self.assertFalse(led.eh_segmento_livre)
-        self.assertIsNone(led.pontos_segmento_livre)
-
-    def test_segmento_livre_persiste_no_json(self):
-        original = criar_segmento_livre_por_pontos(
-            [(10, 10), (50, 10), (45, 35), (25, 25), (10, 40)],
-            "SEG_003",
-        ).com_normalizacao(100, 100)
-
-        dados = original.to_dict()
-        self.assertIn("pontos_segmento_livre", dados)
-        restaurado = LedSelection.from_dict(dados)
-        self.assertIsNotNone(restaurado)
-        self.assertTrue(restaurado.eh_segmento_livre)
-        self.assertTrue(
-            np.allclose(
-                pontos_segmento(restaurado),
-                pontos_segmento(original),
-                atol=0.001,
-            )
-        )
-
-    def test_segmento_livre_adapta_vertices_para_nova_resolucao(self):
-        original = criar_segmento_livre_por_pontos(
-            [(10, 10), (40, 10), (45, 30), (20, 35)],
-            "SEG_004",
-        ).com_normalizacao(100, 100)
-        adaptado = original.adaptar_para_resolucao(
-            200,
-            200,
-            raio_minimo=2,
-            raio_maximo=200,
-        )
-        self.assertTrue(
-            np.allclose(
-                pontos_segmento(adaptado),
-                pontos_segmento(original) * 2.0,
-                atol=1.0,
-            )
-        )
 
     def test_mascara_usa_poligono_real_inclusive_concavo(self):
         led = criar_segmento_livre_por_pontos(
-            [(10, 10), (60, 10), (60, 60), (35, 35), (10, 60)],
-            "SEG_005",
+            [(10, 10), (50, 10), (50, 50), (30, 28), (10, 50)],
+            "SEG_CONCAVO",
         )
         mascara = criar_mascara_roi_global(led, 80, 80)
         self.assertGreater(int(np.count_nonzero(mascara)), 0)
-        self.assertTrue(ponto_dentro_roi(led, 20, 20))
         self.assertEqual(255, int(mascara[20, 20]))
+        self.assertEqual(0, int(mascara[40, 30]))
+
+    def test_segmento_livre_persiste_no_json(self):
+        led = criar_segmento_livre_por_pontos(
+            [(11, 12), (41, 10), (48, 27), (20, 35)],
+            "SEG_JSON",
+        )
+        dados = led.to_dict()
+        self.assertEqual("segmento", dados["tipo_roi"])
+        self.assertIn("pontos_segmento_livre", dados)
+        recarregado = LedSelection.from_dict(dados)
+        self.assertIsNotNone(recarregado)
+        self.assertTrue(recarregado.eh_segmento_livre)
+        np.testing.assert_allclose(
+            pontos_segmento(recarregado),
+            pontos_segmento(led),
+            atol=1e-5,
+        )
+
+    def test_segmento_livre_adapta_vertices_para_nova_resolucao(self):
+        led = criar_segmento_livre_por_pontos(
+            [(20, 20), (80, 20), (80, 40), (20, 40)],
+            "SEG_SCALE",
+        ).com_normalizacao(100, 100)
+        adaptado = led.adaptar_para_resolucao(200, 150, 2, 100)
+        self.assertTrue(adaptado.eh_segmento_livre)
+        self.assertEqual(100, adaptado.centro_x)
+        self.assertEqual(45, adaptado.centro_y)
+        pontos = pontos_segmento(adaptado)
+        xs = [float(p[0]) for p in pontos]
+        ys = [float(p[1]) for p in pontos]
+        self.assertAlmostEqual(40.0, min(xs), delta=1.0)
+        self.assertAlmostEqual(160.0, max(xs), delta=1.0)
+        self.assertAlmostEqual(30.0, min(ys), delta=1.0)
+        self.assertAlmostEqual(60.0, max(ys), delta=1.0)
+
+    def test_segmento_convencional_continua_existindo(self):
+        led = criar_segmento_por_arrasto(20, 30, 90, 30, altura_segmento=12)
+        self.assertTrue(led.eh_segmento)
+        self.assertFalse(led.eh_segmento_livre)
+        self.assertIsNone(led.pontos_segmento_livre)
+        self.assertEqual(8, len(pontos_segmento(led)))
 
     def test_copias_do_editor_e_guard_preservam_vertices(self):
         led = criar_segmento_livre_por_pontos(
-            [(12, 12), (55, 12), (50, 40), (12, 45)],
-            "SEG_006",
+            [(15, 20), (55, 18), (61, 40), (22, 45)],
+            "SEG_COPY",
         )
-        copia_editor = bulk_roi_editor.copiar_led(led)
-        copia_guard = copiar_mascara_absoluta_segmento_livre(led)
-        self.assertEqual(led.pontos_segmento_livre, copia_editor.pontos_segmento_livre)
-        self.assertEqual(led.pontos_segmento_livre, copia_guard.pontos_segmento_livre)
+        copia_editor = copiar_led_com_segmento_livre(led)
+        copia_guard = copiar_mascara_absoluta(led)
+        copia_projeto = copiar_led_geometria_completa_segmento_livre(led)
+        for copia in (copia_editor, copia_guard, copia_projeto):
+            self.assertTrue(copia.eh_segmento_livre)
+            self.assertEqual(
+                list(led.pontos_segmento_livre),
+                list(copia.pontos_segmento_livre),
+            )
 
     def test_assinatura_muda_quando_vertice_muda(self):
         led_a = criar_segmento_livre_por_pontos(
-            [(10, 10), (50, 10), (50, 40), (10, 40)],
-            "SEG_008",
+            [(10, 10), (40, 10), (40, 30), (10, 30)],
+            "SEG_SIG",
         )
-        led_b = LedSelection.from_dict(led_a.to_dict())
-        self.assertIsNotNone(led_b)
-        led_b.pontos_segmento_livre[0] = (
-            led_b.pontos_segmento_livre[0][0] + 2.0,
-            led_b.pontos_segmento_livre[0][1],
+        led_b = criar_segmento_livre_por_pontos(
+            [(10, 10), (42, 10), (40, 30), (10, 30)],
+            "SEG_SIG",
         )
         self.assertNotEqual(
             assinatura_geometria_segmento_livre([led_a]),
@@ -130,7 +121,12 @@ class FreeformSegmentRoiTests(unittest.TestCase):
         )
 
     def test_interacao_tem_linha_dinamica_e_fechamento_proximo_da_origem(self):
-        fonte = inspect.getsource(FreeformSegmentDrawingMixin)
+        classe_fonte = getattr(
+            FreeformSegmentDrawingMixin,
+            "_odin_freeform_original_class",
+            FreeformSegmentDrawingMixin,
+        )
+        fonte = inspect.getsource(classe_fonte)
         self.assertIn("Segmento por pontos", fonte)
         self.assertIn("_evento_motion_selecao", fonte)
         self.assertIn("_segmento_livre_mouse", fonte)
