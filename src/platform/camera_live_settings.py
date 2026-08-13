@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import src.platform.fixed_full_hd_camera_service as fixed_camera_module
+from src.platform.live_fixed_full_hd_camera_service import (
+    LiveFixedFullHdCameraService,
+)
 from src.ui.main_window_parts.settings.camera_live_ui_behavior import (
     abrir_janela_configuracoes_sem_saltos,
 )
+
+
+# raspberry_pi3_production_app importa CameraLiveSettingsMixin antes de importar
+# FixedFullHdCameraService. Substituímos o símbolo do módulo nesse ponto para o
+# perfil display receber o serviço estendido sem alterar a estrutura do app.
+fixed_camera_module.FixedFullHdCameraService = LiveFixedFullHdCameraService
 
 
 class CameraLiveSettingsMixin:
