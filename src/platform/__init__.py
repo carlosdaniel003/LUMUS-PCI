@@ -42,6 +42,15 @@ def _instalar_estado_persistente_toolbar_roi() -> None:
     instalar_preservacao_estado_toolbar_roi()
 
 
+def _instalar_toolbar_responsiva_selecao_led() -> None:
+    from src.platform.responsive_led_selection_toolbar import (
+        instalar_toolbar_selecao_led_responsiva,
+    )
+
+    instalar_toolbar_selecao_led_responsiva()
+
+
 _instalar_persistencia_segmento_livre_global()
 _instalar_selecao_massa_no_editor()
 _instalar_estado_persistente_toolbar_roi()
+_instalar_toolbar_responsiva_selecao_led()
