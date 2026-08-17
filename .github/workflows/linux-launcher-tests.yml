@@ -1,0 +1,24 @@
+name: Linux launcher tests
+
+on:
+  push:
+    branches:
+      - display
+      - raspberry-pi-3
+  workflow_dispatch:
+
+jobs:
+  linux-launcher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate launcher
+        run: |
+          test -f scripts/iniciar_odin_linux.sh
+          test -x scripts/iniciar_odin_linux.sh
+          bash -n scripts/iniciar_odin_linux.sh
+          grep -q 'main_rpi.py' scripts/iniciar_odin_linux.sh
