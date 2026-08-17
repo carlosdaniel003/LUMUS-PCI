@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - display
-      - raspberry-pi-3
   workflow_dispatch:
 
 jobs:
