@@ -9,14 +9,18 @@ from src.platform.fixed_full_hd_camera_service import (
 from src.platform.linux_camera_compatibility import (
     LinuxCameraCompatibilityMixin,
 )
+from src.platform.windows_camera_compatibility import (
+    WindowsCameraCompatibilityMixin,
+)
 
 
 class LiveFixedFullHdCameraService(
     CameraLiveControlServiceMixin,
+    WindowsCameraCompatibilityMixin,
     LinuxCameraCompatibilityMixin,
     FixedFullHdCameraService,
 ):
-    """Perfil final com transporte estável, fallback Linux e controles ao vivo."""
+    """Perfil final com transporte compatível e controles pontuais ao vivo."""
 
     def _preparar_configuracoes_camera_ao_vivo(
         self,
