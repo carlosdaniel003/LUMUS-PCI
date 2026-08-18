@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from config import MAX_RADIUS_PX, MIN_RADIUS_PX
+from config import MIN_RADIUS_PX
 from src.models.led_selection import LedSelection
 
 
@@ -24,6 +24,13 @@ def _copy_led(led: LedSelection) -> LedSelection:
         raio_normalizado=led.raio_normalizado,
         largura_base=led.largura_base,
         altura_base=led.altura_base,
+        tipo_roi=getattr(led, "tipo_roi", "circulo"),
+        largura=getattr(led, "largura", None),
+        altura=getattr(led, "altura", None),
+        angulo=float(getattr(led, "angulo", 0.0) or 0.0),
+        pontos_segmento_livre=(
+            list(getattr(led, "pontos_segmento_livre", None) or ()) or None
+        ),
     )
 
 
@@ -38,12 +45,7 @@ def canonicalize_led_mask(
 
     base_width = max(1, int(led.largura_base or reference_width))
     base_height = max(1, int(led.altura_base or reference_height))
-    canonical = LedSelection(
-        id=str(led.id),
-        centro_x=int(led.centro_x),
-        centro_y=int(led.centro_y),
-        raio=int(led.raio),
-    ).com_normalizacao(
+    canonical = _copy_led(led).com_normalizacao(
         largura_base=base_width,
         altura_base=base_height,
     )
@@ -57,13 +59,22 @@ def adapt_led_masks_to_resolution(
     reference_width: int | None = None,
     reference_height: int | None = None,
     min_radius: int = MIN_RADIUS_PX,
-    max_radius: int = MAX_RADIUS_PX,
+    max_radius: int | None = None,
 ) -> LedMaskAdaptation:
-    """Adapta centros e raios sempre a partir da base normalizada."""
+    """Adapta máscaras sempre da geometria canônica, sem acumular escala.
+
+    ``max_radius`` é opcional de propósito: MAX_RADIUS_PX pertence ao editor e
+    não deve truncar uma máscara já salva quando o stream muda de resolução.
+    """
     target_width = max(1, int(target_width))
     target_height = max(1, int(target_height))
     reference_width = max(1, int(reference_width or target_width))
     reference_height = max(1, int(reference_height or target_height))
+    radius_limit = (
+        max(target_width, target_height)
+        if max_radius is None
+        else max(1, int(max_radius))
+    )
 
     canonical_leds: list[LedSelection] = []
     adapted_leds: list[LedSelection] = []
@@ -79,9 +90,11 @@ def adapt_led_masks_to_resolution(
             largura_destino=target_width,
             altura_destino=target_height,
             raio_minimo=min_radius,
-            raio_maximo=max_radius,
+            raio_maximo=radius_limit,
         )
 
+        # A validação usa a geometria adaptada. Nenhuma coordenada da fonte é
+        # alterada; portanto uma mudança futura sempre parte da base canônica.
         if not (
             adapted.raio <= adapted.centro_x < target_width - adapted.raio
             and adapted.raio <= adapted.centro_y < target_height - adapted.raio
