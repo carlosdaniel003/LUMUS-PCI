@@ -42,6 +42,8 @@ jobs:
             src/platform/threaded_camera_service.py \
             src/platform/fixed_full_hd_camera_service.py \
             src/platform/linux_camera_compatibility.py \
+            src/platform/windows_camera_compatibility.py \
+            src/platform/live_fixed_full_hd_camera_service.py \
             src/platform/camera_selection.py \
             src/platform/camera_live_settings.py \
             src/platform/analysis_response_metrics.py \
@@ -76,6 +78,7 @@ jobs:
             src/ui/main_window.py \
             src/ui/main_window_parts/settings/abrir_janela_configuracoes_interativa.py \
             src/ui/main_window_parts/settings/abrir_janela_configuracoes_ao_vivo.py \
+            src/ui/main_window_parts/settings/camera_runtime_profile_ui.py \
             src/ui/main_window_parts/layout/criar_barra_metadados.py \
             src/ui/main_window_parts/layout/criar_area_dashboard.py \
             src/ui/main_window_parts/panels/criar_painel_principal.py \
@@ -111,6 +114,7 @@ jobs:
           python -m unittest \
             tests.test_native_resolution_camera \
             tests.test_linux_camera_compatibility \
+            tests.test_windows_camera_resolution \
             tests.test_threaded_backend_switch \
             tests.test_linux_camera_backend \
             tests.test_v4l2_controls \
