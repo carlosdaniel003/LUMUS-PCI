@@ -50,6 +50,7 @@ jobs:
             src/platform/native_resolution_config.py \
             src/platform/led_mask_resolution_sync.py \
             src/platform/fixed_mask_geometry_guard.py \
+            src/platform/mask_resolution_legacy_reference.py \
             src/platform/bulk_roi_editor.py \
             src/platform/area_roi_editor.py \
             src/platform/area_roi_editor_v2.py \
