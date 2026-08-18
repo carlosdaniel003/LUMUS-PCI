@@ -5,7 +5,6 @@ import tkinter as tk
 from src.ui.main_window_parts.settings.camera_live_ui_behavior import (
     abrir_janela_configuracoes_sem_saltos,
 )
-from src.ui.main_window_parts.widgets.select_lista import SelectLista
 
 
 _CONTROLES = {
@@ -80,6 +79,7 @@ def _primeiro(root, classe):
 
 
 def _aplicar_perfil_real(janela, perfil: dict | None) -> None:
+    """Mostra o stream real sem sobrescrever o perfil solicitado pelo usuário."""
     perfil = perfil if isinstance(perfil, dict) else {}
     resolucao = perfil.get("resolucao")
     if not resolucao or len(resolucao) != 2:
@@ -122,27 +122,17 @@ def _aplicar_perfil_real(janela, perfil: dict | None) -> None:
         padx=9,
         pady=6,
     )
-    resumo.pack(fill=tk.X, padx=12, pady=(0, 8), before=corpo.winfo_children()[0])
+    resumo.pack(
+        fill=tk.X,
+        padx=12,
+        pady=(0, 8),
+        before=corpo.winfo_children()[0],
+    )
 
-    label_resolucao = _label_texto(corpo, "Resolução:")
-    if label_resolucao is not None:
-        select = _primeiro(label_resolucao.master, SelectLista)
-        if select is not None:
-            select.set(f"{largura}x{altura} (atual)")
-
-    label_personalizada = _label_texto(corpo, "Personalizada:")
-    if label_personalizada is not None:
-        spins = [
-            item for item in _widgets(label_personalizada.master)
-            if isinstance(item, tk.Spinbox)
-        ]
-        for spin, valor in zip(spins[:2], (largura, altura)):
-            try:
-                nome = str(spin.cget("textvariable"))
-                tk.IntVar(master=spin, name=nome).set(valor)
-                spin.config(state=tk.DISABLED)
-            except (tk.TclError, ValueError):
-                pass
+    # A faixa acima informa o que o hardware está entregando agora. O seletor
+    # "Resolução" abaixo continua mostrando o perfil configurado (por exemplo,
+    # 1920x1080). Antes ele era sobrescrito com "640x480 (atual)" e, ao salvar,
+    # esse texto não correspondia a nenhum preset, fazendo a UI cair em AUTO.
 
 
 def _mapear_controles(janela):
@@ -250,7 +240,10 @@ def abrir_janela_configuracoes_com_status_real(
 
         for chave_status, check in automaticos.items():
             dados = status.get(chave_status, {})
-            if isinstance(dados, dict) and dados.get("status") == "nao_suportado":
+            if (
+                isinstance(dados, dict)
+                and dados.get("status") == "nao_suportado"
+            ):
                 try:
                     check.config(state=tk.DISABLED)
                 except tk.TclError:
