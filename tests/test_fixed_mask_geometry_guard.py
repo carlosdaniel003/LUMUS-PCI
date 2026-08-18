@@ -13,6 +13,9 @@ from src.platform.fixed_mask_geometry_guard import (
 )
 from src.platform.led_mask_resolution_sync import ResolutionSynchronizedLedMasksMixin
 from src.platform.led_project_repository import instalar_repositorio_projetos_led
+from src.platform.mask_resolution_legacy_reference import (
+    instalar_referencia_resolucao_mascaras_legadas,
+)
 
 
 class FakeFrame:
@@ -156,10 +159,36 @@ class FakeBaseApp:
         return None
 
 
+class LegacyBaseApp(FakeBaseApp):
+    def __init__(self):
+        super().__init__()
+        self.configuracoes_camera = {
+            "resolution_mode": "full_hd",
+            "width": 1920,
+            "height": 1080,
+        }
+        self.config_repository.projects["PLACA A"] = [
+            LedSelection("LED_LEGADO", 960, 540, 30)
+        ]
+        self.leds_fixos_configurados = self.config_repository.carregar_leds_fixos()
+        self.camera_frame_atual = FakeFrame(640, 480)
+        self.imagem_original = self.camera_frame_atual
+        self.largura_original = 640
+        self.altura_original = 480
+
+
 class GuardedFakeApp(
     FixedMaskGeometryGuardMixin,
     ResolutionSynchronizedLedMasksMixin,
     FakeBaseApp,
+):
+    pass
+
+
+class GuardedLegacyApp(
+    FixedMaskGeometryGuardMixin,
+    ResolutionSynchronizedLedMasksMixin,
+    LegacyBaseApp,
 ):
     pass
 
@@ -234,13 +263,33 @@ class FixedMaskGeometryGuardTests(unittest.TestCase):
             app.imagem_original = app.camera_frame_atual
             app._synchronize_masks_with_current_frame(force=True)
 
-        # 500 é par: o último frame é 640x480.
         self.assertEqual(
             assinatura_inicial,
             assinatura_geometria(app.leds_fixos_configurados),
         )
         for led in app.leds_fixos_configurados:
             self.assertTrue(led.possui_coordenadas_normalizadas())
+
+    def test_mascara_legada_usa_perfil_configurado_antes_do_primeiro_frame(self):
+        instalar_referencia_resolucao_mascaras_legadas()
+        app = GuardedLegacyApp()
+
+        self.assertEqual(1, len(app.leds_fixos_configurados))
+        exibida = app.leds_fixos_configurados[0]
+        canonical = app._mask_guard_snapshot[0]
+
+        self.assertEqual((320, 240, 10), (
+            exibida.centro_x,
+            exibida.centro_y,
+            exibida.raio,
+        ))
+        self.assertTrue(canonical.possui_coordenadas_normalizadas())
+        self.assertEqual((1920, 1080), (
+            canonical.largura_base,
+            canonical.altura_base,
+        ))
+        self.assertAlmostEqual(0.5, canonical.centro_x_normalizado)
+        self.assertAlmostEqual(0.5, canonical.centro_y_normalizado)
 
     def test_mutacao_fora_do_editor_e_restaurada_na_resolucao_atual(self):
         app = GuardedFakeApp()
