@@ -132,6 +132,93 @@ class LedMaskResolutionSyncTests(unittest.TestCase):
             (full_hd.centro_x, full_hd.centro_y, full_hd.raio),
         )
 
+    def test_640x480_para_1920x1080_preserva_percentual_do_centro(self):
+        original = LedSelection(
+            id="LED_025",
+            centro_x=160,
+            centro_y=360,
+            raio=20,
+        ).com_normalizacao(640, 480)
+
+        full_hd = adapt_led_masks_to_resolution(
+            [original],
+            target_width=1920,
+            target_height=1080,
+        ).adapted_leds[0]
+
+        self.assertEqual((480, 810), (full_hd.centro_x, full_hd.centro_y))
+        self.assertAlmostEqual(0.25, full_hd.centro_x / 1920.0, places=6)
+        self.assertAlmostEqual(0.75, full_hd.centro_y / 1080.0, places=6)
+
+    def test_raio_salvo_nao_e_truncado_pelo_limite_do_editor(self):
+        original = LedSelection(
+            id="LED_GRANDE",
+            centro_x=320,
+            centro_y=240,
+            raio=20,
+        ).com_normalizacao(640, 480)
+
+        full_hd = adapt_led_masks_to_resolution(
+            [original],
+            target_width=1920,
+            target_height=1080,
+        ).adapted_leds[0]
+
+        # O editor limita a criação manual, mas uma máscara existente precisa
+        # escalar 3x para continuar cobrindo a mesma região relativa.
+        self.assertEqual(60, full_hd.raio)
+
+    def test_ciclo_repetido_640_1920_usa_base_canonica_sem_deriva(self):
+        atual = LedSelection(
+            id="LED_CICLO",
+            centro_x=211,
+            centro_y=137,
+            raio=17,
+        ).com_normalizacao(640, 480)
+        esperado = (211, 137, 17)
+
+        for _ in range(100):
+            atual = adapt_led_masks_to_resolution(
+                [atual],
+                target_width=1920,
+                target_height=1080,
+            ).adapted_leds[0]
+            atual = adapt_led_masks_to_resolution(
+                [atual],
+                target_width=640,
+                target_height=480,
+            ).adapted_leds[0]
+
+        self.assertEqual(esperado, (atual.centro_x, atual.centro_y, atual.raio))
+        self.assertTrue(atual.possui_coordenadas_normalizadas())
+
+    def test_segmento_livre_escala_vertices_sem_deslocar_centro(self):
+        segmento = LedSelection(
+            id="SEG_LIVRE",
+            centro_x=320,
+            centro_y=240,
+            raio=1,
+            tipo_roi="segmento",
+            pontos_segmento_livre=[
+                (-30.0, -10.0),
+                (20.0, -10.0),
+                (35.0, 15.0),
+                (-25.0, 20.0),
+            ],
+        ).com_normalizacao(640, 480)
+
+        adaptado = adapt_led_masks_to_resolution(
+            [segmento],
+            target_width=1920,
+            target_height=1080,
+        ).adapted_leds[0]
+
+        self.assertEqual((960, 540), (adaptado.centro_x, adaptado.centro_y))
+        self.assertEqual(
+            [(-90.0, -22.5), (60.0, -22.5), (105.0, 33.75), (-75.0, 45.0)],
+            adaptado.pontos_segmento_livre,
+        )
+
     def test_led_legado_e_escalado_mesmo_quando_caberia_sem_escala(self):
         legacy = LedSelection(
             id="LED_001",
