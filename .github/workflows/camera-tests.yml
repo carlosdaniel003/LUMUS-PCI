@@ -41,6 +41,7 @@ jobs:
             src/models/analysis_result.py \
             src/platform/threaded_camera_service.py \
             src/platform/fixed_full_hd_camera_service.py \
+            src/platform/linux_camera_compatibility.py \
             src/platform/camera_selection.py \
             src/platform/camera_live_settings.py \
             src/platform/analysis_response_metrics.py \
@@ -109,6 +110,7 @@ jobs:
         run: |
           python -m unittest \
             tests.test_native_resolution_camera \
+            tests.test_linux_camera_compatibility \
             tests.test_threaded_backend_switch \
             tests.test_linux_camera_backend \
             tests.test_v4l2_controls \
