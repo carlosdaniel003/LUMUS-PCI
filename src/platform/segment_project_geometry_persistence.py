@@ -7,12 +7,7 @@ _PATCH_RESOLUTION_SYNC_INSTALADO = False
 
 
 def copiar_led_geometria_completa(led: LedSelection) -> LedSelection:
-    """Copia uma ROI sem perder a geometria de segmento.
-
-    Alguns fluxos legados do Raspberry reconstruíam a seleção apenas com
-    ``id/x/y/raio``. Para segmentos, o raio é somente uma medida de
-    compatibilidade e essa reconstrução fazia a barra reaparecer como círculo.
-    """
+    """Copia uma ROI sem perder geometria nem metadados de resolução."""
     return LedSelection(
         id=str(led.id),
         centro_x=int(led.centro_x),
@@ -27,11 +22,31 @@ def copiar_led_geometria_completa(led: LedSelection) -> LedSelection:
         largura=getattr(led, "largura", None),
         altura=getattr(led, "altura", None),
         angulo=float(getattr(led, "angulo", 0.0) or 0.0),
+        pontos_segmento_livre=(
+            list(getattr(led, "pontos_segmento_livre", None) or ()) or None
+        ),
     )
 
 
 def copiar_lista_geometria_completa(leds) -> list[LedSelection]:
     return [copiar_led_geometria_completa(led) for led in (leds or ())]
+
+
+def normalizar_lista_geometria(
+    leds,
+    largura_base: int | None,
+    altura_base: int | None,
+) -> list[LedSelection]:
+    completos = copiar_lista_geometria_completa(leds)
+    if not largura_base or not altura_base:
+        return completos
+    return [
+        led.com_normalizacao(
+            largura_base=int(largura_base),
+            altura_base=int(altura_base),
+        )
+        for led in completos
+    ]
 
 
 def instalar_preservacao_segmentos_resolution_sync() -> None:
@@ -71,8 +86,6 @@ class SegmentProjectGeometryPersistenceMixin:
 
     @staticmethod
     def _copiar_led(led: LedSelection) -> LedSelection:
-        # Esta definição tem precedência sobre os helpers legados de
-        # LedMaskEditorMixin e RaspberryRuntimeFixesMixin no perfil display.
         return copiar_led_geometria_completa(led)
 
     def _reafirmar_geometria_projeto(
@@ -81,7 +94,6 @@ class SegmentProjectGeometryPersistenceMixin:
         projeto: str | None = None,
         redesenhar: bool = True,
     ) -> list[LedSelection]:
-        """Torna a geometria completa a fonte canônica da memória e do guard."""
         completos = copiar_lista_geometria_completa(leds)
         if not completos:
             return []
@@ -170,18 +182,13 @@ class SegmentProjectGeometryPersistenceMixin:
         parent=None,
         confirmar_substituicao: bool = True,
     ) -> bool:
-        """Impede o botão 'Salvar LEDs selecionados' de gravar segmentos como círculos.
-
-        O gerenciador legado chama ``super().salvar_leds_fixos()`` a partir de
-        ``LedProjectManagerMixin``. Esse caminho chega ao ODIN base, que ainda
-        reconstrói cada seleção somente com id/x/y/raio. Em segmentos, isso
-        descartava ``tipo_roi/largura/altura/angulo`` antes de o JSON ser salvo.
-
-        Capturamos a geometria correta antes desse caminho e, após a operação
-        legada concluir, gravamos novamente o projeto com os objetos completos.
-        """
-        geometria_antes = copiar_lista_geometria_completa(
-            getattr(self, "leds_selecionados", ())
+        """Regrava a geometria completa e sua resolução base após o fluxo legado."""
+        largura_base = int(getattr(self, "largura_original", 0) or 0)
+        altura_base = int(getattr(self, "altura_original", 0) or 0)
+        geometria_antes = normalizar_lista_geometria(
+            getattr(self, "leds_selecionados", ()),
+            largura_base if largura_base > 0 else None,
+            altura_base if altura_base > 0 else None,
         )
 
         salvo = super()._salvar_leds_no_projeto(
@@ -213,8 +220,6 @@ class SegmentProjectGeometryPersistenceMixin:
             except TypeError:
                 salvar(copiar_lista_geometria_completa(geometria_antes))
 
-        # Releitura é deliberada: valida o mesmo caminho que será usado quando
-        # o operador clicar posteriormente em "Carregar projeto".
         carregar = getattr(repository, "carregar_leds_fixos", None)
         recarregados = []
         if callable(carregar):
@@ -268,9 +273,6 @@ class SegmentProjectGeometryPersistenceMixin:
         if not completos:
             return
 
-        # O projeto carregado passa a ser a fonte canônica do guard. Isso evita
-        # que um snapshot do projeto anterior seja reutilizado durante o mesmo
-        # clique em "Carregar projeto".
         self._reafirmar_geometria_projeto(
             completos,
             projeto=projeto or None,
