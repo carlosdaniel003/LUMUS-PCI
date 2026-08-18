@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import sys
+
+import cv2
+
+from src.platform.linux_camera_backend import (
+    LinuxCameraBackendCandidate,
+    construir_candidatos_linux,
+    descobrir_dispositivos_video,
+    opencv_tem_gstreamer,
+)
+from src.platform.raspberry_pi3_settings import (
+    CAMERA_FPS,
+    CAMERA_HEIGHT,
+    CAMERA_SCAN_MAX_INDEX,
+    CAMERA_WIDTH,
+)
+from src.platform.threaded_camera_service import (
+    ThreadedRaspberryPi3CameraService,
+)
+
+
+LINUX_CAMERA_COMPATIBILITY_RESOLUTIONS = (
+    (CAMERA_WIDTH, CAMERA_HEIGHT),
+    (1280, 720),
+    (640, 480),
+    (640, 360),
+)
+
+
+class LinuxCameraCompatibilityMixin:
+    """Mantém Full HD como prioridade e aceita câmeras Linux mais antigas.
+
+    O perfil de produção continua tentando 1920x1080 primeiro. Somente quando
+    nenhuma pipeline da câmera selecionada sustenta esse modo são tentadas
+    resoluções de compatibilidade e, por último, o modo nativo do backend.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._linux_compat_expected_resolution: tuple[int, int] | None = None
+        self._linux_compat_candidate_key = ""
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _prioridade_candidato_linux(
+        candidato: LinuxCameraBackendCandidate,
+    ) -> tuple[int, int, int]:
+        resolucoes = {
+            resolucao: indice
+            for indice, resolucao in enumerate(
+                LINUX_CAMERA_COMPATIBILITY_RESOLUTIONS
+            )
+        }
+        resolucao = (int(candidato.largura), int(candidato.altura))
+        prioridade_resolucao = resolucoes.get(resolucao, 100)
+        if candidato.tipo == "auto":
+            prioridade_resolucao = 200
+
+        prioridade_backend = {
+            "gstreamer": 0,
+            "v4l2": 1,
+            "auto": 2,
+        }.get(str(candidato.tipo), 3)
+        prioridade_formato = {
+            "MJPG": 0,
+            "YUY2": 1,
+            "AUTO": 2,
+        }.get(str(candidato.formato).upper(), 3)
+        return (
+            prioridade_resolucao,
+            prioridade_backend,
+            prioridade_formato,
+        )
+
+    def _candidatos_linux(
+        self,
+    ) -> tuple[LinuxCameraBackendCandidate, ...]:
+        if not sys.platform.startswith("linux"):
+            return super()._candidatos_linux()
+
+        dispositivos = descobrir_dispositivos_video(
+            indice_solicitado=self._indice_camera_solicitado,
+            indice_ativo=self._indice_camera_ativo,
+            indice_maximo=CAMERA_SCAN_MAX_INDEX,
+        )
+        candidatos = construir_candidatos_linux(
+            dispositivos=dispositivos,
+            largura=CAMERA_WIDTH,
+            altura=CAMERA_HEIGHT,
+            fps=CAMERA_FPS,
+            gstreamer_disponivel=opencv_tem_gstreamer(),
+            resolucoes_preferidas=LINUX_CAMERA_COMPATIBILITY_RESOLUTIONS,
+        )
+        return tuple(
+            sorted(
+                candidatos,
+                key=self._prioridade_candidato_linux,
+            )
+        )
+
+    def _configurar_capture_direto(
+        self,
+        capture,
+        candidato: LinuxCameraBackendCandidate,
+    ) -> None:
+        if not sys.platform.startswith("linux"):
+            super()._configurar_capture_direto(capture, candidato)
+            return
+
+        # O último fallback deve reproduzir a negociação nativa do dispositivo.
+        # Não forçamos FOURCC, resolução ou FPS no candidato automático.
+        if candidato.tipo == "auto":
+            try:
+                capture.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+            except Exception:
+                pass
+            return
+
+        if candidato.formato in ("MJPG", "YUY2"):
+            fourcc = "MJPG" if candidato.formato == "MJPG" else "YUYV"
+            try:
+                capture.set(
+                    cv2.CAP_PROP_FOURCC,
+                    cv2.VideoWriter_fourcc(*fourcc),
+                )
+            except Exception:
+                pass
+
+        largura = max(1, int(candidato.largura or CAMERA_WIDTH))
+        altura = max(1, int(candidato.altura or CAMERA_HEIGHT))
+        for propriedade, valor in (
+            (cv2.CAP_PROP_FRAME_WIDTH, largura),
+            (cv2.CAP_PROP_FRAME_HEIGHT, altura),
+            (cv2.CAP_PROP_FPS, CAMERA_FPS),
+        ):
+            try:
+                capture.set(propriedade, valor)
+            except Exception:
+                pass
+
+        try:
+            capture.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+        except Exception:
+            pass
+
+    def _abrir_candidato_linux(
+        self,
+        candidato: LinuxCameraBackendCandidate,
+    ):
+        if not sys.platform.startswith("linux"):
+            return super()._abrir_candidato_linux(candidato)
+
+        # Bypass intencional da restrição 1080p de FixedFullHdCameraService.
+        # O método threaded continua fazendo abertura, leitura inicial e
+        # validação básica, mas usa a configuração por candidato acima.
+        capture = ThreadedRaspberryPi3CameraService._abrir_candidato_linux(
+            self,
+            candidato,
+        )
+        if capture is None:
+            return None
+
+        if candidato.tipo == "auto":
+            self._linux_compat_expected_resolution = None
+            self._linux_compat_candidate_key = str(candidato.key)
+            return capture
+
+        esperado = (
+            max(1, int(candidato.largura)),
+            max(1, int(candidato.altura)),
+        )
+        encontrou_resolucao = False
+        for _ in range(self.RESOLUTION_PROBE_FRAMES):
+            try:
+                sucesso, frame = capture.read()
+            except Exception:
+                sucesso, frame = False, None
+            frame = self._normalizar_frame(frame) if sucesso else None
+            if not self._frame_basico_valido(frame):
+                continue
+            altura_real, largura_real = frame.shape[:2]
+            if (int(largura_real), int(altura_real)) == esperado:
+                encontrou_resolucao = True
+                break
+
+        if encontrou_resolucao:
+            self._linux_compat_expected_resolution = esperado
+            self._linux_compat_candidate_key = str(candidato.key)
+            return capture
+
+        try:
+            capture.release()
+        except Exception:
+            pass
+        return None
+
+    def _publicar_frame_otimizado(self, frame, estavel: bool) -> None:
+        if not sys.platform.startswith("linux"):
+            super()._publicar_frame_otimizado(frame, estavel=estavel)
+            return
+
+        altura_real, largura_real = frame.shape[:2]
+        atual = (int(largura_real), int(altura_real))
+        esperado = self._linux_compat_expected_resolution
+
+        # No modo automático, o primeiro frame válido define o modo realmente
+        # negociado pelo driver. A partir daí exigimos estabilidade nesse modo.
+        if esperado is None:
+            esperado = atual
+            self._linux_compat_expected_resolution = esperado
+
+        if atual != esperado:
+            self._resolution_mismatch_count += 1
+            self._ultimo_motivo_descarte = (
+                "A câmera entregou "
+                f"{atual[0]}x{atual[1]}; esperado "
+                f"{esperado[0]}x{esperado[1]}."
+            )
+            if (
+                self._resolution_mismatch_count
+                >= self.RESOLUTION_MISMATCH_BEFORE_SWITCH
+            ):
+                self._resolution_mismatch_count = 0
+                self._trocar_backend_linux(
+                    "A pipeline alterou a resolução negociada."
+                )
+            return
+
+        self._resolution_mismatch_count = 0
+        ThreadedRaspberryPi3CameraService._publicar_frame_otimizado(
+            self,
+            frame,
+            estavel=estavel,
+        )
+
+    def obter_diagnostico_fluxo(self) -> dict:
+        diagnostico = super().obter_diagnostico_fluxo()
+        esperado = self._linux_compat_expected_resolution
+        fallback = bool(
+            sys.platform.startswith("linux")
+            and esperado is not None
+            and esperado != (CAMERA_WIDTH, CAMERA_HEIGHT)
+        )
+        diagnostico.update(
+            {
+                "resolucao_alvo_linux": esperado,
+                "fallback_compatibilidade_linux": fallback,
+                "candidato_compatibilidade_linux": str(
+                    self._linux_compat_candidate_key or ""
+                ),
+            }
+        )
+        return diagnostico
