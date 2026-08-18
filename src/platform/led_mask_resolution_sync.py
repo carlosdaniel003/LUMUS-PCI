@@ -65,6 +65,8 @@ def adapt_led_masks_to_resolution(
 
     ``max_radius`` é opcional de propósito: MAX_RADIUS_PX pertence ao editor e
     não deve truncar uma máscara já salva quando o stream muda de resolução.
+    Uma ROI também não é descartada por chegar perto da borda após uma troca de
+    resolução; o frame/máscara final faz o recorte necessário.
     """
     target_width = max(1, int(target_width))
     target_height = max(1, int(target_height))
@@ -92,14 +94,6 @@ def adapt_led_masks_to_resolution(
             raio_minimo=min_radius,
             raio_maximo=radius_limit,
         )
-
-        # A validação usa a geometria adaptada. Nenhuma coordenada da fonte é
-        # alterada; portanto uma mudança futura sempre parte da base canônica.
-        if not (
-            adapted.raio <= adapted.centro_x < target_width - adapted.raio
-            and adapted.raio <= adapted.centro_y < target_height - adapted.raio
-        ):
-            continue
 
         canonical_leds.append(canonical)
         adapted_leds.append(adapted)
