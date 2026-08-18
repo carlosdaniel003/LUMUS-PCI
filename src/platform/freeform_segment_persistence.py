@@ -82,8 +82,12 @@ def instalar_persistencia_segmento_livre() -> None:
 
     import src.platform.fixed_mask_geometry_guard as fixed_guard
     import src.platform.segment_project_geometry_persistence as persistence
+    from src.platform.mask_resolution_legacy_reference import (
+        instalar_referencia_resolucao_mascaras_legadas,
+    )
 
     fixed_guard.copiar_mascara_absoluta = copiar_mascara_absoluta_segmento_livre
     fixed_guard.assinatura_geometria = assinatura_geometria_segmento_livre
     persistence.copiar_led_geometria_completa = copiar_led_geometria_completa_segmento_livre
+    instalar_referencia_resolucao_mascaras_legadas()
     _PATCH_SEGMENTO_LIVRE_PERSISTENCIA = True
