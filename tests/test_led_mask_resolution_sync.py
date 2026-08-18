@@ -168,6 +168,30 @@ class LedMaskResolutionSyncTests(unittest.TestCase):
         # escalar 3x para continuar cobrindo a mesma região relativa.
         self.assertEqual(60, full_hd.raio)
 
+    def test_roi_na_borda_nao_desaparece_ao_mudar_proporcao(self):
+        original = LedSelection(
+            id="LED_BORDA",
+            centro_x=320,
+            centro_y=20,
+            raio=20,
+        ).com_normalizacao(640, 480)
+
+        adaptacao = adapt_led_masks_to_resolution(
+            [original],
+            target_width=1920,
+            target_height=1080,
+        )
+
+        self.assertEqual(1, len(adaptacao.canonical_leds))
+        self.assertEqual(1, len(adaptacao.adapted_leds))
+        adaptado = adaptacao.adapted_leds[0]
+        self.assertEqual((960, 45, 60), (
+            adaptado.centro_x,
+            adaptado.centro_y,
+            adaptado.raio,
+        ))
+        self.assertTrue(adaptado.possui_coordenadas_normalizadas())
+
     def test_ciclo_repetido_640_1920_usa_base_canonica_sem_deriva(self):
         atual = LedSelection(
             id="LED_CICLO",
