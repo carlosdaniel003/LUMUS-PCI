@@ -10,24 +10,7 @@ _PATCH_SEGMENTO_LIVRE_PERSISTENCIA = False
 
 
 def copiar_mascara_absoluta_segmento_livre(led: LedSelection) -> LedSelection:
-    return LedSelection(
-        id=str(led.id),
-        centro_x=int(led.centro_x),
-        centro_y=int(led.centro_y),
-        raio=int(led.raio),
-        tipo_roi=getattr(led, "tipo_roi", "circulo"),
-        largura=getattr(led, "largura", None),
-        altura=getattr(led, "altura", None),
-        angulo=float(getattr(led, "angulo", 0.0) or 0.0),
-        pontos_segmento_livre=(
-            list(getattr(led, "pontos_segmento_livre", None) or ()) or None
-        ),
-    )
-
-
-def copiar_led_geometria_completa_segmento_livre(
-    led: LedSelection,
-) -> LedSelection:
+    """Nome legado; preserva pixels, base normalizada e vértices livres."""
     return LedSelection(
         id=str(led.id),
         centro_x=int(led.centro_x),
@@ -46,6 +29,12 @@ def copiar_led_geometria_completa_segmento_livre(
             list(getattr(led, "pontos_segmento_livre", None) or ()) or None
         ),
     )
+
+
+def copiar_led_geometria_completa_segmento_livre(
+    led: LedSelection,
+) -> LedSelection:
+    return copiar_mascara_absoluta_segmento_livre(led)
 
 
 def assinatura_geometria_segmento_livre(
