@@ -35,6 +35,7 @@ jobs:
             src/platform/responsive_camera_selection.py \
             src/platform/windows_camera_compatibility.py \
             src/platform/live_fixed_full_hd_camera_service.py \
+            src/platform/neutral_project_startup.py \
             src/platform/raspberry_pi3_production_app.py
 
       - name: Run Windows handoff regressions
@@ -43,6 +44,7 @@ jobs:
             tests.test_windows_camera_debug \
             tests.test_windows_camera_handoff \
             tests.test_windows_camera_resolution \
+            tests.test_neutral_project_startup \
             tests.test_responsive_camera_selection \
             tests.test_linux_camera_compatibility \
             tests.test_project_master_resolution
