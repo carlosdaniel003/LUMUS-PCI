@@ -27,6 +27,9 @@ from src.platform.camera_stability_runtime import (
 from src.platform.display_awake_runtime import (
     LinuxDisplayAwakeMixin,
 )
+from src.platform.display_production_f3 import (
+    DisplayProductionF3Mixin,
+)
 from src.platform.display_theme import (
     DISPLAY_INK,
     DISPLAY_YELLOW,
@@ -117,6 +120,7 @@ from src.platform.windows_camera_handoff import (
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
+    DisplayProductionF3Mixin,
     CameraSelectionMixin,
     ProjectMasterResolutionGuardMixin,
     NeutralProjectStartupMixin,
