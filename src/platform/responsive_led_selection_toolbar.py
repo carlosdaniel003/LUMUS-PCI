@@ -171,6 +171,13 @@ def _posicionar_botoes_ferramenta(
     colunas = int(perfil["colunas"])
     _configurar_colunas_ferramentas(frame_botoes, colunas)
 
+    # Tk não aceita widgets gerenciados por pack e grid simultaneamente no
+    # mesmo pai. Na conversão inicial removemos TODOS do pack antes de colocar
+    # o primeiro no grid. Nas chamadas seguintes nenhum widget é desmapeado.
+    if primeira_montagem:
+        for botao in botoes:
+            _esquecer_geometria(botao)
+
     for indice, botao in enumerate(botoes):
         linha = indice // colunas
         coluna = indice % colunas
@@ -180,10 +187,6 @@ def _posicionar_botoes_ferramenta(
                 padx=int(perfil["padx"]),
                 pady=int(perfil["pady"]),
             )
-            # Na primeira montagem os botões ainda usam pack. Depois disso,
-            # grid_configure/grid atualizam a posição sem desmapear o widget.
-            if primeira_montagem:
-                _esquecer_geometria(botao)
             botao.grid(
                 row=linha,
                 column=coluna,
