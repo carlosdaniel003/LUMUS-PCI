@@ -6,6 +6,7 @@ from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 from src.platform.windows_camera_handoff import (
     WINDOWS_POST_RELEASE_SETTLE_MS,
     _instalar_preferencia_backend_na_classe,
+    ordenar_backends_servico_windows,
     pode_iniciar_camera_apos_preview,
     priorizar_backend_windows,
 )
@@ -20,6 +21,10 @@ BACKENDS = (
 
 class _FakeCameraService:
     _odin_windows_backend_handoff_instalado = False
+
+    def __init__(self):
+        self._resolucao_solicitada = (1920, 1080)
+        self.perfil_automatico = False
 
     @staticmethod
     def _backends_preferidos():
@@ -54,7 +59,7 @@ class WindowsCameraHandoffTests(unittest.TestCase):
         )
 
     def test_windows_aguarda_assentamento_do_driver_apos_release(self):
-        self.assertGreaterEqual(WINDOWS_POST_RELEASE_SETTLE_MS, 800)
+        self.assertGreaterEqual(WINDOWS_POST_RELEASE_SETTLE_MS, 1200)
 
     def test_linux_preserva_limite_legado_do_handoff(self):
         self.assertFalse(
@@ -74,7 +79,7 @@ class WindowsCameraHandoffTests(unittest.TestCase):
             )
         )
 
-    def test_backend_comprovado_no_preview_vai_para_primeiro_no_windows(self):
+    def test_backend_comprovado_no_preview_vai_para_primeiro_no_windows_generico(self):
         ordenados = priorizar_backend_windows(
             BACKENDS,
             "DirectShow",
@@ -84,7 +89,49 @@ class WindowsCameraHandoffTests(unittest.TestCase):
         self.assertEqual(3, len(ordenados))
         self.assertEqual(set(BACKENDS), set(ordenados))
 
+    def test_1080p_explicito_prioriza_directshow_mesmo_se_preview_usou_msmf(self):
+        ordenados = ordenar_backends_servico_windows(
+            BACKENDS,
+            "Media Foundation",
+            resolucao_solicitada=(1920, 1080),
+            perfil_automatico=False,
+            plataforma="win32",
+        )
+        self.assertEqual("DirectShow", ordenados[0][1])
+        self.assertEqual("Automático", ordenados[1][1])
+        self.assertEqual("Media Foundation", ordenados[2][1])
+        self.assertEqual(set(BACKENDS), set(ordenados))
+
+    def test_baixa_resolucao_continua_respeitando_backend_do_preview(self):
+        ordenados = ordenar_backends_servico_windows(
+            BACKENDS,
+            "Media Foundation",
+            resolucao_solicitada=(640, 480),
+            perfil_automatico=False,
+            plataforma="win32",
+        )
+        self.assertEqual("Media Foundation", ordenados[0][1])
+
+    def test_perfil_automatico_continua_respeitando_backend_do_preview(self):
+        ordenados = ordenar_backends_servico_windows(
+            BACKENDS,
+            "Media Foundation",
+            resolucao_solicitada=(1920, 1080),
+            perfil_automatico=True,
+            plataforma="win32",
+        )
+        self.assertEqual("Media Foundation", ordenados[0][1])
+
     def test_backend_linux_nao_e_reordenado(self):
+        self.assertEqual(
+            BACKENDS,
+            ordenar_backends_servico_windows(
+                BACKENDS,
+                "DirectShow",
+                resolucao_solicitada=(1920, 1080),
+                plataforma="linux",
+            ),
+        )
         self.assertEqual(
             BACKENDS,
             priorizar_backend_windows(
@@ -104,7 +151,7 @@ class WindowsCameraHandoffTests(unittest.TestCase):
         ):
             _instalar_preferencia_backend_na_classe(
                 CameraWindows,
-                "DirectShow",
+                "Media Foundation",
             )
             self.assertEqual(
                 "DirectShow",
