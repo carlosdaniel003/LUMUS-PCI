@@ -8,10 +8,25 @@ from pathlib import Path
 
 
 DISPLAY_PROJECT_CONFIG_FILE = Path("data/config/odin_display_projects.json")
-DISPLAY_PROJECT_SCHEMA_VERSION = 1
+DISPLAY_PROJECT_SCHEMA_VERSION = 2
+
+DISPLAY_CHECK_STATE_ON = "on"
+DISPLAY_CHECK_STATE_OFF = "off"
+DISPLAY_CHECK_STATE_IGNORE = "ignore"
+DISPLAY_CHECK_STATES = (
+    DISPLAY_CHECK_STATE_ON,
+    DISPLAY_CHECK_STATE_OFF,
+    DISPLAY_CHECK_STATE_IGNORE,
+)
+DISPLAY_DEFAULT_CHECK_NAMES = ("H1", "BLUE", "AUX", "USB")
 
 
 def normalizar_nome_projeto_display(nome: str | None) -> str:
+    texto = re.sub(r"\s+", " ", str(nome or "").strip())
+    return texto.upper()
+
+
+def normalizar_nome_check_display(nome: str | None) -> str:
     texto = re.sub(r"\s+", " ", str(nome or "").strip())
     return texto.upper()
 
@@ -118,19 +133,108 @@ def normalizar_mascaras_display(mascaras) -> list[dict]:
             continue
         identificador = normalizada["id"]
         if identificador in ids_usados:
-            identificador = f"MASK_{indice:03d}"
+            candidato = f"MASK_{indice:03d}"
+            sufixo = indice
+            while candidato in ids_usados:
+                sufixo += 1
+                candidato = f"MASK_{sufixo:03d}"
+            identificador = candidato
             normalizada["id"] = identificador
         ids_usados.add(identificador)
         resultado.append(normalizada)
     return resultado
 
 
+def normalizar_estado_check_display(valor) -> str:
+    texto = str(valor or "").strip().lower()
+    aliases = {
+        "on": DISPLAY_CHECK_STATE_ON,
+        "aceso": DISPLAY_CHECK_STATE_ON,
+        "ligado": DISPLAY_CHECK_STATE_ON,
+        "1": DISPLAY_CHECK_STATE_ON,
+        "off": DISPLAY_CHECK_STATE_OFF,
+        "apagado": DISPLAY_CHECK_STATE_OFF,
+        "desligado": DISPLAY_CHECK_STATE_OFF,
+        "0": DISPLAY_CHECK_STATE_OFF,
+        "ignore": DISPLAY_CHECK_STATE_IGNORE,
+        "ignorar": DISPLAY_CHECK_STATE_IGNORE,
+        "ignored": DISPLAY_CHECK_STATE_IGNORE,
+        "": DISPLAY_CHECK_STATE_IGNORE,
+    }
+    return aliases.get(texto, DISPLAY_CHECK_STATE_IGNORE)
+
+
+def normalizar_estados_check_display(estados, mask_ids) -> dict[str, str]:
+    origem = estados if isinstance(estados, dict) else {}
+    resultado: dict[str, str] = {}
+    for mask_id in mask_ids:
+        identificador = str(mask_id)
+        resultado[identificador] = normalizar_estado_check_display(
+            origem.get(identificador)
+        )
+    return resultado
+
+
+def _proximo_id_check(ids_usados: set[str]) -> str:
+    indice = 1
+    while True:
+        candidato = f"CHECK_{indice:03d}"
+        if candidato not in ids_usados:
+            return candidato
+        indice += 1
+
+
+def _checks_padrao(mask_ids) -> list[dict]:
+    ids = [str(mask_id) for mask_id in mask_ids]
+    return [
+        {
+            "id": f"CHECK_{indice:03d}",
+            "name": nome,
+            "mask_states": normalizar_estados_check_display({}, ids),
+        }
+        for indice, nome in enumerate(DISPLAY_DEFAULT_CHECK_NAMES, start=1)
+    ]
+
+
+def normalizar_checks_display(
+    checks,
+    mascaras,
+    usar_padrao_se_ausente: bool = False,
+) -> list[dict]:
+    masks = normalizar_mascaras_display(mascaras)
+    mask_ids = [str(mask["id"]) for mask in masks]
+    if not isinstance(checks, (list, tuple)):
+        return _checks_padrao(mask_ids) if usar_padrao_se_ausente else []
+
+    resultado: list[dict] = []
+    ids_usados: set[str] = set()
+    for indice, check in enumerate(checks, start=1):
+        if not isinstance(check, dict):
+            continue
+        nome = normalizar_nome_check_display(check.get("name", check.get("nome")))
+        if not nome:
+            nome = f"CHECK {indice}"
+        identificador = str(check.get("id") or "").strip().upper()
+        if not identificador or identificador in ids_usados:
+            identificador = _proximo_id_check(ids_usados)
+        ids_usados.add(identificador)
+        estados = check.get("mask_states", check.get("estados_mascaras", {}))
+        resultado.append(
+            {
+                "id": identificador,
+                "name": nome,
+                "mask_states": normalizar_estados_check_display(estados, mask_ids),
+            }
+        )
+    return resultado
+
+
 class DisplayProjectRepository:
     """Persistência exclusiva do F3.
 
-    Este repositório não usa ConfigRepository, ``led_projects`` ou qualquer
-    estado do modo F2. O arquivo próprio permite evoluir o Display sem alterar
-    o schema da inspeção PCI LED.
+    Projeto Display, resolução mestre, máscaras e CHECKS permanecem em arquivo
+    próprio. Nenhuma operação deste repositório usa ``ConfigRepository``,
+    ``led_projects`` ou estado da Produção F2.
     """
 
     def __init__(self, config_file: str | Path | None = None) -> None:
@@ -170,10 +274,18 @@ class DisplayProjectRepository:
                 resolucao = normalizar_resolucao_display(
                     projeto.get("master_resolution")
                 )
+                mascaras = normalizar_mascaras_display(projeto.get("masks", []))
+                tem_checks = "checks" in projeto
+                checks = normalizar_checks_display(
+                    projeto.get("checks"),
+                    mascaras,
+                    usar_padrao_se_ausente=not tem_checks,
+                )
                 projetos[nome] = {
                     "name": nome,
                     "master_resolution": _resolucao_dict(resolucao),
-                    "masks": normalizar_mascaras_display(projeto.get("masks", [])),
+                    "masks": mascaras,
+                    "checks": checks,
                     "updated_at": projeto.get("updated_at"),
                 }
 
@@ -208,6 +320,10 @@ class DisplayProjectRepository:
             arquivo.flush()
         temporario.replace(self.config_file)
 
+    @staticmethod
+    def _atualizar_timestamp(projeto: dict) -> None:
+        projeto["updated_at"] = datetime.now(timezone.utc).isoformat()
+
     def listar_projetos(self) -> list[str]:
         return list(self._carregar()["project_order"])
 
@@ -234,10 +350,12 @@ class DisplayProjectRepository:
         if nome_normalizado in dados["projects"]:
             return False
         resolucao = normalizar_resolucao_display(resolucao_mestra)
+        mascaras: list[dict] = []
         dados["projects"][nome_normalizado] = {
             "name": nome_normalizado,
             "master_resolution": _resolucao_dict(resolucao),
-            "masks": [],
+            "masks": mascaras,
+            "checks": _checks_padrao([]),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         dados["project_order"].append(nome_normalizado)
@@ -267,9 +385,11 @@ class DisplayProjectRepository:
             return True
         projeto = dados["projects"].pop(atual)
         projeto["name"] = novo
-        projeto["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._atualizar_timestamp(projeto)
         dados["projects"][novo] = projeto
-        dados["project_order"] = [novo if item == atual else item for item in dados["project_order"]]
+        dados["project_order"] = [
+            novo if item == atual else item for item in dados["project_order"]
+        ]
         if dados["active_project"] == atual:
             dados["active_project"] = novo
         self._escrever(dados)
@@ -324,14 +444,181 @@ class DisplayProjectRepository:
         if not nome_normalizado or resolucao is None:
             return False
         dados = self._carregar()
-        if nome_normalizado not in dados["projects"]:
+        projeto_atual = dados["projects"].get(nome_normalizado)
+        if projeto_atual is None:
             return False
+        mascaras_normalizadas = normalizar_mascaras_display(mascaras)
+        checks = normalizar_checks_display(
+            projeto_atual.get("checks", []),
+            mascaras_normalizadas,
+        )
         dados["projects"][nome_normalizado] = {
             "name": nome_normalizado,
             "master_resolution": _resolucao_dict(resolucao),
-            "masks": normalizar_mascaras_display(mascaras),
+            "masks": mascaras_normalizadas,
+            "checks": checks,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         dados["active_project"] = nome_normalizado
+        self._escrever(dados)
+        return True
+
+    def listar_checks(self, nome_projeto: str) -> list[dict]:
+        projeto = self.carregar_projeto(nome_projeto)
+        if projeto is None:
+            return []
+        return deepcopy(projeto.get("checks", []))
+
+    def carregar_check(self, nome_projeto: str, check_id: str) -> dict | None:
+        identificador = str(check_id or "").strip().upper()
+        for check in self.listar_checks(nome_projeto):
+            if str(check.get("id", "")).upper() == identificador:
+                return deepcopy(check)
+        return None
+
+    def adicionar_check(self, nome_projeto: str, nome_check: str) -> str | None:
+        projeto_nome = normalizar_nome_projeto_display(nome_projeto)
+        nome = normalizar_nome_check_display(nome_check)
+        if not projeto_nome or not nome:
+            return None
+        dados = self._carregar()
+        projeto = dados["projects"].get(projeto_nome)
+        if projeto is None:
+            return None
+        checks = list(projeto.get("checks", []))
+        if any(normalizar_nome_check_display(item.get("name")) == nome for item in checks):
+            return None
+        ids_usados = {str(item.get("id", "")).upper() for item in checks}
+        check_id = _proximo_id_check(ids_usados)
+        mask_ids = [str(mask["id"]) for mask in projeto.get("masks", [])]
+        checks.append(
+            {
+                "id": check_id,
+                "name": nome,
+                "mask_states": normalizar_estados_check_display({}, mask_ids),
+            }
+        )
+        projeto["checks"] = normalizar_checks_display(checks, projeto.get("masks", []))
+        self._atualizar_timestamp(projeto)
+        self._escrever(dados)
+        return check_id
+
+    def renomear_check(
+        self,
+        nome_projeto: str,
+        check_id: str,
+        novo_nome: str,
+    ) -> bool:
+        projeto_nome = normalizar_nome_projeto_display(nome_projeto)
+        identificador = str(check_id or "").strip().upper()
+        nome = normalizar_nome_check_display(novo_nome)
+        if not projeto_nome or not identificador or not nome:
+            return False
+        dados = self._carregar()
+        projeto = dados["projects"].get(projeto_nome)
+        if projeto is None:
+            return False
+        checks = list(projeto.get("checks", []))
+        if any(
+            str(item.get("id", "")).upper() != identificador
+            and normalizar_nome_check_display(item.get("name")) == nome
+            for item in checks
+        ):
+            return False
+        encontrado = False
+        for check in checks:
+            if str(check.get("id", "")).upper() == identificador:
+                check["name"] = nome
+                encontrado = True
+                break
+        if not encontrado:
+            return False
+        projeto["checks"] = normalizar_checks_display(checks, projeto.get("masks", []))
+        self._atualizar_timestamp(projeto)
+        self._escrever(dados)
+        return True
+
+    def remover_check(self, nome_projeto: str, check_id: str) -> bool:
+        projeto_nome = normalizar_nome_projeto_display(nome_projeto)
+        identificador = str(check_id or "").strip().upper()
+        dados = self._carregar()
+        projeto = dados["projects"].get(projeto_nome)
+        if projeto is None or not identificador:
+            return False
+        checks = list(projeto.get("checks", []))
+        novos = [
+            check
+            for check in checks
+            if str(check.get("id", "")).upper() != identificador
+        ]
+        if len(novos) == len(checks):
+            return False
+        projeto["checks"] = normalizar_checks_display(novos, projeto.get("masks", []))
+        self._atualizar_timestamp(projeto)
+        self._escrever(dados)
+        return True
+
+    def mover_check(
+        self,
+        nome_projeto: str,
+        check_id: str,
+        deslocamento: int,
+    ) -> bool:
+        projeto_nome = normalizar_nome_projeto_display(nome_projeto)
+        identificador = str(check_id or "").strip().upper()
+        passo = -1 if int(deslocamento) < 0 else 1
+        dados = self._carregar()
+        projeto = dados["projects"].get(projeto_nome)
+        if projeto is None or not identificador:
+            return False
+        checks = list(projeto.get("checks", []))
+        indice = next(
+            (
+                i
+                for i, check in enumerate(checks)
+                if str(check.get("id", "")).upper() == identificador
+            ),
+            None,
+        )
+        if indice is None:
+            return False
+        destino = indice + passo
+        if destino < 0 or destino >= len(checks):
+            return False
+        checks[indice], checks[destino] = checks[destino], checks[indice]
+        projeto["checks"] = normalizar_checks_display(checks, projeto.get("masks", []))
+        self._atualizar_timestamp(projeto)
+        self._escrever(dados)
+        return True
+
+    def salvar_estados_check(
+        self,
+        nome_projeto: str,
+        check_id: str,
+        estados,
+    ) -> bool:
+        projeto_nome = normalizar_nome_projeto_display(nome_projeto)
+        identificador = str(check_id or "").strip().upper()
+        dados = self._carregar()
+        projeto = dados["projects"].get(projeto_nome)
+        if projeto is None or not identificador:
+            return False
+        mask_ids = [str(mask["id"]) for mask in projeto.get("masks", [])]
+        encontrado = False
+        for check in projeto.get("checks", []):
+            if str(check.get("id", "")).upper() == identificador:
+                check["mask_states"] = normalizar_estados_check_display(
+                    estados,
+                    mask_ids,
+                )
+                encontrado = True
+                break
+        if not encontrado:
+            return False
+        projeto["checks"] = normalizar_checks_display(
+            projeto.get("checks", []),
+            projeto.get("masks", []),
+        )
+        self._atualizar_timestamp(projeto)
         self._escrever(dados)
         return True
