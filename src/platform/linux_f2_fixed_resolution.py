@@ -99,6 +99,18 @@ class LinuxF2FixedResolutionMixin:
         except Exception:
             pass
 
+    def _mask_guard_current_resolution(self):
+        """Impede o segundo guard de geometria de seguir um frame renegociado."""
+        if (
+            self._linux_f2_runtime()
+            and (
+                self._linux_f2_resolution_lock_active
+                or bool(getattr(self, "operacao_ativa", False))
+            )
+        ):
+            return LINUX_F2_FIXED_RESOLUTION
+        return super()._mask_guard_current_resolution()
+
     def abrir_tela_operacao(self) -> None:
         if not self._linux_f2_runtime():
             return super().abrir_tela_operacao()
@@ -140,6 +152,73 @@ class LinuxF2FixedResolutionMixin:
             schedule_operation_prepare=schedule_operation_prepare,
         )
 
+    def atualizar_frame_camera(self) -> None:
+        if not (
+            self._linux_f2_runtime()
+            and bool(getattr(self, "operacao_ativa", False))
+        ):
+            return super().atualizar_frame_camera()
+
+        frame_anterior = getattr(self, "camera_frame_atual", None)
+        frame_anterior_valido = False
+        if frame_anterior is not None and getattr(frame_anterior, "size", 0):
+            try:
+                altura, largura = frame_anterior.shape[:2]
+                frame_anterior_valido = (
+                    int(largura),
+                    int(altura),
+                ) == LINUX_F2_FIXED_RESOLUTION
+            except Exception:
+                frame_anterior_valido = False
+
+        imagem_anterior = getattr(self, "imagem_original", None)
+        largura_anterior = getattr(self, "largura_original", None)
+        altura_anterior = getattr(self, "altura_original", None)
+
+        resultado = super().atualizar_frame_camera()
+
+        frame_atual = getattr(self, "camera_frame_atual", None)
+        if frame_atual is not None and getattr(frame_atual, "size", 0):
+            if not self._linux_f2_frame_640_valido():
+                # Mesmo que um backend consiga publicar um frame renegociado,
+                # ele não vira a nova base visual/geométrica do F2.
+                self.camera_frame_atual = (
+                    frame_anterior if frame_anterior_valido else None
+                )
+                self.imagem_original = imagem_anterior
+                if largura_anterior is not None:
+                    self.largura_original = largura_anterior
+                if altura_anterior is not None:
+                    self.altura_original = altura_anterior
+                self._linux_f2_travar_servico()
+        return resultado
+
+    def _atualizar_preview_operacao(self) -> None:
+        if (
+            self._linux_f2_runtime()
+            and bool(getattr(self, "operacao_ativa", False))
+        ):
+            frame = getattr(self, "camera_frame_atual", None)
+            if frame is not None and getattr(frame, "size", 0):
+                if not self._linux_f2_frame_640_valido():
+                    self._operacao_preview_after_id = None
+                    try:
+                        self.operacao_window.set_preview_status(
+                            "Frame rejeitado • F2 Linux exige 640x480",
+                            "#FCA5A5",
+                        )
+                    except Exception:
+                        pass
+                    self._linux_f2_travar_servico()
+                    agendar = getattr(self, "_agendar_preview_operacao", None)
+                    if callable(agendar):
+                        try:
+                            agendar()
+                        except Exception:
+                            pass
+                    return None
+        return super()._atualizar_preview_operacao()
+
     def preparar_tela_operacao(self) -> None:
         if (
             self._linux_f2_runtime()
@@ -167,5 +246,11 @@ class LinuxF2FixedResolutionMixin:
             self._linux_f2_travar_servico()
             if not self._linux_f2_frame_640_valido():
                 self._linux_f2_bloquear_frame_invalido()
+                agendar = getattr(self, "_agendar_preparo_operacao", None)
+                if callable(agendar):
+                    try:
+                        agendar(150)
+                    except Exception:
+                        pass
                 return None
         return super().disparar_inspecao_operacao()
