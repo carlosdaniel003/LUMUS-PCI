@@ -1,11 +1,72 @@
 import inspect
 import unittest
+from unittest.mock import patch
 
 from src.platform.fullscreen_led_selection import FullscreenLedSelectionMixin
 from src.platform.responsive_led_selection_toolbar import (
+    _aplicar_layout_toolbar_roi,
     calcular_perfil_toolbar_roi,
     deve_reagir_configure_toolbar_roi,
 )
+
+
+class _FakeWidget:
+    def __init__(self, master=None, manager="pack"):
+        self.master = master
+        self.manager = manager
+        self.grid_calls = 0
+        self.forget_calls = 0
+        self.configure_calls = 0
+        self.column_calls = 0
+
+    def winfo_manager(self):
+        return self.manager
+
+    def pack_forget(self):
+        self.forget_calls += 1
+        self.manager = ""
+
+    def grid_forget(self):
+        self.forget_calls += 1
+        self.manager = ""
+
+    def place_forget(self):
+        self.forget_calls += 1
+        self.manager = ""
+
+    def grid(self, **_kwargs):
+        self.grid_calls += 1
+        self.manager = "grid"
+
+    def configure(self, **_kwargs):
+        self.configure_calls += 1
+
+    def pack_configure(self, **_kwargs):
+        return None
+
+    def pack_propagate(self, *_args):
+        return None
+
+    def grid_propagate(self, *_args):
+        return None
+
+    def grid_columnconfigure(self, *_args, **_kwargs):
+        self.column_calls += 1
+
+
+class _FakeWindow:
+    def __init__(self, largura=1366):
+        self.largura = largura
+
+    def winfo_width(self):
+        return self.largura
+
+    def winfo_screenwidth(self):
+        return 1920
+
+
+class _FakeApp:
+    pass
 
 
 class ResponsiveLedSelectionToolbarTests(unittest.TestCase):
@@ -48,6 +109,51 @@ class ResponsiveLedSelectionToolbarTests(unittest.TestCase):
         self.assertEqual("compacto", calcular_perfil_toolbar_roi(1049)["nome"])
         self.assertEqual("notebook", calcular_perfil_toolbar_roi(1050)["nome"])
         self.assertTrue(deve_reagir_configure_toolbar_roi(1050, 1049))
+
+    def test_configure_repetido_nao_remapeia_botoes(self):
+        app = _FakeApp()
+        janela = _FakeWindow(1366)
+        barra = _FakeWidget(manager="pack")
+        seletor = _FakeWidget(master=barra, manager="pack")
+        frame_botoes = _FakeWidget(master=seletor, manager="pack")
+        botoes = [
+            _FakeWidget(master=frame_botoes, manager="pack")
+            for _ in range(4)
+        ]
+
+        with patch(
+            "src.platform.responsive_led_selection_toolbar._widgets_ferramenta",
+            return_value=botoes,
+        ), patch(
+            "src.platform.responsive_led_selection_toolbar._localizar_textos_barra",
+            return_value=(None, None),
+        ):
+            _aplicar_layout_toolbar_roi(app, janela)
+            grids_iniciais = [botao.grid_calls for botao in botoes]
+            forgets_iniciais = [botao.forget_calls for botao in botoes]
+
+            # Configure de altura / resize dentro do mesmo perfil não pode
+            # desmontar nem remapear controles no X11.
+            _aplicar_layout_toolbar_roi(app, janela)
+            janela.largura = 1400
+            _aplicar_layout_toolbar_roi(app, janela)
+
+            self.assertEqual(grids_iniciais, [botao.grid_calls for botao in botoes])
+            self.assertEqual(
+                forgets_iniciais,
+                [botao.forget_calls for botao in botoes],
+            )
+
+            # Ao cruzar breakpoint, a posição pode mudar via grid, mas sem
+            # pack_forget/grid_forget e sem piscar.
+            janela.largura = 900
+            _aplicar_layout_toolbar_roi(app, janela)
+
+        self.assertTrue(all(botao.grid_calls == 2 for botao in botoes))
+        self.assertEqual(
+            forgets_iniciais,
+            [botao.forget_calls for botao in botoes],
+        )
 
     def test_layout_usa_grid_elastico_sem_remap_continuo(self):
         import src.platform.responsive_led_selection_toolbar as modulo
