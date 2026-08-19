@@ -29,6 +29,7 @@ jobs:
       - name: Compile Windows handoff modules
         run: |
           python -m py_compile \
+            src/platform/windows_camera_debug.py \
             src/platform/windows_camera_handoff.py \
             src/platform/camera_selection.py \
             src/platform/responsive_camera_selection.py \
@@ -39,6 +40,7 @@ jobs:
       - name: Run Windows handoff regressions
         run: |
           python -m unittest \
+            tests.test_windows_camera_debug \
             tests.test_windows_camera_handoff \
             tests.test_windows_camera_resolution \
             tests.test_responsive_camera_selection \
