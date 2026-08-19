@@ -4,12 +4,15 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import platform
 import sys
 import threading
+import time
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "sim"}
 _LOG_LOCK = threading.RLock()
+_PATCH_INSTALADO = False
 
 
 def camera_debug_enabled() -> bool:
@@ -96,9 +99,309 @@ def camera_debug_snapshot(service, evento: str = "snapshot") -> None:
         resolucao_solicitada=getattr(snapshot, "resolucao_solicitada", None),
         fps_real=getattr(snapshot, "fps_real", None),
         backend=diagnostico.get("backend_ativo"),
+        backend_tipo=diagnostico.get("backend_tipo"),
         thread_ativa=diagnostico.get("thread_ativa"),
         frames_lidos=diagnostico.get("frames_lidos_total"),
         falhas_leitura=diagnostico.get("leituras_falhas_total"),
+        frames_validos=diagnostico.get("frames_validos_sessao"),
         probe_timeouts=diagnostico.get("windows_probe_timeout_total"),
         ultimo_probe_timeout=diagnostico.get("windows_ultimo_probe_timeout"),
+        resolucao_travada=diagnostico.get("resolucao_mestra_travada"),
     )
+
+
+def _wrap_method(classe, nome: str, wrapper_factory) -> None:
+    original = getattr(classe, nome, None)
+    if not callable(original):
+        return
+    marcador = f"_odin_windows_debug_{nome}"
+    if getattr(classe, marcador, False):
+        return
+    setattr(classe, nome, wrapper_factory(original))
+    setattr(classe, marcador, True)
+
+
+def instalar_debug_camera_windows() -> bool:
+    """Instala observabilidade apenas quando o debug foi explicitamente ativado."""
+    global _PATCH_INSTALADO
+    if _PATCH_INSTALADO:
+        return True
+    if not camera_debug_enabled():
+        return False
+
+    import cv2
+    from src.infra.camera_service import CameraService
+    from src.platform.camera_selection import CameraSelectionMixin
+    from src.platform.raspberry_camera_service import RaspberryPi3CameraService
+    from src.platform.threaded_camera_service import ThreadedRaspberryPi3CameraService
+    from src.platform.windows_camera_compatibility import WindowsCameraCompatibilityMixin
+    import src.platform.responsive_camera_selection as responsive
+
+    camera_debug(
+        "debug_ativado",
+        python=sys.version.split()[0],
+        windows=platform.platform(),
+        opencv=getattr(cv2, "__version__", "?"),
+        pid=os.getpid(),
+    )
+
+    abrir_preview_original = responsive.abrir_camera_preview
+    if not getattr(abrir_preview_original, "_odin_windows_debug", False):
+        def abrir_preview_debug(indice: int):
+            inicio = time.monotonic()
+            camera_debug("selector_probe_inicio", indice=int(indice))
+            try:
+                capture, backend, frame = abrir_preview_original(indice)
+            except Exception as erro:
+                camera_debug(
+                    "selector_probe_excecao",
+                    indice=int(indice),
+                    erro=type(erro).__name__,
+                    detalhe=str(erro),
+                    duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+                )
+                raise
+            resolucao = None
+            if frame is not None and getattr(frame, "size", 0):
+                altura, largura = frame.shape[:2]
+                resolucao = (int(largura), int(altura))
+            camera_debug(
+                "selector_probe_fim",
+                indice=int(indice),
+                encontrou=capture is not None,
+                backend=backend,
+                resolucao=resolucao,
+                duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+            )
+            return capture, backend, frame
+
+        abrir_preview_debug._odin_windows_debug = True
+        responsive.abrir_camera_preview = abrir_preview_debug
+
+    def wrap_confirmar(original):
+        def confirmar(self, indice: int, callback=None):
+            camera_debug(
+                "selector_confirmar",
+                indice=int(indice),
+                backend_por_indice=getattr(self, "_odin_windows_backend_por_indice", {}),
+                released_event_existe=getattr(self, "_selector_released_event", None) is not None,
+            )
+            return original(self, indice, callback)
+        return confirmar
+
+    _wrap_method(
+        CameraSelectionMixin,
+        "_confirmar_camera_selecionada",
+        wrap_confirmar,
+    )
+
+    def wrap_preparar(original):
+        def preparar(self, indice: int):
+            camera_debug(
+                "service_preparar_indice",
+                indice=int(indice),
+                backend_selecionado=getattr(self, "backend_camera_selecionado", None),
+            )
+            resultado = original(self, indice)
+            try:
+                import src.platform.raspberry_pi3_profile as perfil
+                classe = perfil.RaspberryPi3CameraService
+                classe_nome = getattr(classe, "__name__", repr(classe))
+            except Exception:
+                classe_nome = "?"
+            camera_debug(
+                "service_indice_preparado",
+                indice=int(indice),
+                classe=classe_nome,
+            )
+            return resultado
+        return preparar
+
+    _wrap_method(
+        CameraSelectionMixin,
+        "_preparar_camera_selecionada_estrita",
+        wrap_preparar,
+    )
+
+    def wrap_estado(original):
+        def definir_estado(self, estado, mensagem):
+            anterior = getattr(self, "_estado", None)
+            resultado = original(self, estado, mensagem)
+            if anterior != estado or camera_debug_enabled():
+                camera_debug(
+                    "estado",
+                    anterior=anterior,
+                    atual=estado,
+                    mensagem=mensagem,
+                    indice=getattr(self, "indice_camera", None),
+                    backend=getattr(self, "_backend_name", None),
+                )
+            return resultado
+        return definir_estado
+
+    _wrap_method(CameraService, "_definir_estado", wrap_estado)
+
+    def wrap_reconexao(original):
+        def reconectar(self, motivo: str):
+            camera_debug(
+                "reconexao_agendada",
+                motivo=motivo,
+                indice=getattr(self, "indice_camera", None),
+                backend=getattr(self, "_backend_name", None),
+                falhas=getattr(self, "_falhas_consecutivas", None),
+            )
+            return original(self, motivo)
+        return reconectar
+
+    _wrap_method(CameraService, "_agendar_reconexao", wrap_reconexao)
+
+    def wrap_abrir(original):
+        def abrir(self):
+            inicio = time.monotonic()
+            camera_debug(
+                "service_open_inicio",
+                indice_solicitado=getattr(self, "_indice_camera_solicitado", None),
+                indice_atual=getattr(self, "indice_camera", None),
+                indices=(
+                    self._indices_candidatos()
+                    if callable(getattr(self, "_indices_candidatos", None))
+                    else None
+                ),
+                backends=(
+                    self._backends_preferidos()
+                    if callable(getattr(self, "_backends_preferidos", None))
+                    else None
+                ),
+                largura=getattr(self, "largura", None),
+                altura=getattr(self, "altura", None),
+                fps=getattr(self, "fps", None),
+                formato=getattr(self, "formato_camera", None),
+                perfil_auto=getattr(self, "perfil_automatico", None),
+                resolucao_travada=getattr(self, "_resolucao_mestra_travada", None),
+            )
+            try:
+                resultado = original(self)
+            except Exception as erro:
+                camera_debug(
+                    "service_open_excecao",
+                    erro=type(erro).__name__,
+                    detalhe=str(erro),
+                    duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+                )
+                raise
+            camera_debug(
+                "service_open_fim",
+                resultado=bool(resultado),
+                indice_ativo=getattr(self, "_indice_camera_ativo", None),
+                backend=getattr(self, "_backend_name", None),
+                capture_existe=getattr(self, "_capture", None) is not None,
+                estado=getattr(self, "_estado", None),
+                mensagem=getattr(self, "_mensagem", None),
+                duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+            )
+            return resultado
+        return abrir
+
+    _wrap_method(RaspberryPi3CameraService, "_abrir_camera", wrap_abrir)
+
+    def wrap_probe(original):
+        def probe(self, capture):
+            inicio = time.monotonic()
+            camera_debug(
+                "probe_inicial_inicio",
+                indice=getattr(self, "indice_camera", None),
+                exigir_resolucao=getattr(self, "_windows_exigir_resolucao_solicitada", None),
+                alvo=(getattr(self, "largura", None), getattr(self, "altura", None)),
+            )
+            resultado = original(self, capture)
+            camera_debug(
+                "probe_inicial_fim",
+                resultado=bool(resultado),
+                ultima_resolucao=getattr(self, "_windows_ultima_resolucao_probe", None),
+                timeout=getattr(self, "_windows_ultimo_probe_timeout", None),
+                timeouts_total=getattr(self, "_windows_probe_timeout_total", None),
+                duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+            )
+            return resultado
+        return probe
+
+    _wrap_method(
+        WindowsCameraCompatibilityMixin,
+        "_capture_entrega_frame_inicial",
+        wrap_probe,
+    )
+
+    def wrap_loop(original):
+        def loop(self):
+            camera_debug(
+                "capture_loop_inicio",
+                indice=getattr(self, "indice_camera", None),
+                thread=threading.current_thread().name,
+            )
+            try:
+                return original(self)
+            finally:
+                camera_debug(
+                    "capture_loop_fim",
+                    frames_lidos=getattr(self, "_frames_lidos_total", None),
+                    falhas=getattr(self, "_leituras_falhas_total", None),
+                    stop=getattr(self, "_stop_event", None).is_set()
+                    if getattr(self, "_stop_event", None) is not None
+                    else None,
+                )
+        return loop
+
+    _wrap_method(ThreadedRaspberryPi3CameraService, "_loop_captura", wrap_loop)
+
+    def wrap_publicar(original):
+        def publicar(self, frame, estavel: bool):
+            contador = int(getattr(self, "_odin_debug_publicacoes", 0)) + 1
+            self._odin_debug_publicacoes = contador
+            if contador <= 3 or contador % 60 == 0:
+                altura, largura = frame.shape[:2]
+                camera_debug(
+                    "frame_publicado",
+                    numero=contador,
+                    resolucao=(int(largura), int(altura)),
+                    estavel=bool(estavel),
+                    backend=getattr(self, "_backend_name", None),
+                )
+            return original(self, frame, estavel)
+        return publicar
+
+    _wrap_method(
+        ThreadedRaspberryPi3CameraService,
+        "_publicar_frame_otimizado",
+        wrap_publicar,
+    )
+
+    _PATCH_INSTALADO = True
+    return True
+
+
+def iniciar_debug_periodico_camera_windows(app, intervalo_ms: int = 1500) -> bool:
+    """Mostra snapshots periódicos para localizar exatamente onde o fluxo parou."""
+    if not camera_debug_enabled():
+        return False
+
+    root = getattr(app, "root", None)
+    if root is None:
+        return False
+
+    def emitir() -> None:
+        try:
+            service = getattr(app, "camera_service", None)
+            if service is not None:
+                camera_debug_snapshot(service, "snapshot_periodico")
+        finally:
+            try:
+                root.after(max(500, int(intervalo_ms)), emitir)
+            except Exception:
+                pass
+
+    camera_debug("snapshot_periodico_agendado", intervalo_ms=int(intervalo_ms))
+    try:
+        root.after(400, emitir)
+    except Exception:
+        return False
+    return True
