@@ -6,14 +6,7 @@ from src.platform.raspberry_pi3_settings import CAMERA_FPS, CAMERA_HEIGHT, CAMER
 
 
 class WindowsCameraCompatibilityMixin:
-    """Prioriza o perfil solicitado no Windows e usa AUTO apenas como fallback.
-
-    Algumas webcams abrem em 640x480 quando o backend fica totalmente em modo
-    automático, mesmo suportando 1920x1080. O ODIN agora tenta primeiro o perfil
-    configurado em todos os backends disponíveis. Se nenhum backend realmente
-    entregar a resolução solicitada, faz uma segunda tentativa sem impor perfil,
-    preservando compatibilidade com câmeras antigas.
-    """
+    """Prioriza o perfil solicitado no Windows e usa AUTO apenas como fallback."""
 
     WINDOWS_RESOLUTION_PROBE_FRAMES = 12
 
@@ -41,8 +34,6 @@ class WindowsCameraCompatibilityMixin:
             )
             return configuracoes
 
-        # Perfil explícito: não o convertemos para AUTO. A normalização do
-        # CameraService valida os valores depois desta etapa.
         configuracoes["width"] = int(configuracoes.get("width", CAMERA_WIDTH))
         configuracoes["height"] = int(configuracoes.get("height", CAMERA_HEIGHT))
         configuracoes.setdefault("fps_mode", "manual")
@@ -84,8 +75,6 @@ class WindowsCameraCompatibilityMixin:
             self._windows_fallback_automatico_ativo = False
             return super()._abrir_camera()
 
-        # Guarda o perfil solicitado porque a segunda passagem, se necessária,
-        # precisa abrir a câmera em AUTO sem alterar a configuração persistida.
         perfil = {
             "perfil_automatico": bool(self.perfil_automatico),
             "fps": int(self.fps),
@@ -101,8 +90,29 @@ class WindowsCameraCompatibilityMixin:
             self._windows_exigir_resolucao_solicitada = False
             return True
 
-        # Nenhum backend entregou a resolução solicitada. Reabrimos em modo
-        # nativo para não transformar uma câmera funcional em desconexão eterna.
+        # Com resolução mestre de projeto não existe fallback para outro modo.
+        # Se 640x480 foi salvo com as ROIs, somente 640x480 é aceito.
+        resolucao_travada = getattr(
+            self,
+            "_resolucao_mestra_travada",
+            None,
+        )
+        if resolucao_travada is not None:
+            self._windows_exigir_resolucao_solicitada = False
+            self._windows_fallback_automatico_ativo = False
+            try:
+                self._definir_estado(
+                    self.ESTADO_DESCONECTADA,
+                    (
+                        "A câmera não confirmou a resolução mestre "
+                        f"{resolucao_travada[0]}x{resolucao_travada[1]}. "
+                        "Aguardando reconexão no mesmo modo."
+                    ),
+                )
+            except Exception:
+                pass
+            return False
+
         self._windows_exigir_resolucao_solicitada = False
         self.perfil_automatico = True
         self.fps = 0
