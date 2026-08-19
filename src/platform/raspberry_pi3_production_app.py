@@ -102,6 +102,9 @@ from src.platform.segment_project_geometry_persistence import (
     SegmentProjectGeometryPersistenceMixin,
     instalar_preservacao_segmentos_resolution_sync,
 )
+from src.platform.windows_camera_handoff import (
+    instalar_handoff_camera_windows,
+)
 
 
 class RaspberryPi3ProductionApp(
@@ -134,6 +137,7 @@ class RaspberryPi3ProductionApp(
 
     def __init__(self, root: tk.Tk) -> None:
         raspberry_pi3_profile.RaspberryPi3CameraService = LiveFixedFullHdCameraService
+        instalar_handoff_camera_windows()
         instalar_normalizacao_config_repository()
         instalar_persistencia_segmento_livre()
         instalar_repositorio_projetos_led()
