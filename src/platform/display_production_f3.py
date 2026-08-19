@@ -88,6 +88,26 @@ class DisplayProductionF3Mixin:
                 pady=18,
             )
 
+    def _ativar_tela_producao_display_f3(self) -> bool:
+        """Mostra somente a camada F3; não cria nem altera runtime de F2."""
+        self.display_f3_ativo = True
+        janela = self.display_f3_window
+        if janela is not None:
+            janela.show_waiting_camera()
+            janela.show()
+        self._agendar_preview_display_f3(0)
+        return True
+
+    def _abrir_f3_apos_escolha_camera(self, _indice: int) -> None:
+        """Continua o F3 usando o handoff de câmera já existente no ODIN."""
+        if self._f2_esta_aberto():
+            return
+        try:
+            self.iniciar_tela_ao_vivo()
+        except Exception:
+            pass
+        self._ativar_tela_producao_display_f3()
+
     def abrir_tela_producao_display_f3(self) -> bool:
         """Abre F3 sem inicializar engine, trigger, contadores ou estado F2."""
         if self.display_f3_ativo:
@@ -108,23 +128,23 @@ class DisplayProductionF3Mixin:
                 pass
             return False
 
-        # F3 não cria nem substitui um serviço de câmera. Caso a tela ao vivo
-        # ainda esteja desligada, pede ao fluxo existente que a inicie e passa
-        # a consumir somente camera_frame_atual quando ele ficar disponível.
+        # A câmera pertence ao ODIN, não ao F3. Se já está ativa, o F3 apenas
+        # lê camera_frame_atual. Se está desligada, reutiliza o mesmo seletor
+        # visual e o mesmo handoff já consolidados pela aplicação atual.
         if not bool(getattr(self, "camera_ativa", False)):
+            abrir_seletor = getattr(self, "abrir_seletor_camera", None)
+            if callable(abrir_seletor):
+                abrir_seletor(
+                    ao_selecionar=self._abrir_f3_apos_escolha_camera,
+                )
+                return True
+
             try:
                 self.iniciar_tela_ao_vivo()
             except Exception:
                 pass
 
-        self.display_f3_ativo = True
-        janela = self.display_f3_window
-        if janela is not None:
-            janela.show_waiting_camera()
-            janela.show()
-
-        self._agendar_preview_display_f3(0)
-        return True
+        return self._ativar_tela_producao_display_f3()
 
     def fechar_tela_producao_display_f3(self) -> None:
         """Fecha somente a camada F3; a câmera e o F2 não são parados."""
