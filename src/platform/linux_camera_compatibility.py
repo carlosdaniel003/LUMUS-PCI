@@ -30,12 +30,7 @@ LINUX_CAMERA_COMPATIBILITY_RESOLUTIONS = (
 
 
 class LinuxCameraCompatibilityMixin:
-    """Mantém Full HD como prioridade e aceita câmeras Linux mais antigas.
-
-    O perfil de produção continua tentando 1920x1080 primeiro. Somente quando
-    nenhuma pipeline da câmera selecionada sustenta esse modo são tentadas
-    resoluções de compatibilidade e, por último, o modo nativo do backend.
-    """
+    """Compatibilidade Linux com suporte a resolução mestre estrita."""
 
     def __init__(self, *args, **kwargs) -> None:
         self._linux_compat_expected_resolution: tuple[int, int] | None = None
@@ -84,6 +79,31 @@ class LinuxCameraCompatibilityMixin:
             indice_ativo=self._indice_camera_ativo,
             indice_maximo=CAMERA_SCAN_MAX_INDEX,
         )
+        travada = getattr(self, "_resolucao_mestra_travada", None)
+
+        if travada is not None:
+            largura_alvo, altura_alvo = int(travada[0]), int(travada[1])
+            candidatos = construir_candidatos_linux(
+                dispositivos=dispositivos,
+                largura=largura_alvo,
+                altura=altura_alvo,
+                fps=max(1, int(getattr(self, "fps", 0) or CAMERA_FPS)),
+                gstreamer_disponivel=opencv_tem_gstreamer(),
+                resolucoes_preferidas=((largura_alvo, altura_alvo),),
+            )
+            # Sem AUTO nem resoluções menores: um projeto mestre 640x480 só
+            # pode abrir pipelines que confirmem exatamente 640x480.
+            candidatos = tuple(
+                candidato
+                for candidato in candidatos
+                if candidato.tipo != "auto"
+                and int(candidato.largura) == largura_alvo
+                and int(candidato.altura) == altura_alvo
+            )
+            return tuple(
+                sorted(candidatos, key=self._prioridade_candidato_linux)
+            )
+
         candidatos = construir_candidatos_linux(
             dispositivos=dispositivos,
             largura=CAMERA_WIDTH,
@@ -108,8 +128,6 @@ class LinuxCameraCompatibilityMixin:
             super()._configurar_capture_direto(capture, candidato)
             return
 
-        # O último fallback deve reproduzir a negociação nativa do dispositivo.
-        # Não forçamos FOURCC, resolução ou FPS no candidato automático.
         if candidato.tipo == "auto":
             try:
                 capture.set(cv2.CAP_PROP_BUFFERSIZE, 2)
@@ -129,10 +147,11 @@ class LinuxCameraCompatibilityMixin:
 
         largura = max(1, int(candidato.largura or CAMERA_WIDTH))
         altura = max(1, int(candidato.altura or CAMERA_HEIGHT))
+        fps = max(1, int(getattr(self, "fps", 0) or CAMERA_FPS))
         for propriedade, valor in (
             (cv2.CAP_PROP_FRAME_WIDTH, largura),
             (cv2.CAP_PROP_FRAME_HEIGHT, altura),
-            (cv2.CAP_PROP_FPS, CAMERA_FPS),
+            (cv2.CAP_PROP_FPS, fps),
         ):
             try:
                 capture.set(propriedade, valor)
@@ -151,9 +170,6 @@ class LinuxCameraCompatibilityMixin:
         if not sys.platform.startswith("linux"):
             return super()._abrir_candidato_linux(candidato)
 
-        # Bypass intencional da restrição 1080p de FixedFullHdCameraService.
-        # O método threaded continua fazendo abertura, leitura inicial e
-        # validação básica, mas usa a configuração por candidato acima.
         capture = ThreadedRaspberryPi3CameraService._abrir_candidato_linux(
             self,
             candidato,
@@ -204,8 +220,6 @@ class LinuxCameraCompatibilityMixin:
         atual = (int(largura_real), int(altura_real))
         esperado = self._linux_compat_expected_resolution
 
-        # No modo automático, o primeiro frame válido define o modo realmente
-        # negociado pelo driver. A partir daí exigimos estabilidade nesse modo.
         if esperado is None:
             esperado = atual
             self._linux_compat_expected_resolution = esperado
@@ -237,8 +251,10 @@ class LinuxCameraCompatibilityMixin:
     def obter_diagnostico_fluxo(self) -> dict:
         diagnostico = super().obter_diagnostico_fluxo()
         esperado = self._linux_compat_expected_resolution
+        travada = getattr(self, "_resolucao_mestra_travada", None)
         fallback = bool(
             sys.platform.startswith("linux")
+            and travada is None
             and esperado is not None
             and esperado != (CAMERA_WIDTH, CAMERA_HEIGHT)
         )
