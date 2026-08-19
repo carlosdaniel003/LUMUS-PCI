@@ -13,7 +13,7 @@ from src.platform.camera_selection import (
 _PATCH_INSTALADO = False
 # O worker já confirmou release(), mas alguns drivers UVC/MSMF ainda mantêm a
 # sessão USB por alguns centenas de milissegundos. O atraso é exclusivo Windows.
-WINDOWS_POST_RELEASE_SETTLE_MS = 900
+WINDOWS_POST_RELEASE_SETTLE_MS = 1200
 WINDOWS_RELEASE_STATUS_AFTER_MS = 2500
 WINDOWS_RELEASE_POLL_MS = 50
 
