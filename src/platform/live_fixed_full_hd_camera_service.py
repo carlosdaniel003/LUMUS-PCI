@@ -11,6 +11,9 @@ from src.platform.fixed_full_hd_camera_service import (
 from src.platform.linux_camera_compatibility import (
     LinuxCameraCompatibilityMixin,
 )
+from src.platform.threaded_camera_service import (
+    ThreadedRaspberryPi3CameraService,
+)
 from src.platform.windows_camera_compatibility import (
     WindowsCameraCompatibilityMixin,
 )
@@ -66,6 +69,35 @@ class LiveFixedFullHdCameraService(
         with self._lock:
             return self._resolucao_mestra_travada
 
+    def atualizar_configuracoes_camera(
+        self,
+        configuracoes_camera: dict | None,
+    ) -> None:
+        """Salva controles sem deixar o perfil legado trocar a resolução.
+
+        ``FixedFullHdCameraService`` força 1920x1080 no Linux. Enquanto um
+        projeto possui resolução mestre, pulamos apenas essa normalização de
+        transporte e mantemos todo o restante da configuração da câmera.
+        Nenhum ``capture.set`` de largura/altura e nenhum restart ocorre aqui.
+        """
+        travada = self.obter_resolucao_travada()
+        if travada is None:
+            return super().atualizar_configuracoes_camera(configuracoes_camera)
+
+        configuracoes = dict(configuracoes_camera or {})
+        configuracoes.update(
+            {
+                "resolution_mode": "custom",
+                "width": int(travada[0]),
+                "height": int(travada[1]),
+            }
+        )
+        ThreadedRaspberryPi3CameraService.atualizar_configuracoes_camera(
+            self,
+            configuracoes,
+        )
+        self.definir_resolucao_travada(*travada)
+
     def _preparar_configuracoes_camera_ao_vivo(
         self,
         configuracoes_camera: dict | None,
@@ -103,6 +135,13 @@ class LiveFixedFullHdCameraService(
                     f"{atual[0]}x{atual[1]}, mas o projeto exige "
                     f"{travada[0]}x{travada[1]}."
                 )
+                try:
+                    self._definir_estado(
+                        self.ESTADO_ESTABILIZANDO,
+                        self._ultimo_motivo_descarte,
+                    )
+                except Exception:
+                    pass
                 if (
                     self._resolution_mismatch_count
                     >= self.RESOLUTION_MISMATCH_BEFORE_SWITCH
@@ -120,6 +159,7 @@ class LiveFixedFullHdCameraService(
                 return
 
             self._resolution_mismatch_count = 0
+            self._ultimo_motivo_descarte = ""
 
         super()._publicar_frame_otimizado(frame, estavel=estavel)
 
