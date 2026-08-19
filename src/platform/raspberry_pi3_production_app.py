@@ -64,6 +64,9 @@ from src.platform.led_project_preview_store import (
 from src.platform.led_project_repository import (
     instalar_repositorio_projetos_led,
 )
+from src.platform.linux_f2_fixed_resolution import (
+    LinuxF2FixedResolutionMixin,
+)
 from src.platform.live_fixed_full_hd_camera_service import (
     LiveFixedFullHdCameraService,
 )
@@ -122,6 +125,7 @@ class RaspberryPi3ProductionApp(
     DisplayThemeMixin,
     DisplayProductionF3Mixin,
     CameraSelectionMixin,
+    LinuxF2FixedResolutionMixin,
     ProjectMasterResolutionGuardMixin,
     NeutralProjectStartupMixin,
     ProjectMasterResolutionMixin,
