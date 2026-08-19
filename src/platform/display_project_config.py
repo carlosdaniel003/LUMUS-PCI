@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, simpledialog
 from collections.abc import Callable
+from tkinter import messagebox, simpledialog
 
+from src.platform.display_check_editor import DisplayCheckManagerWindow
 from src.platform.display_mask_editor import DisplayMaskEditorWindow
 from src.platform.display_project_repository import (
     DisplayProjectRepository,
@@ -13,7 +14,7 @@ from src.platform.display_project_repository import (
 
 
 class DisplayProjectConfigWindow:
-    """Gerencia Projeto Display, resolução mestre e máscaras do F3."""
+    """Gerencia Projeto Display, resolução mestre, máscaras e CHECKS do F3."""
 
     BG = "#07111F"
     PANEL = "#0B1728"
@@ -35,6 +36,7 @@ class DisplayProjectConfigWindow:
         self.on_change = on_change
         self.on_close = on_close
         self.mask_editor: DisplayMaskEditorWindow | None = None
+        self.check_manager: DisplayCheckManagerWindow | None = None
 
         self.window = tk.Toplevel(root)
         self.window.title("ODIN • Projeto Display")
@@ -43,8 +45,8 @@ class DisplayProjectConfigWindow:
         self.window.transient(root)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
 
-        width = 760
-        height = 540
+        width = 820
+        height = 680
         try:
             x = root.winfo_rootx() + max(0, (root.winfo_width() - width) // 2)
             y = root.winfo_rooty() + max(0, (root.winfo_height() - height) // 2)
@@ -63,13 +65,13 @@ class DisplayProjectConfigWindow:
             self.window,
             text=(
                 "Configuração exclusiva do modo F3. Cada projeto possui sua "
-                "própria resolução mestre e suas próprias máscaras."
+                "própria resolução mestre, máscaras e sequência de CHECKS."
             ),
             font=("Segoe UI", 9),
             fg=self.MUTED,
             bg=self.BG,
             justify=tk.LEFT,
-            wraplength=710,
+            wraplength=770,
         ).pack(anchor="w", padx=22, pady=(0, 12))
 
         body = tk.Frame(self.window, bg=self.BG)
@@ -128,7 +130,7 @@ class DisplayProjectConfigWindow:
             bg=self.PANEL,
             highlightbackground=self.BORDER,
             highlightthickness=1,
-            width=400,
+            width=450,
         )
         right.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(12, 0))
         right.pack_propagate(False)
@@ -151,44 +153,43 @@ class DisplayProjectConfigWindow:
             bg=self.PANEL,
             anchor="w",
             justify=tk.LEFT,
-            wraplength=355,
+            wraplength=410,
         )
-        self.project_state.pack(fill=tk.X, padx=16, pady=(0, 16))
+        self.project_state.pack(fill=tk.X, padx=16, pady=(0, 12))
 
         resolution_box = tk.Frame(right, bg="#0F1B2C")
-        resolution_box.pack(fill=tk.X, padx=16, pady=(0, 12))
+        resolution_box.pack(fill=tk.X, padx=16, pady=(0, 9))
         tk.Label(
             resolution_box,
             text="RESOLUÇÃO MESTRE",
             font=("Segoe UI", 9, "bold"),
             fg=self.MUTED,
             bg="#0F1B2C",
-        ).pack(anchor="w", padx=12, pady=(10, 6))
+        ).pack(anchor="w", padx=12, pady=(9, 5))
 
         fields = tk.Frame(resolution_box, bg="#0F1B2C")
-        fields.pack(fill=tk.X, padx=12, pady=(0, 10))
+        fields.pack(fill=tk.X, padx=12, pady=(0, 8))
         self.width_var = tk.StringVar()
         self.height_var = tk.StringVar()
         self._resolution_field(fields, "Largura", self.width_var).pack(side=tk.LEFT, padx=(0, 8))
         self._resolution_field(fields, "Altura", self.height_var).pack(side=tk.LEFT)
-
         self.save_resolution_button = self._button(
-            resolution_box,
-            "Salvar resolução mestre",
+            fields,
+            "Salvar",
             self.save_resolution,
             primary=True,
         )
-        self.save_resolution_button.pack(anchor="w", padx=12, pady=(0, 12))
+        self.save_resolution_button.pack(side=tk.LEFT, padx=(12, 0), pady=(16, 0))
 
         masks_box = tk.Frame(right, bg="#0F1B2C")
-        masks_box.pack(fill=tk.X, padx=16, pady=(0, 12))
+        masks_box.pack(fill=tk.X, padx=16, pady=(0, 9))
         tk.Label(
             masks_box,
             text="MÁSCARAS",
             font=("Segoe UI", 9, "bold"),
             fg=self.MUTED,
             bg="#0F1B2C",
-        ).pack(anchor="w", padx=12, pady=(10, 4))
+        ).pack(anchor="w", padx=12, pady=(9, 3))
         self.mask_summary = tk.Label(
             masks_box,
             text="0 máscaras salvas",
@@ -197,14 +198,41 @@ class DisplayProjectConfigWindow:
             bg="#0F1B2C",
             anchor="w",
         )
-        self.mask_summary.pack(fill=tk.X, padx=12, pady=(0, 8))
+        self.mask_summary.pack(fill=tk.X, padx=12, pady=(0, 6))
         self.edit_masks_button = self._button(
             masks_box,
             "Editar máscaras visualmente",
             self.edit_masks,
             primary=True,
         )
-        self.edit_masks_button.pack(anchor="w", padx=12, pady=(0, 12))
+        self.edit_masks_button.pack(anchor="w", padx=12, pady=(0, 9))
+
+        checks_box = tk.Frame(right, bg="#0F1B2C")
+        checks_box.pack(fill=tk.X, padx=16, pady=(0, 9))
+        tk.Label(
+            checks_box,
+            text="CHECKS DO DISPLAY",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.MUTED,
+            bg="#0F1B2C",
+        ).pack(anchor="w", padx=12, pady=(9, 3))
+        self.check_summary = tk.Label(
+            checks_box,
+            text="0 CHECKS configurados",
+            font=("Segoe UI", 10, "bold"),
+            fg=self.TEXT,
+            bg="#0F1B2C",
+            anchor="w",
+            justify=tk.LEFT,
+        )
+        self.check_summary.pack(fill=tk.X, padx=12, pady=(0, 6))
+        self.edit_checks_button = self._button(
+            checks_box,
+            "Gerenciar e editar CHECKS",
+            self.manage_checks,
+            primary=True,
+        )
+        self.edit_checks_button.pack(anchor="w", padx=12, pady=(0, 9))
 
         self.activate_button = self._button(
             right,
@@ -277,7 +305,7 @@ class DisplayProjectConfigWindow:
         tk.Entry(
             box,
             textvariable=variable,
-            width=12,
+            width=11,
             font=("Segoe UI", 10, "bold"),
             bg="#020617",
             fg=self.TEXT,
@@ -338,10 +366,13 @@ class DisplayProjectConfigWindow:
 
     def _show_no_project(self) -> None:
         self.project_title.configure(text="SEM PROJETO")
-        self.project_state.configure(text="Crie um Projeto Display para definir resolução e máscaras.")
+        self.project_state.configure(
+            text="Crie um Projeto Display para definir resolução, máscaras e CHECKS."
+        )
         self.width_var.set("")
         self.height_var.set("")
         self.mask_summary.configure(text="0 máscaras salvas")
+        self.check_summary.configure(text="0 CHECKS configurados")
 
     def _load_selected(self) -> None:
         name = self._selected_name()
@@ -360,6 +391,7 @@ class DisplayProjectConfigWindow:
             self.height_var.set(str(resolution[1]))
             resolution_text = f"{resolution[0]}x{resolution[1]}"
         masks = project.get("masks", [])
+        checks = project.get("checks", [])
         active = self.repository.obter_projeto_ativo()
         self.project_state.configure(
             text=(
@@ -368,6 +400,15 @@ class DisplayProjectConfigWindow:
             )
         )
         self.mask_summary.configure(text=f"{len(masks)} máscara(s) salva(s)")
+        check_names = " → ".join(str(check.get("name", "CHECK")) for check in checks)
+        if len(check_names) > 54:
+            check_names = check_names[:51] + "..."
+        self.check_summary.configure(
+            text=(
+                f"{len(checks)} CHECK(s) configurado(s)"
+                + (f"\n{check_names}" if check_names else "")
+            )
+        )
 
     def add_project(self) -> None:
         name = simpledialog.askstring(
@@ -418,7 +459,7 @@ class DisplayProjectConfigWindow:
             return
         if not messagebox.askyesno(
             "Remover Projeto Display",
-            f"Remover {name} e todas as máscaras salvas nele?",
+            f"Remover {name}, suas máscaras e seus CHECKS?",
             parent=self.window,
         ):
             return
@@ -457,7 +498,9 @@ class DisplayProjectConfigWindow:
                 parent=self.window,
             )
             return False
-        self.status.configure(text=f"Resolução {resolution[0]}x{resolution[1]} salva em {name}.")
+        self.status.configure(
+            text=f"Resolução {resolution[0]}x{resolution[1]} salva em {name}."
+        )
         self.refresh(name)
         self._notify_change()
         return True
@@ -495,7 +538,9 @@ class DisplayProjectConfigWindow:
         def save_masks(masks: list[dict]) -> None:
             if self.repository.salvar_configuracao_projeto(name, resolution, masks):
                 self.refresh(name)
-                self.status.configure(text=f"{len(masks)} máscara(s) salvas em {name}.")
+                self.status.configure(
+                    text=f"{len(masks)} máscara(s) salvas em {name}."
+                )
                 self._notify_change()
 
         self.mask_editor = DisplayMaskEditorWindow(
@@ -506,7 +551,55 @@ class DisplayProjectConfigWindow:
             on_save=save_masks,
         )
 
+    def manage_checks(self) -> None:
+        name = self._selected_name()
+        if not name:
+            messagebox.showwarning(
+                "Sem Projeto Display",
+                "Selecione ou crie um projeto primeiro.",
+                parent=self.window,
+            )
+            return
+        existing = self.check_manager
+        if existing is not None and existing.visible:
+            try:
+                existing.window.lift()
+                existing.window.focus_force()
+            except Exception:
+                pass
+            return
+
+        def checks_changed() -> None:
+            self.refresh(name)
+            self._notify_change()
+
+        def checks_closed() -> None:
+            self.check_manager = None
+            self.refresh(name)
+            try:
+                self.window.lift()
+                self.window.focus_force()
+            except Exception:
+                pass
+
+        self.check_manager = DisplayCheckManagerWindow(
+            root=self.root,
+            repository=self.repository,
+            project_name=name,
+            frame_provider=self.frame_provider,
+            on_change=checks_changed,
+            on_close=checks_closed,
+        )
+
     def close(self) -> None:
+        manager = self.check_manager
+        if manager is not None and manager.visible:
+            manager.close()
+        self.check_manager = None
+        editor = self.mask_editor
+        if editor is not None and editor.visible:
+            editor.close()
+        self.mask_editor = None
         try:
             self.window.destroy()
         except Exception:
