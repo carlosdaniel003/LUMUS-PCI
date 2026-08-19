@@ -293,11 +293,17 @@ class DisplayProductionF3Mixin:
 
     @staticmethod
     def responsabilidades_f3() -> tuple[str, ...]:
+        """Contrato imutável aprovado na Fase 1."""
         return (
             "janela_f3",
             "atalho_f3",
             "preview_camera_somente_leitura",
             "ciclo_abertura_fechamento_f3",
+        )
+
+    @staticmethod
+    def responsabilidades_f3_fase2() -> tuple[str, ...]:
+        return (
             "projeto_display_persistente",
             "resolucao_mestra_display",
             "mascaras_display_persistentes",
