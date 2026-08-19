@@ -145,6 +145,46 @@ def instalar_debug_camera_windows() -> bool:
         pid=os.getpid(),
     )
 
+    # Em modo de debug interceptamos somente a construção do objeto OpenCV.
+    # Se aparecer videcapture_inicio sem videcapture_fim, o driver travou dentro
+    # do próprio construtor/open, antes de isOpened(), perfil ou primeiro read().
+    video_capture_original = cv2.VideoCapture
+    if not getattr(video_capture_original, "_odin_windows_debug", False):
+        def video_capture_debug(*args, **kwargs):
+            inicio = time.monotonic()
+            indice = args[0] if len(args) >= 1 else kwargs.get("index")
+            backend = args[1] if len(args) >= 2 else kwargs.get("apiPreference")
+            camera_debug(
+                "videocapture_inicio",
+                indice=indice,
+                backend=backend,
+                argc=len(args),
+            )
+            try:
+                capture = video_capture_original(*args, **kwargs)
+            except Exception as erro:
+                camera_debug(
+                    "videocapture_excecao",
+                    indice=indice,
+                    backend=backend,
+                    erro=type(erro).__name__,
+                    detalhe=str(erro),
+                    duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+                )
+                raise
+            camera_debug(
+                "videocapture_fim",
+                indice=indice,
+                backend=backend,
+                capture_existe=capture is not None,
+                duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+            )
+            return capture
+
+        video_capture_debug._odin_windows_debug = True
+        video_capture_debug._odin_windows_debug_original = video_capture_original
+        cv2.VideoCapture = video_capture_debug
+
     abrir_preview_original = responsive.abrir_camera_preview
     if not getattr(abrir_preview_original, "_odin_windows_debug", False):
         def abrir_preview_debug(indice: int):
@@ -254,6 +294,58 @@ def instalar_debug_camera_windows() -> bool:
         return reconectar
 
     _wrap_method(CameraService, "_agendar_reconexao", wrap_reconexao)
+
+    def wrap_liberar(original):
+        def liberar(self):
+            capture_existe = getattr(self, "_capture", None) is not None
+            camera_debug(
+                "capture_release_inicio",
+                capture_existe=capture_existe,
+                indice=getattr(self, "indice_camera", None),
+                backend=getattr(self, "_backend_name", None),
+            )
+            inicio = time.monotonic()
+            resultado = original(self)
+            camera_debug(
+                "capture_release_fim",
+                duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+                capture_existe=getattr(self, "_capture", None) is not None,
+            )
+            return resultado
+        return liberar
+
+    _wrap_method(CameraService, "_liberar_camera", wrap_liberar)
+
+    def wrap_perfil_capture(original):
+        def aplicar(self, capture):
+            inicio = time.monotonic()
+            camera_debug(
+                "perfil_capture_inicio",
+                perfil_auto=getattr(self, "perfil_automatico", None),
+                largura=getattr(self, "largura", None),
+                altura=getattr(self, "altura", None),
+                fps=getattr(self, "fps", None),
+                formato=getattr(self, "formato_camera", None),
+                resolucao_travada=getattr(self, "_resolucao_mestra_travada", None),
+            )
+            try:
+                resultado = original(self, capture)
+            except Exception as erro:
+                camera_debug(
+                    "perfil_capture_excecao",
+                    erro=type(erro).__name__,
+                    detalhe=str(erro),
+                    duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+                )
+                raise
+            camera_debug(
+                "perfil_capture_fim",
+                duracao_ms=round((time.monotonic() - inicio) * 1000, 1),
+            )
+            return resultado
+        return aplicar
+
+    _wrap_method(CameraService, "_aplicar_perfil_capture", wrap_perfil_capture)
 
     def wrap_abrir(original):
         def abrir(self):
