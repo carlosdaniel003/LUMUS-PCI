@@ -132,8 +132,6 @@ class ResponsiveLedSelectionToolbarTests(unittest.TestCase):
             grids_iniciais = [botao.grid_calls for botao in botoes]
             forgets_iniciais = [botao.forget_calls for botao in botoes]
 
-            # Configure de altura / resize dentro do mesmo perfil não pode
-            # desmontar nem remapear controles no X11.
             _aplicar_layout_toolbar_roi(app, janela)
             janela.largura = 1400
             _aplicar_layout_toolbar_roi(app, janela)
@@ -144,8 +142,6 @@ class ResponsiveLedSelectionToolbarTests(unittest.TestCase):
                 [botao.forget_calls for botao in botoes],
             )
 
-            # Ao cruzar breakpoint, a posição pode mudar via grid, mas sem
-            # pack_forget/grid_forget e sem piscar.
             janela.largura = 900
             _aplicar_layout_toolbar_roi(app, janela)
 
@@ -169,13 +165,17 @@ class ResponsiveLedSelectionToolbarTests(unittest.TestCase):
         self.assertIn("primeira_montagem=False", fonte)
         self.assertIn("deve_reagir_configure_toolbar_roi", fonte)
 
-    def test_documenta_que_forget_so_e_usado_na_montagem_inicial(self):
+    def test_forget_de_todos_os_botoes_ocorre_antes_do_primeiro_grid(self):
         import src.platform.responsive_led_selection_toolbar as modulo
 
         fonte = inspect.getsource(modulo._posicionar_botoes_ferramenta)
-        self.assertIn("if primeira_montagem:", fonte)
-        self.assertIn("_esquecer_geometria(botao)", fonte)
-        self.assertIn("botao.grid(", fonte)
+        pos_if = fonte.index("if primeira_montagem:")
+        pos_forget = fonte.index("_esquecer_geometria(botao)")
+        pos_grid_loop = fonte.index("for indice, botao in enumerate(botoes):")
+        pos_grid = fonte.index("botao.grid(")
+        self.assertLess(pos_if, pos_forget)
+        self.assertLess(pos_forget, pos_grid_loop)
+        self.assertLess(pos_grid_loop, pos_grid)
 
 
 if __name__ == "__main__":
