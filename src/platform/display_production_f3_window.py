@@ -9,9 +9,8 @@ from src.ui.operation_window_raspberry import RaspberryOperationWindow
 class DisplayProductionF3Window(RaspberryOperationWindow):
     """Janela visual independente para o novo modo Produção Display (F3).
 
-    Fase 2: mantém a câmera em modo somente leitura e adiciona acesso apenas às
-    configurações próprias de Projeto Display, resolução mestre e máscaras.
-    Ainda não existe análise, CHECKS, engine ou resultado OK/NG no F3.
+    Fase 3: câmera somente leitura + Projeto Display + máscaras + CHECKS.
+    Ainda não existe análise automática, engine de CHECK ou resultado OK/NG.
     """
 
     def __init__(
@@ -32,22 +31,21 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
 
         self.on_configure = on_configure
         self.brand_label.configure(text="ODIN  |  PRODUÇÃO DISPLAY  F3")
-        self.mode_label.configure(text="DISPLAY • PROJETO + MÁSCARAS")
+        self.mode_label.configure(text="DISPLAY • PROJETO + MÁSCARAS + CHECKS")
         self.status_label.configure(text="AGUARDANDO CÂMERA")
         self.detail_label.configure(
             text=(
-                "Fase 2 • câmera ao vivo em modo somente leitura. "
-                "Projeto Display, resolução mestre e máscaras são independentes do F2."
+                "Fase 3 • configuração de CHECKS por máscara. "
+                "Ainda sem análise automática."
             )
         )
         self.preview_title.configure(text="DISPLAY • CÂMERA AO VIVO")
         self.preview_legend.configure(
-            text="FASE 2 • SEM ANÁLISE",
+            text="FASE 3 • CONFIGURAÇÃO DE CHECKS • SEM ANÁLISE",
             fg=self.PREVIEW_MUTED,
         )
         self.footer_label.configure(text="F3 ou ESC: voltar ao ODIN")
 
-        # Estes componentes pertencem ao fluxo F2 e não participam do F3.
         self.led_summary_label.grid_remove()
         self.metrics_frame.grid_remove()
 
@@ -85,7 +83,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
 
         self.project_detail_label = tk.Label(
             self.project_frame,
-            text="Resolução mestre: --  •  Máscaras: 0",
+            text="Resolução mestre: --  •  Máscaras: 0  •  CHECKS: 0",
             font=("DejaVu Sans", 9),
             bg="#0B1220",
             fg="#94A3B8",
@@ -124,10 +122,6 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
             pady=10,
         )
 
-        # O F3 não possui trigger manual. Enter é consumido localmente e nunca
-        # chega ao callback/engine usado pelo modo F2. F2 também é consumido
-        # enquanto esta tela possui foco, impedindo dois modos simultâneos sem
-        # alterar o binding original do F2 na aplicação.
         self.container.bind("<Return>", self._ignorar_trigger)
         self.container.bind("<KP_Enter>", self._ignorar_trigger)
         self.container.bind("<F2>", self._ignorar_trigger)
@@ -148,6 +142,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         name: str | None,
         master_resolution=None,
         mask_count: int = 0,
+        check_count: int = 0,
     ) -> None:
         project_name = str(name or "NENHUM")
         resolution_text = "--"
@@ -155,7 +150,10 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
             resolution_text = f"{int(master_resolution[0])}x{int(master_resolution[1])}"
         self.project_info_label.configure(text=f"PROJETO DISPLAY: {project_name}")
         self.project_detail_label.configure(
-            text=f"Resolução mestre: {resolution_text}  •  Máscaras: {int(mask_count)}"
+            text=(
+                f"Resolução mestre: {resolution_text}  •  "
+                f"Máscaras: {int(mask_count)}  •  CHECKS: {int(check_count)}"
+            )
         )
 
     def show_waiting_camera(self) -> None:
@@ -170,7 +168,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         self.detail_label.configure(
             text=(
                 f"Câmera ao vivo • {int(width)}x{int(height)} • "
-                "Fase 2 sem análise"
+                "Fase 3 sem análise automática"
             )
         )
 
