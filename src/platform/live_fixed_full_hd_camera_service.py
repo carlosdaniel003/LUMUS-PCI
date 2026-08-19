@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from src.platform.camera_live_control_service import (
     CameraLiveControlServiceMixin,
 )
@@ -20,12 +22,108 @@ class LiveFixedFullHdCameraService(
     LinuxCameraCompatibilityMixin,
     FixedFullHdCameraService,
 ):
-    """Perfil final com transporte compatível e controles pontuais ao vivo."""
+    """Perfil final com controles ao vivo e resolução mestre opcional."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._resolucao_mestra_travada: tuple[int, int] | None = None
+        super().__init__(*args, **kwargs)
+
+    def definir_resolucao_travada(
+        self,
+        largura: int | None = None,
+        altura: int | None = None,
+    ) -> tuple[int, int] | None:
+        """Define a resolução única que pode ser publicada pelo serviço.
+
+        O método altera somente o alvo interno. Ele não chama ``capture.set`` e
+        não reinicia a câmera; o aplicativo decide se um restart é necessário.
+        """
+        if largura is None or altura is None:
+            with self._lock:
+                self._resolucao_mestra_travada = None
+            return None
+
+        resolucao = (max(1, int(largura)), max(1, int(altura)))
+        with self._lock:
+            self._resolucao_mestra_travada = resolucao
+            self.largura, self.altura = resolucao
+            self.modo_resolucao = "custom"
+            self.perfil_automatico = False
+            self._resolucao_solicitada = resolucao
+
+            configuracoes = dict(self._configuracoes_camera or {})
+            configuracoes.update(
+                {
+                    "resolution_mode": "custom",
+                    "width": resolucao[0],
+                    "height": resolucao[1],
+                }
+            )
+            self._configuracoes_camera = configuracoes
+        return resolucao
+
+    def obter_resolucao_travada(self) -> tuple[int, int] | None:
+        with self._lock:
+            return self._resolucao_mestra_travada
 
     def _preparar_configuracoes_camera_ao_vivo(
         self,
         configuracoes_camera: dict | None,
     ) -> dict:
+        travada = self.obter_resolucao_travada()
+        if travada is not None:
+            configuracoes = dict(configuracoes_camera or {})
+            configuracoes.update(
+                {
+                    "resolution_mode": "custom",
+                    "width": travada[0],
+                    "height": travada[1],
+                }
+            )
+            if sys.platform.startswith("win"):
+                return self._windows_native_settings(configuracoes)
+            configuracoes.setdefault("fps_mode", "manual")
+            configuracoes.setdefault("fps", int(getattr(self, "fps", 0) or 20))
+            configuracoes.setdefault("format", "MJPG")
+            return configuracoes
+
         if getattr(self, "_windows_native_mode", False):
             return self._windows_native_settings(configuracoes_camera)
         return self._fixed_settings(configuracoes_camera)
+
+    def _publicar_frame_otimizado(self, frame, estavel: bool) -> None:
+        travada = self.obter_resolucao_travada()
+        if travada is not None:
+            altura_real, largura_real = frame.shape[:2]
+            atual = (int(largura_real), int(altura_real))
+            if atual != travada:
+                self._resolution_mismatch_count += 1
+                self._ultimo_motivo_descarte = (
+                    "Frame descartado: a câmera entregou "
+                    f"{atual[0]}x{atual[1]}, mas o projeto exige "
+                    f"{travada[0]}x{travada[1]}."
+                )
+                if (
+                    self._resolution_mismatch_count
+                    >= self.RESOLUTION_MISMATCH_BEFORE_SWITCH
+                ):
+                    self._resolution_mismatch_count = 0
+                    if sys.platform.startswith("linux"):
+                        self._trocar_backend_linux(
+                            "A resolução mestre do projeto não foi mantida."
+                        )
+                    else:
+                        self._agendar_reconexao(
+                            "A resolução mestre do projeto não foi mantida."
+                        )
+                        self._reiniciar_estado_fluxo()
+                return
+
+            self._resolution_mismatch_count = 0
+
+        super()._publicar_frame_otimizado(frame, estavel=estavel)
+
+    def obter_diagnostico_fluxo(self) -> dict:
+        diagnostico = super().obter_diagnostico_fluxo()
+        diagnostico["resolucao_mestra_travada"] = self.obter_resolucao_travada()
+        return diagnostico
