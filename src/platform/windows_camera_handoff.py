@@ -13,9 +13,11 @@ from src.platform.camera_selection import (
 _PATCH_INSTALADO = False
 # O worker já confirmou release(), mas alguns drivers UVC/MSMF ainda mantêm a
 # sessão USB por alguns centenas de milissegundos. O atraso é exclusivo Windows.
-WINDOWS_POST_RELEASE_SETTLE_MS = 1200
+WINDOWS_POST_RELEASE_SETTLE_MS = 1800
 WINDOWS_RELEASE_STATUS_AFTER_MS = 2500
 WINDOWS_RELEASE_POLL_MS = 50
+WINDOWS_HIGH_RES_MIN_WIDTH = 1280
+WINDOWS_HIGH_RES_MIN_HEIGHT = 720
 
 
 def _normalizar_backend(nome: str | None) -> str:
@@ -50,6 +52,73 @@ def priorizar_backend_windows(
 
     primeiro = correspondentes[0]
     return (primeiro,) + tuple(item for item in itens if item != primeiro)
+
+
+def ordenar_backends_servico_windows(
+    backends,
+    backend_preview: str | None,
+    resolucao_solicitada=None,
+    perfil_automatico: bool = False,
+    plataforma: str | None = None,
+):
+    """Escolhe uma ordem segura para o serviço principal no Windows.
+
+    O preview só comprova que um backend entrega alguma imagem. Isso não prova
+    que o mesmo backend tolera renegociação para 1920x1080 após ser reaberto.
+    Em alta resolução explícita priorizamos DirectShow, que é mais previsível
+    para webcams UVC Logitech via OpenCV. Em modo automático ou baixa resolução
+    continuamos respeitando o backend que funcionou no preview.
+    """
+    itens = tuple(backends or ())
+    plataforma = str(plataforma or sys.platform).lower()
+    if not plataforma.startswith("win"):
+        return itens
+
+    preferidos = priorizar_backend_windows(
+        itens,
+        backend_preview,
+        plataforma=plataforma,
+    )
+    if bool(perfil_automatico):
+        return preferidos
+
+    try:
+        largura = int(resolucao_solicitada[0])
+        altura = int(resolucao_solicitada[1])
+    except (TypeError, ValueError, IndexError):
+        return preferidos
+
+    if (
+        largura < WINDOWS_HIGH_RES_MIN_WIDTH
+        or altura < WINDOWS_HIGH_RES_MIN_HEIGHT
+    ):
+        return preferidos
+
+    directshow = next(
+        (
+            item
+            for item in preferidos
+            if len(item) >= 2
+            and _normalizar_backend(item[1]) == "directshow"
+        ),
+        None,
+    )
+    if directshow is None:
+        return preferidos
+
+    automaticos = tuple(
+        item
+        for item in preferidos
+        if item != directshow
+        and _normalizar_backend(item[1])
+        in ("automatico", "automatic", "auto")
+    )
+    restantes = tuple(
+        item
+        for item in preferidos
+        if item != directshow and item not in automaticos
+    )
+    return (directshow,) + automaticos + restantes
 
 
 def pode_iniciar_camera_apos_preview(
@@ -98,9 +167,17 @@ def _instalar_preferencia_backend_na_classe(classe, backend: str | None) -> None
             backends = original()
         except TypeError:
             backends = original(self)
-        return priorizar_backend_windows(
+        return ordenar_backends_servico_windows(
             backends,
             getattr(type(self), "_odin_windows_backend_preferido", None),
+            resolucao_solicitada=getattr(
+                self,
+                "_resolucao_solicitada",
+                None,
+            ),
+            perfil_automatico=bool(
+                getattr(self, "perfil_automatico", False)
+            ),
             plataforma=sys.platform,
         )
 
