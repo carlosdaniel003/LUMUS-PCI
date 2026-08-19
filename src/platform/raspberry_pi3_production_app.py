@@ -102,6 +102,10 @@ from src.platform.segment_project_geometry_persistence import (
     SegmentProjectGeometryPersistenceMixin,
     instalar_preservacao_segmentos_resolution_sync,
 )
+from src.platform.windows_camera_debug import (
+    iniciar_debug_periodico_camera_windows,
+    instalar_debug_camera_windows,
+)
 from src.platform.windows_camera_handoff import (
     instalar_handoff_camera_windows,
 )
@@ -138,6 +142,7 @@ class RaspberryPi3ProductionApp(
     def __init__(self, root: tk.Tk) -> None:
         raspberry_pi3_profile.RaspberryPi3CameraService = LiveFixedFullHdCameraService
         instalar_handoff_camera_windows()
+        instalar_debug_camera_windows()
         instalar_normalizacao_config_repository()
         instalar_persistencia_segmento_livre()
         instalar_repositorio_projetos_led()
@@ -145,6 +150,7 @@ class RaspberryPi3ProductionApp(
         instalar_repositorio_mascaras_absolutas()
         instalar_preservacao_segmentos_resolution_sync()
         super().__init__(root)
+        iniciar_debug_periodico_camera_windows(self)
 
     def _tem_referencia_pouca_luz_ativa(self) -> bool:
         grupos = getattr(self, "_referencias_ativas_por_tipo", None)
