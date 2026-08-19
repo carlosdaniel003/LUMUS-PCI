@@ -106,7 +106,7 @@ class WindowsCameraResolutionTests(unittest.TestCase):
             )
         )
 
-    def test_full_hd_explicito_nao_e_convertido_para_auto(self):
+    def test_full_hd_explicito_preserva_resolucao_e_negocia_transporte(self):
         configuracoes = LiveFixedFullHdCameraService._windows_native_settings(
             {
                 "resolution_mode": "full_hd",
@@ -120,9 +120,26 @@ class WindowsCameraResolutionTests(unittest.TestCase):
         self.assertEqual("full_hd", configuracoes["resolution_mode"])
         self.assertEqual(1920, configuracoes["width"])
         self.assertEqual(1080, configuracoes["height"])
-        self.assertEqual("manual", configuracoes["fps_mode"])
-        self.assertEqual(20, configuracoes["fps"])
-        self.assertEqual("MJPG", configuracoes["format"])
+        self.assertEqual("auto", configuracoes["fps_mode"])
+        self.assertEqual(0, configuracoes["fps"])
+        self.assertEqual("AUTO", configuracoes["format"])
+
+    def test_custom_1080p_tambem_nao_forca_fourcc_nem_fps(self):
+        configuracoes = LiveFixedFullHdCameraService._windows_native_settings(
+            {
+                "resolution_mode": "custom",
+                "width": 1920,
+                "height": 1080,
+                "fps_mode": "manual",
+                "fps": 20,
+                "format": "MJPG",
+            }
+        )
+        self.assertEqual("custom", configuracoes["resolution_mode"])
+        self.assertEqual((1920, 1080), (configuracoes["width"], configuracoes["height"]))
+        self.assertEqual("auto", configuracoes["fps_mode"])
+        self.assertEqual(0, configuracoes["fps"])
+        self.assertEqual("AUTO", configuracoes["format"])
 
     def test_auto_continua_disponivel_como_negociacao_nativa(self):
         configuracoes = LiveFixedFullHdCameraService._windows_native_settings(
