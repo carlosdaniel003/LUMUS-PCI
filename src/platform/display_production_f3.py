@@ -3,7 +3,6 @@ from __future__ import annotations
 import tkinter as tk
 
 from src.platform.display_production_f3_window import DisplayProductionF3Window
-from src.platform.display_theme import DISPLAY_INK
 from src.platform.raspberry_pi3_settings import (
     OPERATION_PREVIEW_HEIGHT,
     OPERATION_PREVIEW_WIDTH,
