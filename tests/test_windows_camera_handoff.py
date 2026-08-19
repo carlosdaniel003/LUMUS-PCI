@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 from src.platform.windows_camera_handoff import (
+    WINDOWS_POST_RELEASE_SETTLE_MS,
     _instalar_preferencia_backend_na_classe,
     pode_iniciar_camera_apos_preview,
     priorizar_backend_windows,
@@ -51,6 +52,9 @@ class WindowsCameraHandoffTests(unittest.TestCase):
                 plataforma="win32",
             )
         )
+
+    def test_windows_aguarda_assentamento_do_driver_apos_release(self):
+        self.assertGreaterEqual(WINDOWS_POST_RELEASE_SETTLE_MS, 800)
 
     def test_linux_preserva_limite_legado_do_handoff(self):
         self.assertFalse(
