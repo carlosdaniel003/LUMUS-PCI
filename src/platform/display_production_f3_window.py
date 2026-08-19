@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tkinter as tk
 from collections.abc import Callable
 
 from src.ui.operation_window_raspberry import RaspberryOperationWindow
@@ -8,14 +9,16 @@ from src.ui.operation_window_raspberry import RaspberryOperationWindow
 class DisplayProductionF3Window(RaspberryOperationWindow):
     """Janela visual independente para o novo modo Produção Display (F3).
 
-    Fase 1: reutiliza somente o renderer de preview da produção atual. Não há
-    análise, trigger por Enter, checks, engine, resultado OK/NG ou estado F2.
+    Fase 2: mantém a câmera em modo somente leitura e adiciona acesso apenas às
+    configurações próprias de Projeto Display, resolução mestre e máscaras.
+    Ainda não existe análise, CHECKS, engine ou resultado OK/NG no F3.
     """
 
     def __init__(
         self,
         root,
         on_close: Callable[[], None],
+        on_configure: Callable[[], None] | None = None,
         preview_width: int = 640,
         preview_height: int = 480,
     ) -> None:
@@ -27,18 +30,19 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
             preview_height=preview_height,
         )
 
+        self.on_configure = on_configure
         self.brand_label.configure(text="ODIN  |  PRODUÇÃO DISPLAY  F3")
-        self.mode_label.configure(text="DISPLAY • ISOLAMENTO ARQUITETURAL")
+        self.mode_label.configure(text="DISPLAY • PROJETO + MÁSCARAS")
         self.status_label.configure(text="AGUARDANDO CÂMERA")
         self.detail_label.configure(
             text=(
-                "Fase 1 • câmera ao vivo compartilhada em modo somente leitura. "
-                "Análise automática e CHECKS serão adicionados nas próximas fases."
+                "Fase 2 • câmera ao vivo em modo somente leitura. "
+                "Projeto Display, resolução mestre e máscaras são independentes do F2."
             )
         )
         self.preview_title.configure(text="DISPLAY • CÂMERA AO VIVO")
         self.preview_legend.configure(
-            text="FASE 1 • SEM ANÁLISE",
+            text="FASE 2 • SEM ANÁLISE",
             fg=self.PREVIEW_MUTED,
         )
         self.footer_label.configure(text="F3 ou ESC: voltar ao ODIN")
@@ -47,10 +51,83 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         self.led_summary_label.grid_remove()
         self.metrics_frame.grid_remove()
 
+        self.project_frame = tk.Frame(
+            self.analysis_panel,
+            bg="#0B1220",
+            highlightbackground="#334155",
+            highlightthickness=1,
+        )
+        self.project_frame.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=20,
+            pady=(4, 18),
+        )
+        self.project_frame.grid_columnconfigure(0, weight=1)
+
+        self.project_info_label = tk.Label(
+            self.project_frame,
+            text="PROJETO DISPLAY: NENHUM",
+            font=("DejaVu Sans", 11, "bold"),
+            bg="#0B1220",
+            fg="#E2E8F0",
+            anchor="w",
+            justify="left",
+        )
+        self.project_info_label.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=12,
+            pady=(10, 2),
+        )
+
+        self.project_detail_label = tk.Label(
+            self.project_frame,
+            text="Resolução mestre: --  •  Máscaras: 0",
+            font=("DejaVu Sans", 9),
+            bg="#0B1220",
+            fg="#94A3B8",
+            anchor="w",
+            justify="left",
+        )
+        self.project_detail_label.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=12,
+            pady=(0, 10),
+        )
+
+        self.project_config_button = tk.Button(
+            self.project_frame,
+            text="CONFIGURAR PROJETO DISPLAY",
+            command=self._open_project_config,
+            font=("DejaVu Sans", 9, "bold"),
+            bg="#0E7490",
+            fg="#FFFFFF",
+            activebackground="#0891B2",
+            activeforeground="#FFFFFF",
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=8,
+            cursor="hand2",
+        )
+        self.project_config_button.grid(
+            row=0,
+            column=1,
+            rowspan=2,
+            sticky="e",
+            padx=12,
+            pady=10,
+        )
+
         # O F3 não possui trigger manual. Enter é consumido localmente e nunca
         # chega ao callback/engine usado pelo modo F2. F2 também é consumido
-        # enquanto esta tela possui foco, impedindo dois modos de produção
-        # simultâneos sem alterar o binding original do F2 na aplicação.
+        # enquanto esta tela possui foco, impedindo dois modos simultâneos sem
+        # alterar o binding original do F2 na aplicação.
         self.container.bind("<Return>", self._ignorar_trigger)
         self.container.bind("<KP_Enter>", self._ignorar_trigger)
         self.container.bind("<F2>", self._ignorar_trigger)
@@ -58,9 +135,28 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         self.container.bind("<Escape>", self._handle_close)
         self.container.unbind("<F1>")
 
+    def _open_project_config(self) -> None:
+        if self.on_configure is not None:
+            self.on_configure()
+
     @staticmethod
     def _ignorar_trigger(_event=None):
         return "break"
+
+    def set_project_info(
+        self,
+        name: str | None,
+        master_resolution=None,
+        mask_count: int = 0,
+    ) -> None:
+        project_name = str(name or "NENHUM")
+        resolution_text = "--"
+        if isinstance(master_resolution, (list, tuple)) and len(master_resolution) >= 2:
+            resolution_text = f"{int(master_resolution[0])}x{int(master_resolution[1])}"
+        self.project_info_label.configure(text=f"PROJETO DISPLAY: {project_name}")
+        self.project_detail_label.configure(
+            text=f"Resolução mestre: {resolution_text}  •  Máscaras: {int(mask_count)}"
+        )
 
     def show_waiting_camera(self) -> None:
         self.status_label.configure(text="AGUARDANDO CÂMERA")
@@ -74,7 +170,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         self.detail_label.configure(
             text=(
                 f"Câmera ao vivo • {int(width)}x{int(height)} • "
-                "Fase 1 sem análise"
+                "Fase 2 sem análise"
             )
         )
 
