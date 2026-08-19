@@ -137,7 +137,7 @@ class DisplayF3ArchitectureTests(unittest.TestCase):
             app.f2_close_calls,
         )
 
-    def test_f3_nao_sobrescreve_metodos_operacionais_do_f2(self):
+    def test_f3_nao_sobrescreve_metodos_operacionais_do_f2_camera_ou_enter(self):
         proibidos = {
             "_instalar_tela_operacao",
             "abrir_tela_operacao",
@@ -145,6 +145,11 @@ class DisplayF3ArchitectureTests(unittest.TestCase):
             "disparar_inspecao_operacao",
             "fechar_tela_operacao",
             "analisar_led_selecionado",
+            "iniciar_tela_ao_vivo",
+            "parar_tela_ao_vivo",
+            "atualizar_frame_camera",
+            "_evento_enter_pressionado",
+            "_evento_enter_liberado",
         }
         self.assertTrue(proibidos.isdisjoint(DisplayProductionF3Mixin.__dict__))
 
