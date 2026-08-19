@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 
 from src.platform.raspberry_pi3_settings import CAMERA_FPS, CAMERA_HEIGHT, CAMERA_WIDTH
 
@@ -9,11 +10,14 @@ class WindowsCameraCompatibilityMixin:
     """Prioriza o perfil solicitado no Windows e usa AUTO apenas como fallback."""
 
     WINDOWS_RESOLUTION_PROBE_FRAMES = 12
+    WINDOWS_PROBE_TIMEOUT_S = 3.0
 
     def __init__(self, *args, **kwargs) -> None:
         self._windows_exigir_resolucao_solicitada = False
         self._windows_fallback_automatico_ativo = False
         self._windows_ultima_resolucao_probe: tuple[int, int] | None = None
+        self._windows_probe_timeout_total = 0
+        self._windows_ultimo_probe_timeout = False
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -41,33 +45,82 @@ class WindowsCameraCompatibilityMixin:
         configuracoes.setdefault("format", "MJPG")
         return configuracoes
 
+    def _executar_probe_windows_com_timeout(self, capture, callback) -> bool:
+        """Impede que um ``capture.read()`` do Windows prenda a captura para sempre.
+
+        O probe continua executando na própria thread de captura. Um watchdog
+        auxiliar apenas chama ``release()`` se o driver não devolver o controle
+        dentro do prazo. Isso preserva a afinidade de thread do Media Foundation
+        e do DirectShow e permite que o serviço tente o próximo backend.
+        """
+        if not sys.platform.startswith("win"):
+            return bool(callback())
+
+        concluido = threading.Event()
+        expirou = threading.Event()
+
+        def liberar_se_travou() -> None:
+            if concluido.is_set():
+                return
+            expirou.set()
+            try:
+                capture.release()
+            except Exception:
+                pass
+
+        watchdog = threading.Timer(
+            max(0.05, float(self.WINDOWS_PROBE_TIMEOUT_S)),
+            liberar_se_travou,
+        )
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            resultado = bool(callback())
+        finally:
+            concluido.set()
+            try:
+                watchdog.cancel()
+            except Exception:
+                pass
+
+        if expirou.is_set():
+            self._windows_probe_timeout_total += 1
+            self._windows_ultimo_probe_timeout = True
+            return False
+
+        self._windows_ultimo_probe_timeout = False
+        return resultado
+
     def _capture_entrega_frame_inicial(self, capture) -> bool:
-        if (
-            not sys.platform.startswith("win")
-            or not self._windows_exigir_resolucao_solicitada
-        ):
+        if not sys.platform.startswith("win"):
             return super()._capture_entrega_frame_inicial(capture)
 
-        esperado = (int(self.largura), int(self.altura))
-        self._windows_ultima_resolucao_probe = None
+        def probe() -> bool:
+            if not self._windows_exigir_resolucao_solicitada:
+                return bool(super(WindowsCameraCompatibilityMixin, self)._capture_entrega_frame_inicial(capture))
 
-        for _ in range(max(1, int(self.WINDOWS_RESOLUTION_PROBE_FRAMES))):
-            try:
-                sucesso, frame = capture.read()
-            except Exception:
-                sucesso, frame = False, None
+            esperado = (int(self.largura), int(self.altura))
+            self._windows_ultima_resolucao_probe = None
 
-            frame = self._normalizar_frame(frame) if sucesso else None
-            if not self._frame_basico_valido(frame):
-                continue
+            for _ in range(max(1, int(self.WINDOWS_RESOLUTION_PROBE_FRAMES))):
+                try:
+                    sucesso, frame = capture.read()
+                except Exception:
+                    sucesso, frame = False, None
 
-            altura_real, largura_real = frame.shape[:2]
-            atual = (int(largura_real), int(altura_real))
-            self._windows_ultima_resolucao_probe = atual
-            if atual == esperado:
-                return True
+                frame = self._normalizar_frame(frame) if sucesso else None
+                if not self._frame_basico_valido(frame):
+                    continue
 
-        return False
+                altura_real, largura_real = frame.shape[:2]
+                atual = (int(largura_real), int(altura_real))
+                self._windows_ultima_resolucao_probe = atual
+                if atual == esperado:
+                    return True
+
+            return False
+
+        return self._executar_probe_windows_com_timeout(capture, probe)
 
     def _abrir_camera(self) -> bool:
         if not sys.platform.startswith("win") or self.perfil_automatico:
@@ -156,6 +209,12 @@ class WindowsCameraCompatibilityMixin:
                 ),
                 "windows_ultima_resolucao_probe": (
                     self._windows_ultima_resolucao_probe
+                ),
+                "windows_probe_timeout_total": int(
+                    self._windows_probe_timeout_total
+                ),
+                "windows_ultimo_probe_timeout": bool(
+                    self._windows_ultimo_probe_timeout
                 ),
             }
         )
