@@ -122,6 +122,17 @@ class _FakeApp(DisplayProductionF3Mixin, _FakeBase):
         self.display_f3_window = _FakeF3Window()
 
 
+class _FakeAppComSeletor(_FakeApp):
+    def __init__(self) -> None:
+        self.selector_calls = 0
+        self.selector_callback = None
+        super().__init__()
+
+    def abrir_seletor_camera(self, ao_selecionar=None):
+        self.selector_calls += 1
+        self.selector_callback = ao_selecionar
+
+
 class DisplayF3ArchitectureTests(unittest.TestCase):
     def _snapshot_f2(self, app: _FakeApp):
         return (
@@ -222,7 +233,7 @@ class DisplayF3ArchitectureTests(unittest.TestCase):
         self.assertEqual(1, len(app.root.after_calls))
         self.assertEqual(0, app.root.after_calls[0][1])
 
-    def test_f3_pede_camera_existente_uma_vez_se_tela_ao_vivo_estiver_desligada(self):
+    def test_f3_sem_seletor_pede_camera_existente_uma_vez(self):
         app = _FakeApp()
         app.camera_ativa = False
         antes = self._snapshot_f2(app)
@@ -231,7 +242,44 @@ class DisplayF3ArchitectureTests(unittest.TestCase):
 
         self.assertEqual(1, app.camera_start_calls)
         self.assertEqual(0, app.camera_stop_calls)
+        self.assertTrue(app.display_f3_ativo)
         self.assertEqual(antes, self._snapshot_f2(app))
+
+    def test_f3_reutiliza_seletor_existente_e_so_abre_depois_da_escolha(self):
+        app = _FakeAppComSeletor()
+        app.camera_ativa = False
+        antes = self._snapshot_f2(app)
+
+        self.assertTrue(app.abrir_tela_producao_display_f3())
+
+        self.assertEqual(1, app.selector_calls)
+        self.assertIsNotNone(app.selector_callback)
+        self.assertEqual(0, app.camera_start_calls)
+        self.assertFalse(app.display_f3_ativo)
+        self.assertFalse(app.display_f3_window.visible)
+        self.assertEqual(0, len(app.root.after_calls))
+        self.assertEqual(antes, self._snapshot_f2(app))
+
+        app.selector_callback(1)
+
+        self.assertEqual(1, app.camera_start_calls)
+        self.assertTrue(app.display_f3_ativo)
+        self.assertTrue(app.display_f3_window.visible)
+        self.assertEqual(1, len(app.root.after_calls))
+        self.assertEqual(antes, self._snapshot_f2(app))
+
+    def test_callback_da_camera_nao_abre_f3_se_f2_foi_ativado_no_intervalo(self):
+        app = _FakeAppComSeletor()
+        app.camera_ativa = False
+        self.assertTrue(app.abrir_tela_producao_display_f3())
+        self.assertIsNotNone(app.selector_callback)
+
+        app.operacao_ativa = True
+        app.selector_callback(1)
+
+        self.assertEqual(0, app.camera_start_calls)
+        self.assertFalse(app.display_f3_ativo)
+        self.assertFalse(app.display_f3_window.visible)
 
     def test_preview_f3_le_exatamente_camera_frame_atual_sem_alterar_f2(self):
         app = _FakeApp()
