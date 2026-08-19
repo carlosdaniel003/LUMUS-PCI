@@ -45,6 +45,20 @@ class LinuxF2FixedResolutionMixin:
             return LINUX_F2_FIXED_RESOLUTION
         return super()._obter_resolucao_mestra_projeto(projeto)
 
+    def _atualizar_resolucao_mestra_projeto_ativa(
+        self,
+        projeto: str | None = None,
+    ):
+        if self._linux_f2_runtime() and self._linux_f2_resolution_lock_active:
+            self._resolucao_mestra_projeto_nome = str(
+                projeto
+                or getattr(self, "projeto_led_ativo", "")
+                or ""
+            ).strip()
+            self._resolucao_mestra_projeto_ativa = LINUX_F2_FIXED_RESOLUTION
+            return LINUX_F2_FIXED_RESOLUTION
+        return super()._atualizar_resolucao_mestra_projeto_ativa(projeto)
+
     def _salvar_resolucao_mestra_do_projeto_atual(
         self,
         projeto: str,
@@ -62,6 +76,53 @@ class LinuxF2FixedResolutionMixin:
         if self._linux_f2_deve_forcar_640():
             largura, altura = LINUX_F2_FIXED_RESOLUTION
         return int(largura), int(altura), int(fps)
+
+    def _aplicar_resolucao_mestra_projeto(
+        self,
+        projeto: str | None = None,
+        reiniciar_se_necessario: bool = True,
+    ) -> bool:
+        if not (
+            self._linux_f2_runtime()
+            and self._linux_f2_resolution_lock_active
+        ):
+            return super()._aplicar_resolucao_mestra_projeto(
+                projeto,
+                reiniciar_se_necessario=reiniciar_se_necessario,
+            )
+
+        resolucao = LINUX_F2_FIXED_RESOLUTION
+        self._resolucao_mestra_projeto_nome = str(
+            projeto
+            or getattr(self, "projeto_led_ativo", "")
+            or ""
+        ).strip()
+        self._resolucao_mestra_projeto_ativa = resolucao
+        self._resolucao_mestra_producao = resolucao
+        self._atualizar_config_camera_para_resolucao_mestra(resolucao)
+
+        service = getattr(self, "camera_service", None)
+        camera_ativa = bool(getattr(self, "camera_ativa", False))
+        if camera_ativa and service is not None:
+            ja_esta = getattr(self, "_camera_ja_esta_na_resolucao", None)
+            if callable(ja_esta):
+                try:
+                    if ja_esta(resolucao):
+                        self._travar_servico_na_resolucao_mestra(service, resolucao)
+                        return False
+                except Exception:
+                    pass
+
+        if camera_ativa and reiniciar_se_necessario:
+            reiniciar = getattr(self, "_reiniciar_camera_para_resolucao_mestra", None)
+            if callable(reiniciar):
+                try:
+                    return bool(reiniciar(resolucao))
+                except Exception:
+                    pass
+
+        self._travar_servico_na_resolucao_mestra(service, resolucao)
+        return False
 
     def _linux_f2_travar_servico(self) -> None:
         if not self._linux_f2_runtime():
@@ -120,7 +181,7 @@ class LinuxF2FixedResolutionMixin:
         self._resolucao_mestra_producao = LINUX_F2_FIXED_RESOLUTION
 
         # Faz a troca antes de ativar a tela de produção. Se a câmera já estiver
-        # em 640x480, ProjectMasterResolution não reinicia nem reconecta.
+        # em 640x480, não reinicia nem reconecta.
         self._aplicar_resolucao_mestra_projeto(
             getattr(self, "projeto_led_ativo", None),
             reiniciar_se_necessario=True,
