@@ -51,6 +51,7 @@ jobs:
             src/platform/led_mask_resolution_sync.py \
             src/platform/fixed_mask_geometry_guard.py \
             src/platform/mask_resolution_legacy_reference.py \
+            src/platform/project_master_resolution.py \
             src/platform/bulk_roi_editor.py \
             src/platform/area_roi_editor.py \
             src/platform/area_roi_editor_v2.py \
@@ -116,6 +117,7 @@ jobs:
             tests.test_native_resolution_camera \
             tests.test_linux_camera_compatibility \
             tests.test_windows_camera_resolution \
+            tests.test_project_master_resolution \
             tests.test_threaded_backend_switch \
             tests.test_linux_camera_backend \
             tests.test_v4l2_controls \
