@@ -7,7 +7,13 @@ from src.platform.raspberry_pi3_settings import CAMERA_FPS, CAMERA_HEIGHT, CAMER
 
 
 class WindowsCameraCompatibilityMixin:
-    """Prioriza o perfil solicitado no Windows e usa AUTO apenas como fallback."""
+    """Compatibilidade de transporte exclusiva do Windows.
+
+    Quando existe uma resolução explícita, o Windows continua obrigado a
+    entregar exatamente essa resolução, mas FPS e FOURCC ficam sob negociação
+    do próprio driver. Isso evita travamentos observados em webcams Logitech
+    UVC/MSMF ao escrever MJPG/FPS imediatamente após a reabertura.
+    """
 
     WINDOWS_RESOLUTION_PROBE_FRAMES = 12
     WINDOWS_PROBE_TIMEOUT_S = 3.0
@@ -38,11 +44,19 @@ class WindowsCameraCompatibilityMixin:
             )
             return configuracoes
 
-        configuracoes["width"] = int(configuracoes.get("width", CAMERA_WIDTH))
-        configuracoes["height"] = int(configuracoes.get("height", CAMERA_HEIGHT))
-        configuracoes.setdefault("fps_mode", "manual")
-        configuracoes.setdefault("fps", CAMERA_FPS)
-        configuracoes.setdefault("format", "MJPG")
+        # A resolução continua sendo uma exigência real do ODIN, porém não
+        # forçamos MJPG nem 20 FPS no Windows. Logitech/Media Foundation pode
+        # abrir normalmente e travar justamente durante essas escritas. O app
+        # Câmera do Windows também negocia formato/FPS com o driver.
+        configuracoes.update(
+            {
+                "width": int(configuracoes.get("width", CAMERA_WIDTH)),
+                "height": int(configuracoes.get("height", CAMERA_HEIGHT)),
+                "fps_mode": "auto",
+                "fps": 0,
+                "format": "AUTO",
+            }
+        )
         return configuracoes
 
     def _executar_probe_windows_com_timeout(self, capture, callback) -> bool:
@@ -144,7 +158,7 @@ class WindowsCameraCompatibilityMixin:
             return True
 
         # Com resolução mestre de projeto não existe fallback para outro modo.
-        # Se 640x480 foi salvo com as ROIs, somente 640x480 é aceito.
+        # Se uma resolução foi salva com as ROIs, somente ela é aceita.
         resolucao_travada = getattr(
             self,
             "_resolucao_mestra_travada",
