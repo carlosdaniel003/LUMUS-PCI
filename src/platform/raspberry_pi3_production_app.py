@@ -67,6 +67,9 @@ from src.platform.live_fixed_full_hd_camera_service import (
 from src.platform.native_resolution_config import (
     NativeResolutionConfigMixin,
 )
+from src.platform.project_master_resolution import (
+    ProjectMasterResolutionMixin,
+)
 from src.platform.raspberry_enter_trigger import (
     RaspberryEnterTriggerMixin,
 )
@@ -102,6 +105,7 @@ class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
     CameraSelectionMixin,
+    ProjectMasterResolutionMixin,
     CameraScreenshotMixin,
     CameraLiveSettingsMixin,
     LedProjectPreviewMixin,
