@@ -10,6 +10,7 @@ from src.platform.linux_f2_fixed_resolution import (
     LINUX_F2_FIXED_RESOLUTION,
     LinuxF2FixedResolutionMixin,
 )
+from src.platform.neutral_project_startup import NeutralProjectStartupMixin
 from src.platform.project_master_resolution_guard import ProjectMasterResolutionGuardMixin
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 
@@ -34,9 +35,11 @@ class _Window:
 class _Base:
     def __init__(self) -> None:
         self.projeto_led_ativo = "PCI LED"
+        self._resolucao_mestra_projeto_nome = ""
         self._resolucao_mestra_projeto_ativa = None
         self._resolucao_mestra_producao = None
         self.camera_service = _Service()
+        self.camera_ativa = True
         self.camera_frame_atual = np.zeros((480, 640, 3), dtype=np.uint8)
         self.imagem_original = self.camera_frame_atual
         self.largura_original = 640
@@ -46,6 +49,7 @@ class _Base:
         self.operacao_window = _Window()
         self._operacao_preview_after_id = None
         self.apply_calls = []
+        self.update_master_calls = []
         self.saved_master_calls = []
         self.sync_calls = 0
         self.prepare_calls = 0
@@ -63,6 +67,11 @@ class _Base:
     def _obter_resolucao_mestra_projeto(self, projeto=None):
         return (1920, 1080)
 
+    def _atualizar_resolucao_mestra_projeto_ativa(self, projeto=None):
+        self.update_master_calls.append(projeto)
+        self._resolucao_mestra_projeto_ativa = (1920, 1080)
+        return self._resolucao_mestra_projeto_ativa
+
     def _salvar_resolucao_mestra_do_projeto_atual(self, projeto, resolucao):
         self.saved_master_calls.append((projeto, tuple(resolucao)))
         return True
@@ -76,6 +85,9 @@ class _Base:
     def _travar_servico_na_resolucao_mestra(self, service, resolucao):
         if service is not None:
             service.definir_resolucao_travada(*resolucao)
+
+    def _camera_ja_esta_na_resolucao(self, resolucao):
+        return self.camera_service.locked == tuple(resolucao)
 
     def _aplicar_resolucao_mestra_projeto(self, projeto=None, reiniciar_se_necessario=True):
         self.apply_calls.append((projeto, bool(reiniciar_se_necessario)))
@@ -159,10 +171,41 @@ class LinuxF2FixedResolutionTests(unittest.TestCase):
             )
             self.assertEqual([("PCI LED", (640, 480))], app.saved_master_calls)
 
+    def test_trava_f2_nao_delega_update_master_para_camadas_posteriores(self):
+        with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
+            app = _App()
+            app._linux_f2_resolution_lock_active = True
+            app.projeto_led_ativo = ""
+
+            self.assertEqual(
+                (640, 480),
+                app._atualizar_resolucao_mestra_projeto_ativa(None),
+            )
+            self.assertEqual([], app.update_master_calls)
+            self.assertEqual((640, 480), app._resolucao_mestra_projeto_ativa)
+
+    def test_trava_f2_nao_delega_apply_mesmo_sem_nome_de_projeto(self):
+        with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
+            app = _App()
+            app._linux_f2_resolution_lock_active = True
+            app.projeto_led_ativo = ""
+            app.camera_service.locked = None
+
+            reiniciou = app._aplicar_resolucao_mestra_projeto(
+                None,
+                reiniciar_se_necessario=False,
+            )
+
+            self.assertFalse(reiniciou)
+            self.assertEqual([], app.apply_calls)
+            self.assertEqual((640, 480), app.camera_service.locked)
+            self.assertEqual((640, 480), app._resolucao_mestra_producao)
+
     def test_abrir_f2_linux_ativa_trava_antes_da_operacao(self):
         with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
             app = _App()
             app.camera_frame_atual = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            app.camera_service.locked = None
 
             app.abrir_tela_operacao()
 
@@ -173,7 +216,7 @@ class LinuxF2FixedResolutionTests(unittest.TestCase):
             self.assertEqual((640, 480), app.camera_service.locked)
             self.assertEqual((640, 480), app.camera_config)
             self.assertEqual(1, app.open_calls)
-            self.assertEqual(1, len(app.apply_calls))
+            self.assertEqual([], app.apply_calls)
 
     def test_durante_f2_linux_sincronizador_nao_pode_recalcular_roi(self):
         with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
@@ -289,11 +332,15 @@ class LinuxF2FixedResolutionTests(unittest.TestCase):
             self.assertEqual((640, 480), app.camera_service.locked)
             self.assertEqual(1, app.close_calls)
 
-    def test_mixin_fica_antes_do_guard_de_resolucao_mestra_no_app_final(self):
+    def test_mixin_fica_acima_dos_guardas_que_poderiam_destravar(self):
         mro = RaspberryPi3ProductionApp.__mro__
         self.assertLess(
             mro.index(LinuxF2FixedResolutionMixin),
             mro.index(ProjectMasterResolutionGuardMixin),
+        )
+        self.assertLess(
+            mro.index(LinuxF2FixedResolutionMixin),
+            mro.index(NeutralProjectStartupMixin),
         )
 
     def test_barreira_nao_importa_nem_controla_display_f3(self):
