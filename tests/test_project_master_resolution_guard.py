@@ -14,6 +14,7 @@ class FakeBase:
         self.altura_original = 1080
         self.selected = "PLACA 640"
         self.real_resolution = (640, 480)
+        self._resolucao_mestra_projeto_ativa = (640, 480)
 
     def _selecionar_projeto_led_existente(self, _projetos):
         self.events.append("dialogo_confirmado")
@@ -29,6 +30,9 @@ class FakeBase:
         )
         return True
 
+    def _atualizar_resolucao_mestra_projeto_ativa(self):
+        return self._resolucao_mestra_projeto_ativa
+
     def _obter_resolucao_edicao_atual(self):
         return self.real_resolution
 
@@ -42,6 +46,21 @@ class FakeBase:
             )
         )
         return True
+
+    def salvar_configuracoes_sistema(
+        self,
+        salvar_resultados_analise,
+        raio_configurado_px=None,
+        configuracoes_camera=None,
+    ):
+        self.events.append(
+            (
+                "config_salva",
+                bool(salvar_resultados_analise),
+                raio_configurado_px,
+                dict(configuracoes_camera or {}),
+            )
+        )
 
 
 class GuardFake(ProjectMasterResolutionGuardMixin, FakeBase):
@@ -80,6 +99,28 @@ class ProjectMasterResolutionGuardTests(unittest.TestCase):
             ("salvamento_base", "PLACA 640", 640, 480),
             app.events[-1],
         )
+
+    def test_configuracoes_nao_conseguem_substituir_resolucao_mestra(self):
+        app = GuardFake()
+        app.salvar_configuracoes_sistema(
+            True,
+            raio_configurado_px=22,
+            configuracoes_camera={
+                "resolution_mode": "custom",
+                "width": 1920,
+                "height": 1080,
+                "gain_enabled": True,
+                "gain": 17,
+            },
+        )
+
+        evento = app.events[-1]
+        config = evento[3]
+        self.assertEqual("config_salva", evento[0])
+        self.assertEqual("custom", config["resolution_mode"])
+        self.assertEqual((640, 480), (config["width"], config["height"]))
+        self.assertTrue(config["gain_enabled"])
+        self.assertEqual(17, config["gain"])
 
     def test_mro_final_coloca_guard_antes_da_resolucao_mestra(self):
         mro = RaspberryPi3ProductionApp.__mro__
