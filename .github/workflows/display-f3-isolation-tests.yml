@@ -31,15 +31,28 @@ jobs:
           python -m py_compile \
             src/platform/display_production_f3.py \
             src/platform/display_production_f3_window.py \
+            src/platform/display_project_repository.py \
+            src/platform/display_project_config.py \
+            src/platform/display_mask_editor.py \
             src/platform/raspberry_pi3_production_app.py \
-            tests/test_display_f3_architecture.py
+            tests/test_display_f3_architecture.py \
+            tests/test_display_f3_phase2_architecture.py \
+            tests/test_display_project_repository.py
 
-      - name: Run F3 isolation and F2 regressions
+      - name: Run F3 phase 1 and phase 2 isolation tests
         run: |
           python -m unittest \
             tests.test_display_f3_architecture \
+            tests.test_display_f3_phase2_architecture \
+            tests.test_display_project_repository \
+            -v
+
+      - name: Run F2 regression tests
+        run: |
+          python -m unittest \
             tests.test_operation_confirmation \
             tests.test_segment_operation_preview \
             tests.test_project_master_resolution \
             tests.test_project_master_resolution_guard \
-            tests.test_neutral_project_startup
+            tests.test_neutral_project_startup \
+            -v
