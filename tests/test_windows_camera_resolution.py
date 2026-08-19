@@ -1,4 +1,6 @@
 import inspect
+import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,6 +20,7 @@ class _CaptureFrames:
     def __init__(self, resolucoes):
         self._resolucoes = list(resolucoes)
         self._indice = 0
+        self.release_calls = 0
 
     def read(self):
         if not self._resolucoes:
@@ -26,6 +29,24 @@ class _CaptureFrames:
         largura, altura = self._resolucoes[indice]
         self._indice += 1
         return True, SimpleNamespace(shape=(altura, largura, 3))
+
+    def release(self):
+        self.release_calls += 1
+
+
+class _CaptureBloqueante:
+    def __init__(self):
+        self._liberada = threading.Event()
+        self.release_calls = 0
+
+    def read(self):
+        # Simula exatamente um driver MSMF/DirectShow que prende capture.read().
+        self._liberada.wait(timeout=2.0)
+        return False, None
+
+    def release(self):
+        self.release_calls += 1
+        self._liberada.set()
 
 
 class _BaseProbe:
@@ -134,6 +155,38 @@ class WindowsCameraResolutionTests(unittest.TestCase):
             (1920, 1080),
             service._windows_ultima_resolucao_probe,
         )
+        self.assertEqual(0, capture.release_calls)
+
+    def test_probe_bloqueado_no_windows_e_liberado_por_watchdog(self):
+        service = _ServicoCompatibilidadeFake()
+        service.WINDOWS_PROBE_TIMEOUT_S = 0.06
+        service._windows_exigir_resolucao_solicitada = False
+        capture = _CaptureBloqueante()
+
+        inicio = time.monotonic()
+        with patch(
+            "src.platform.windows_camera_compatibility.sys.platform",
+            "win32",
+        ):
+            resultado = service._capture_entrega_frame_inicial(capture)
+        duracao = time.monotonic() - inicio
+
+        self.assertFalse(resultado)
+        self.assertLess(duracao, 0.5)
+        self.assertEqual(1, capture.release_calls)
+        self.assertEqual(1, service._windows_probe_timeout_total)
+        self.assertTrue(service._windows_ultimo_probe_timeout)
+
+    def test_linux_nao_recebe_watchdog_de_probe_windows(self):
+        service = _ServicoCompatibilidadeFake()
+        capture = _CaptureFrames([])
+        with patch(
+            "src.platform.windows_camera_compatibility.sys.platform",
+            "linux",
+        ):
+            self.assertFalse(service._capture_entrega_frame_inicial(capture))
+        self.assertEqual(0, capture.release_calls)
+        self.assertEqual(0, service._windows_probe_timeout_total)
 
     def test_se_perfil_explicito_falhar_abre_auto_sem_perder_alvo(self):
         service = _ServicoCompatibilidadeFake()
