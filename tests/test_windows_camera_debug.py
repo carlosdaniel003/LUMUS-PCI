@@ -55,6 +55,12 @@ class WindowsCameraDebugTests(unittest.TestCase):
             "selector_probe_inicio",
             "selector_probe_fim",
             "selector_confirmar",
+            "videocapture_inicio",
+            "videocapture_fim",
+            "perfil_capture_inicio",
+            "perfil_capture_fim",
+            "capture_release_inicio",
+            "capture_release_fim",
             "service_open_inicio",
             "service_open_fim",
             "probe_inicial_inicio",
@@ -65,6 +71,21 @@ class WindowsCameraDebugTests(unittest.TestCase):
             "reconexao_agendada",
         ):
             self.assertIn(evento, fonte)
+
+    def test_debug_distingue_construtor_perfil_e_probe(self):
+        fonte = inspect.getsource(debug.instalar_debug_camera_windows)
+        self.assertLess(
+            fonte.index('"videocapture_inicio"'),
+            fonte.index('"videocapture_fim"'),
+        )
+        self.assertLess(
+            fonte.index('"perfil_capture_inicio"'),
+            fonte.index('"perfil_capture_fim"'),
+        )
+        self.assertLess(
+            fonte.index('"service_open_inicio"'),
+            fonte.index('"probe_inicial_inicio"'),
+        )
 
     def test_app_instala_debug_apos_handoff_e_agenda_snapshot_depois_do_init(self):
         fonte = inspect.getsource(RaspberryPi3ProductionApp.__init__)
