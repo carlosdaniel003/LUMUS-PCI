@@ -42,6 +42,7 @@ jobs:
           python -m unittest \
             tests.test_project_master_resolution \
             tests.test_project_master_resolution_guard \
+            tests.test_project_master_resolution_service_guard \
             tests.test_led_mask_resolution_sync \
             tests.test_fixed_mask_geometry_guard \
             tests.test_segment_project_persistence \
