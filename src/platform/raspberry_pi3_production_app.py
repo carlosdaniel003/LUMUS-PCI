@@ -70,6 +70,9 @@ from src.platform.native_resolution_config import (
 from src.platform.project_master_resolution import (
     ProjectMasterResolutionMixin,
 )
+from src.platform.project_master_resolution_guard import (
+    ProjectMasterResolutionGuardMixin,
+)
 from src.platform.raspberry_enter_trigger import (
     RaspberryEnterTriggerMixin,
 )
@@ -105,6 +108,7 @@ class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
     CameraSelectionMixin,
+    ProjectMasterResolutionGuardMixin,
     ProjectMasterResolutionMixin,
     CameraScreenshotMixin,
     CameraLiveSettingsMixin,
