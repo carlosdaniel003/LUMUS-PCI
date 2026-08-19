@@ -20,6 +20,74 @@ def normalizar_nome_projeto_led(nome: str | None) -> str:
     return texto.upper()
 
 
+def normalizar_resolucao_mestra(valor) -> tuple[int, int] | None:
+    """Normaliza a resolução mestre persistida no projeto."""
+    largura = altura = None
+
+    if isinstance(valor, dict):
+        largura = valor.get("width", valor.get("largura"))
+        altura = valor.get("height", valor.get("altura"))
+    elif isinstance(valor, (list, tuple)) and len(valor) >= 2:
+        largura, altura = valor[0], valor[1]
+    elif isinstance(valor, str):
+        match = re.fullmatch(
+            r"\s*(\d+)\s*[xX×]\s*(\d+)\s*",
+            valor,
+        )
+        if match:
+            largura, altura = match.group(1), match.group(2)
+
+    try:
+        largura = int(largura)
+        altura = int(altura)
+    except (TypeError, ValueError):
+        return None
+
+    if largura < 1 or altura < 1:
+        return None
+    return largura, altura
+
+
+def _resolucao_mestra_dict(
+    resolucao: tuple[int, int] | None,
+) -> dict | None:
+    if resolucao is None:
+        return None
+    return {
+        "width": int(resolucao[0]),
+        "height": int(resolucao[1]),
+    }
+
+
+def _inferir_resolucao_mestra_dos_leds(
+    leds: list | tuple | None,
+) -> tuple[int, int] | None:
+    """Migra projetos antigos usando a base já gravada em suas ROIs."""
+    for item in leds or ():
+        if isinstance(item, LedSelection):
+            resolucao = normalizar_resolucao_mestra(
+                (item.largura_base, item.altura_base)
+            )
+        elif isinstance(item, dict):
+            resolucao = normalizar_resolucao_mestra(
+                item.get("base_resolution")
+            )
+        else:
+            resolucao = None
+        if resolucao is not None:
+            return resolucao
+    return None
+
+
+def _resolucao_mestra_projeto(dados: dict | None) -> tuple[int, int] | None:
+    if not isinstance(dados, dict):
+        return None
+    return (
+        normalizar_resolucao_mestra(dados.get("master_resolution"))
+        or _inferir_resolucao_mestra_dos_leds(dados.get("fixed_leds", []))
+    )
+
+
 def _estrutura_base_configuracao() -> dict:
     return {
         "project": "ODIN",
@@ -67,14 +135,23 @@ def _normalizar_projetos(configuracao: dict) -> dict:
             referencias = dados.get("references", {})
             if not isinstance(referencias, dict):
                 referencias = {}
+            resolucao_mestra = (
+                normalizar_resolucao_mestra(
+                    dados.get("master_resolution")
+                )
+                or _inferir_resolucao_mestra_dos_leds(leds)
+            )
 
-            # As referências pertencem ao mesmo projeto das máscaras. Elas são
-            # preservadas em qualquer normalização, salvamento ou renomeação.
+            # Referências e resolução mestre pertencem ao mesmo projeto das
+            # máscaras e acompanham salvamento, renomeação e carregamento.
             projetos[nome] = {
                 "name": nome,
                 "fixed_leds": leds,
                 "updated_at": dados.get("updated_at"),
                 "references": referencias,
+                "master_resolution": _resolucao_mestra_dict(
+                    resolucao_mestra
+                ),
             }
 
     leds_legados = configuracao.get("fixed_leds", [])
@@ -84,6 +161,9 @@ def _normalizar_projetos(configuracao: dict) -> dict:
             "fixed_leds": leds_legados,
             "updated_at": None,
             "references": {},
+            "master_resolution": _resolucao_mestra_dict(
+                _inferir_resolucao_mestra_dos_leds(leds_legados)
+            ),
         }
 
     configuracao["led_projects"] = projetos
@@ -172,6 +252,42 @@ def instalar_repositorio_projetos_led() -> None:
         projetos = _normalizar_projetos(configuracao)
         return _obter_projeto_ativo(configuracao, projetos)
 
+    def obter_resolucao_mestra_projeto_led(
+        self: ConfigRepository,
+        projeto: str | None = None,
+    ) -> tuple[int, int] | None:
+        configuracao = self.carregar_configuracao_existente_sem_alerta()
+        projetos = _normalizar_projetos(configuracao)
+        nome = normalizar_nome_projeto_led(projeto)
+        if not nome:
+            nome = _obter_projeto_ativo(configuracao, projetos)
+        return _resolucao_mestra_projeto(projetos.get(nome))
+
+    def definir_resolucao_mestra_projeto_led(
+        self: ConfigRepository,
+        projeto: str,
+        largura: int,
+        altura: int,
+    ) -> bool:
+        resolucao = normalizar_resolucao_mestra((largura, altura))
+        if resolucao is None:
+            return False
+
+        configuracao = self.carregar_configuracao_existente_sem_alerta()
+        projetos = _normalizar_projetos(configuracao)
+        nome = normalizar_nome_projeto_led(projeto)
+        if not nome or nome not in projetos:
+            return False
+
+        dados = dict(projetos[nome])
+        dados["master_resolution"] = _resolucao_mestra_dict(resolucao)
+        dados["updated_at"] = datetime.now(timezone.utc).isoformat()
+        projetos[nome] = dados
+        configuracao["led_projects"] = projetos
+        _sincronizar_espelho_ativo(configuracao, projetos)
+        _escrever_configuracao(self, configuracao)
+        return True
+
     def definir_projeto_led_ativo(
         self: ConfigRepository,
         nome_projeto: str,
@@ -195,6 +311,7 @@ def instalar_repositorio_projetos_led() -> None:
                 "fixed_leds": [],
                 "updated_at": None,
                 "references": {},
+                "master_resolution": None,
             }
             ordem.append(nome)
 
@@ -227,6 +344,7 @@ def instalar_repositorio_projetos_led() -> None:
             "fixed_leds": [],
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "references": {},
+            "master_resolution": None,
         }
         ordem.append(nome)
         settings = _obter_settings(configuracao)
@@ -260,7 +378,6 @@ def instalar_repositorio_projetos_led() -> None:
         if novo == atual:
             return True
 
-        # Copia o projeto inteiro; o bloco references acompanha o novo nome.
         dados = dict(projetos.pop(atual))
         dados["name"] = novo
         dados["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -290,8 +407,6 @@ def instalar_repositorio_projetos_led() -> None:
         if not nome or nome not in projetos:
             return False
 
-        # Remover o projeto remove junto somente suas referências locais.
-        # Referências globais permanecem em reference_sets.global.
         projetos.pop(nome)
         ordem = [item for item in ordem if item != nome]
         settings = _obter_settings(configuracao)
@@ -361,13 +476,8 @@ def instalar_repositorio_projetos_led() -> None:
             else:
                 leds_para_salvar.append(led_fixo)
 
-        dados_leds = [
-            led_fixo.to_dict()
-            for led_fixo in leds_para_salvar
-        ]
+        dados_leds = [led_fixo.to_dict() for led_fixo in leds_para_salvar]
 
-        # Atualiza apenas as máscaras e mantém as referências já associadas
-        # ao projeto. Isso é essencial para que Salvar LEDs não apague refs.
         projeto_existente = dict(projetos.get(nome, {}))
         projeto_existente.update(
             {
@@ -377,6 +487,17 @@ def instalar_repositorio_projetos_led() -> None:
             }
         )
         projeto_existente.setdefault("references", {})
+        if largura_base and altura_base:
+            projeto_existente["master_resolution"] = _resolucao_mestra_dict(
+                normalizar_resolucao_mestra((largura_base, altura_base))
+            )
+        else:
+            projeto_existente.setdefault(
+                "master_resolution",
+                _resolucao_mestra_dict(
+                    _inferir_resolucao_mestra_dos_leds(dados_leds)
+                ),
+            )
         projetos[nome] = projeto_existente
 
         if nome not in ordem:
@@ -385,7 +506,6 @@ def instalar_repositorio_projetos_led() -> None:
         settings["led_project_order"] = ordem
         configuracao["led_projects"] = projetos
 
-        # Espelho mantido por compatibilidade com versões anteriores.
         configuracao["fixed_leds"] = dados_leds
         _escrever_configuracao(self, configuracao)
         return configuracao
@@ -418,6 +538,12 @@ def instalar_repositorio_projetos_led() -> None:
 
     ConfigRepository.listar_projetos_led = listar_projetos_led
     ConfigRepository.obter_projeto_led_ativo = obter_projeto_led_ativo
+    ConfigRepository.obter_resolucao_mestra_projeto_led = (
+        obter_resolucao_mestra_projeto_led
+    )
+    ConfigRepository.definir_resolucao_mestra_projeto_led = (
+        definir_resolucao_mestra_projeto_led
+    )
     ConfigRepository.definir_projeto_led_ativo = definir_projeto_led_ativo
     ConfigRepository.adicionar_projeto_led = adicionar_projeto_led
     ConfigRepository.renomear_projeto_led = renomear_projeto_led
