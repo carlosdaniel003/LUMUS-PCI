@@ -17,8 +17,9 @@ from src.platform.raspberry_pi3_settings import (
 class DisplayProductionF3Mixin:
     """Runtime do F3 isolado do fluxo de Produção F2.
 
-    Fase 2 adiciona Projeto Display, resolução mestre e máscaras com persistência
-    própria. O F3 continua sem análise, CHECKS, engine ou contadores F2.
+    Fase 3 mantém Projeto Display, resolução, máscaras e CHECKS em persistência
+    própria. Ainda não existe análise automática, engine de CHECK ou resultado
+    OK/NG: esta fase configura somente a sequência e a expectativa das máscaras.
     """
 
     DISPLAY_F3_PREVIEW_INTERVAL_MS = 90
@@ -149,7 +150,7 @@ class DisplayProductionF3Mixin:
         projeto = repository.carregar_projeto(nome) if nome else None
         if projeto is None:
             try:
-                janela.set_project_info(None, None, 0)
+                janela.set_project_info(None, None, 0, 0)
             except Exception:
                 pass
             return
@@ -158,11 +159,13 @@ class DisplayProductionF3Mixin:
             projeto.get("master_resolution")
         )
         mascaras = projeto.get("masks", [])
+        checks = projeto.get("checks", [])
         try:
             janela.set_project_info(
                 projeto.get("name"),
                 resolucao,
                 len(mascaras) if isinstance(mascaras, list) else 0,
+                len(checks) if isinstance(checks, list) else 0,
             )
         except Exception:
             pass
@@ -208,9 +211,6 @@ class DisplayProductionF3Mixin:
                 pass
             return False
 
-        # A câmera pertence ao ODIN, não ao F3. Se já está ativa, o F3 apenas
-        # lê camera_frame_atual. Se está desligada, reutiliza o mesmo seletor
-        # visual e o mesmo handoff já consolidados pela aplicação atual.
         if not bool(getattr(self, "camera_ativa", False)):
             abrir_seletor = getattr(self, "abrir_seletor_camera", None)
             if callable(abrir_seletor):
@@ -307,4 +307,13 @@ class DisplayProductionF3Mixin:
             "projeto_display_persistente",
             "resolucao_mestra_display",
             "mascaras_display_persistentes",
+        )
+
+    @staticmethod
+    def responsabilidades_f3_fase3() -> tuple[str, ...]:
+        return (
+            "checks_display_persistentes",
+            "ordem_checks_configuravel",
+            "estado_mascara_por_check",
+            "editor_visual_checks",
         )
