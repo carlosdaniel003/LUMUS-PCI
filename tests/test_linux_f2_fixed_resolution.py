@@ -23,6 +23,14 @@ class _Service:
         return self.locked
 
 
+class _Window:
+    def __init__(self) -> None:
+        self.preview_status = []
+
+    def set_preview_status(self, text, color):
+        self.preview_status.append((str(text), str(color)))
+
+
 class _Base:
     def __init__(self) -> None:
         self.projeto_led_ativo = "PCI LED"
@@ -30,7 +38,13 @@ class _Base:
         self._resolucao_mestra_producao = None
         self.camera_service = _Service()
         self.camera_frame_atual = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.imagem_original = self.camera_frame_atual
+        self.largura_original = 640
+        self.altura_original = 480
+        self.next_camera_frame = None
         self.operacao_ativa = False
+        self.operacao_window = _Window()
+        self._operacao_preview_after_id = None
         self.apply_calls = []
         self.saved_master_calls = []
         self.sync_calls = 0
@@ -40,6 +54,9 @@ class _Base:
         self.close_calls = 0
         self.error_calls = 0
         self.schedule_calls = []
+        self.preview_schedule_calls = 0
+        self.preview_update_calls = 0
+        self.camera_update_calls = 0
         self.camera_config = None
         super().__init__()
 
@@ -69,8 +86,25 @@ class _Base:
         )
         return False
 
+    def _mask_guard_current_resolution(self):
+        return 1920, 1080
+
     def _synchronize_masks_with_current_frame(self, force=False, schedule_operation_prepare=True):
         self.sync_calls += 1
+
+    def atualizar_frame_camera(self):
+        self.camera_update_calls += 1
+        if self.next_camera_frame is not None:
+            self.camera_frame_atual = self.next_camera_frame
+            self.imagem_original = self.next_camera_frame
+            self.altura_original, self.largura_original = self.next_camera_frame.shape[:2]
+
+    def _atualizar_preview_operacao(self):
+        self.preview_update_calls += 1
+
+    def _agendar_preview_operacao(self, *args, **kwargs):
+        del args, kwargs
+        self.preview_schedule_calls += 1
 
     def abrir_tela_operacao(self):
         self.open_calls += 1
@@ -112,6 +146,7 @@ class LinuxF2FixedResolutionTests(unittest.TestCase):
             app = _App()
             self.assertEqual((1920, 1080), app._obter_resolucao_mestra_projeto("PCI LED"))
             self.assertEqual((1920, 1080, 20), app.obter_parametros_camera_dinamicos())
+            self.assertEqual((1920, 1080), app._mask_guard_current_resolution())
 
     def test_salvar_master_no_linux_persiste_640x480_mesmo_se_receber_1080p(self):
         with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
@@ -148,12 +183,55 @@ class LinuxF2FixedResolutionTests(unittest.TestCase):
             app._synchronize_masks_with_current_frame(force=True)
             self.assertEqual(0, app.sync_calls)
 
+    def test_segundo_guard_de_geometria_tambem_fica_fixo_em_640x480(self):
+        with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
+            app = _App()
+            app.operacao_ativa = True
+            app._linux_f2_resolution_lock_active = True
+            app.camera_frame_atual = np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+            self.assertEqual((640, 480), app._mask_guard_current_resolution())
+
     def test_fora_do_f2_sincronizador_continua_existindo(self):
         with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
             app = _App()
             app.operacao_ativa = False
+            app._linux_f2_resolution_lock_active = False
+            app.projeto_led_ativo = ""
             app._synchronize_masks_with_current_frame(force=True)
             self.assertEqual(1, app.sync_calls)
+            self.assertEqual((1920, 1080), app._mask_guard_current_resolution())
+
+    def test_frame_renegociado_nao_substitui_ultimo_frame_640_valido(self):
+        with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
+            app = _App()
+            app.operacao_ativa = True
+            app._linux_f2_resolution_lock_active = True
+            frame_640 = app.camera_frame_atual
+            imagem_640 = app.imagem_original
+            app.next_camera_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+
+            app.atualizar_frame_camera()
+
+            self.assertIs(frame_640, app.camera_frame_atual)
+            self.assertIs(imagem_640, app.imagem_original)
+            self.assertEqual((640, 480), (app.largura_original, app.altura_original))
+            self.assertEqual((640, 480), app.camera_service.locked)
+            self.assertEqual(1, app.camera_update_calls)
+
+    def test_preview_f2_nao_renderiza_frame_de_resolucao_errada(self):
+        with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
+            app = _App()
+            app.operacao_ativa = True
+            app._linux_f2_resolution_lock_active = True
+            app.camera_frame_atual = np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+            app._atualizar_preview_operacao()
+
+            self.assertEqual(0, app.preview_update_calls)
+            self.assertEqual(1, app.preview_schedule_calls)
+            self.assertTrue(app.operacao_window.preview_status)
+            self.assertIn("640x480", app.operacao_window.preview_status[-1][0])
 
     def test_frame_1920x1080_e_rejeitado_antes_de_preparar_f2(self):
         with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
@@ -180,6 +258,7 @@ class LinuxF2FixedResolutionTests(unittest.TestCase):
 
             self.assertEqual(0, app.trigger_calls)
             self.assertEqual(1, app.error_calls)
+            self.assertEqual([150], app.schedule_calls)
             self.assertEqual((640, 480), app.camera_service.locked)
 
     def test_frame_640x480_pode_preparar_e_analisar_normalmente(self):
