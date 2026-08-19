@@ -3,6 +3,11 @@ from __future__ import annotations
 import tkinter as tk
 
 from src.platform.display_production_f3_window import DisplayProductionF3Window
+from src.platform.display_project_config import DisplayProjectConfigWindow
+from src.platform.display_project_repository import (
+    DisplayProjectRepository,
+    normalizar_resolucao_display,
+)
 from src.platform.raspberry_pi3_settings import (
     OPERATION_PREVIEW_HEIGHT,
     OPERATION_PREVIEW_WIDTH,
@@ -10,11 +15,10 @@ from src.platform.raspberry_pi3_settings import (
 
 
 class DisplayProductionF3Mixin:
-    """Fase 1 do modo F3, totalmente separado do runtime de Produção F2.
+    """Runtime do F3 isolado do fluxo de Produção F2.
 
-    O F3 possui janela, flag e timer próprios. A única integração operacional é
-    a leitura de ``camera_frame_atual`` já produzida pelo ODIN. Nenhum método de
-    análise F2 é sobrescrito ou chamado por esta camada.
+    Fase 2 adiciona Projeto Display, resolução mestre e máscaras com persistência
+    própria. O F3 continua sem análise, CHECKS, engine ou contadores F2.
     """
 
     DISPLAY_F3_PREVIEW_INTERVAL_MS = 90
@@ -25,13 +29,18 @@ class DisplayProductionF3Mixin:
         self.display_f3_window: DisplayProductionF3Window | None = None
         self.display_f3_ativo = False
         self.display_f3_after_id = None
+        self.display_project_repository: DisplayProjectRepository | None = None
+        self._display_project_config_window: DisplayProjectConfigWindow | None = None
         super().__init__(*args, **kwargs)
+        self.display_project_repository = DisplayProjectRepository()
         self._instalar_modo_display_f3()
+        self._atualizar_resumo_projeto_display_f3()
 
     def _criar_janela_producao_display_f3(self) -> DisplayProductionF3Window:
         return DisplayProductionF3Window(
             root=self.root,
             on_close=self.fechar_tela_producao_display_f3,
+            on_configure=self.abrir_configuracao_projeto_display,
             preview_width=max(480, int(OPERATION_PREVIEW_WIDTH)),
             preview_height=max(360, int(OPERATION_PREVIEW_HEIGHT)),
         )
@@ -88,9 +97,80 @@ class DisplayProductionF3Mixin:
                 pady=18,
             )
 
+    def _obter_frame_para_configuracao_display(self):
+        frame = getattr(self, "camera_frame_atual", None)
+        if frame is None or getattr(frame, "size", 0) == 0:
+            return None
+        try:
+            return frame.copy()
+        except Exception:
+            return frame
+
+    def _ao_fechar_configuracao_projeto_display(self) -> None:
+        self._display_project_config_window = None
+        janela = self.display_f3_window
+        if janela is not None and self.display_f3_ativo:
+            try:
+                janela.container.focus_force()
+            except Exception:
+                pass
+
+    def abrir_configuracao_projeto_display(self) -> None:
+        """Abre somente a configuração persistente pertencente ao F3."""
+        existente = self._display_project_config_window
+        if existente is not None and existente.visible:
+            try:
+                existente.window.lift()
+                existente.window.focus_force()
+            except Exception:
+                pass
+            return
+
+        repository = self.display_project_repository
+        if repository is None:
+            repository = DisplayProjectRepository()
+            self.display_project_repository = repository
+
+        self._display_project_config_window = DisplayProjectConfigWindow(
+            root=self.root,
+            repository=repository,
+            frame_provider=self._obter_frame_para_configuracao_display,
+            on_change=self._atualizar_resumo_projeto_display_f3,
+            on_close=self._ao_fechar_configuracao_projeto_display,
+        )
+
+    def _atualizar_resumo_projeto_display_f3(self) -> None:
+        repository = self.display_project_repository
+        janela = self.display_f3_window
+        if repository is None or janela is None:
+            return
+
+        nome = repository.obter_projeto_ativo()
+        projeto = repository.carregar_projeto(nome) if nome else None
+        if projeto is None:
+            try:
+                janela.set_project_info(None, None, 0)
+            except Exception:
+                pass
+            return
+
+        resolucao = normalizar_resolucao_display(
+            projeto.get("master_resolution")
+        )
+        mascaras = projeto.get("masks", [])
+        try:
+            janela.set_project_info(
+                projeto.get("name"),
+                resolucao,
+                len(mascaras) if isinstance(mascaras, list) else 0,
+            )
+        except Exception:
+            pass
+
     def _ativar_tela_producao_display_f3(self) -> bool:
         """Mostra somente a camada F3; não cria nem altera runtime de F2."""
         self.display_f3_ativo = True
+        self._atualizar_resumo_projeto_display_f3()
         janela = self.display_f3_window
         if janela is not None:
             janela.show_waiting_camera()
@@ -157,6 +237,14 @@ class DisplayProductionF3Mixin:
                 pass
             self.display_f3_after_id = None
 
+        configuracao = self._display_project_config_window
+        if configuracao is not None and configuracao.visible:
+            try:
+                configuracao.close()
+            except Exception:
+                pass
+        self._display_project_config_window = None
+
         janela = self.display_f3_window
         if janela is not None:
             try:
@@ -203,7 +291,6 @@ class DisplayProductionF3Mixin:
 
         self._agendar_preview_display_f3()
 
-    # Marcador explícito usado pelos testes de isolamento arquitetural.
     @staticmethod
     def responsabilidades_f3() -> tuple[str, ...]:
         return (
@@ -211,4 +298,7 @@ class DisplayProductionF3Mixin:
             "atalho_f3",
             "preview_camera_somente_leitura",
             "ciclo_abertura_fechamento_f3",
+            "projeto_display_persistente",
+            "resolucao_mestra_display",
+            "mascaras_display_persistentes",
         )
