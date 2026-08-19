@@ -48,9 +48,12 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         self.metrics_frame.grid_remove()
 
         # O F3 não possui trigger manual. Enter é consumido localmente e nunca
-        # chega ao callback/engine usado pelo modo F2.
+        # chega ao callback/engine usado pelo modo F2. F2 também é consumido
+        # enquanto esta tela possui foco, impedindo dois modos de produção
+        # simultâneos sem alterar o binding original do F2 na aplicação.
         self.container.bind("<Return>", self._ignorar_trigger)
         self.container.bind("<KP_Enter>", self._ignorar_trigger)
+        self.container.bind("<F2>", self._ignorar_trigger)
         self.container.bind("<F3>", self._handle_close)
         self.container.bind("<Escape>", self._handle_close)
         self.container.unbind("<F1>")
