@@ -11,7 +11,9 @@ from src.platform.camera_selection import (
 
 
 _PATCH_INSTALADO = False
-WINDOWS_POST_RELEASE_SETTLE_MS = 220
+# O worker já confirmou release(), mas alguns drivers UVC/MSMF ainda mantêm a
+# sessão USB por alguns centenas de milissegundos. O atraso é exclusivo Windows.
+WINDOWS_POST_RELEASE_SETTLE_MS = 900
 WINDOWS_RELEASE_STATUS_AFTER_MS = 2500
 WINDOWS_RELEASE_POLL_MS = 50
 
@@ -171,8 +173,7 @@ def instalar_handoff_camera_windows() -> None:
                     )
                 except Exception:
                     pass
-                # Alguns drivers mantêm a sessão USB por poucos milissegundos
-                # após release() retornar. Esse pequeno settle ocorre só no Windows.
+                # O settle ocorre somente no Windows, após release() confirmado.
                 self.root.after(
                     WINDOWS_POST_RELEASE_SETTLE_MS,
                     lambda: callback(indice),
