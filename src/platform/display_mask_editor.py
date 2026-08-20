@@ -12,6 +12,7 @@ from src.platform.display_mask_geometry import (
     _id, _segment_points, converter_mascara_legada_para_editor,
     bbox_mascara_display, criar_segmento_display_por_arrasto, mascara_display_contem_ponto,
 )
+import src.platform.display_check_zoom  # instala zoom somente no editor visual de CHECK do F3
 from src.platform.display_mask_editor_interactions import (
     DisplayMaskEditorInteractionMixin,
 )
