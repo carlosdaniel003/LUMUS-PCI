@@ -1,569 +1,127 @@
 from __future__ import annotations
 
 import base64
-import math
 import tkinter as tk
-from copy import deepcopy
 from collections.abc import Callable
+from copy import deepcopy
 
 import cv2
 
-from src.platform.display_project_repository import (
-    normalizar_mascaras_display,
-    normalizar_resolucao_display,
+from src.platform.display_mask_geometry import (
+    DISPLAY_MASK_F2_PARITY_TOOLS, TOOL_CIRCLE, TOOL_FREEFORM, TOOL_MASS, TOOL_SEGMENT,
+    _id, _segment_points, converter_mascara_legada_para_editor,
+    bbox_mascara_display, criar_segmento_display_por_arrasto, mascara_display_contem_ponto,
 )
+from src.platform.display_mask_editor_interactions import (
+    DisplayMaskEditorInteractionMixin,
+)
+from src.platform.display_project_repository import normalizar_mascaras_display, normalizar_resolucao_display
+from src.ui.main_window_parts.image.selection_zoom import ZOOM_SELECAO_MIN
 
+HANDLE_PX=7
+MAGNIFIER_SIZE_PX=190
 
-class DisplayMaskEditorWindow:
-    """Editor visual exclusivo das máscaras do Projeto Display.
+class DisplayMaskEditorWindow(DisplayMaskEditorInteractionMixin):
+    """Editor F3 com as ferramentas do ``Selecionar LEDs`` do F2, estado isolado."""
+    BG="#020617"; PANEL="#07111F"; MASK="#22D3EE"; SEL="#FBBF24"; ROT="#A78BFA"
 
-    A janela mantém sua própria lista de máscaras e usa o frame da câmera apenas
-    como imagem de fundo. Nenhum estado de ROI/LED do F2 é lido ou alterado.
-    """
-
-    BG = "#020617"
-    PANEL = "#07111F"
-    BORDER = "#1E293B"
-    TEXT = "#F8FAFC"
-    MUTED = "#94A3B8"
-    MASK = "#22D3EE"
-    MASK_SELECTED = "#FACC15"
-    DRAFT = "#A78BFA"
-
-    def __init__(
-        self,
-        root,
-        master_resolution,
-        masks,
-        frame=None,
-        on_save: Callable[[list[dict]], None] | None = None,
-    ) -> None:
-        resolucao = normalizar_resolucao_display(master_resolution)
-        if resolucao is None:
-            raise ValueError("Resolução mestre inválida para o editor Display")
-
-        self.root = root
-        self.master_width, self.master_height = resolucao
-        self.masks = normalizar_mascaras_display(deepcopy(masks or []))
-        self.frame = None
-        if frame is not None and getattr(frame, "size", 0) > 0:
-            self.frame = frame.copy()
-        self.on_save = on_save
-
-        self.mode = "rectangle"
-        self.selected_index: int | None = None
-        self.drag_start: tuple[int, int] | None = None
-        self.drag_current: tuple[int, int] | None = None
-        self.polygon_points: list[list[int]] = []
-        self._photo = None
-        self._scale = 1.0
-        self._offset_x = 0.0
-        self._offset_y = 0.0
-
-        self.window = tk.Toplevel(root)
-        self.window.title("ODIN • Projeto Display • Máscaras")
-        self.window.configure(bg=self.BG)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-
-        toolbar = tk.Frame(
-            self.window,
-            bg=self.PANEL,
-            highlightbackground=self.BORDER,
-            highlightthickness=1,
-        )
-        toolbar.pack(side=tk.TOP, fill=tk.X)
-
-        texts = tk.Frame(toolbar, bg=self.PANEL)
-        texts.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=18, pady=9)
-        tk.Label(
-            texts,
-            text="MÁSCARAS DO PROJETO DISPLAY",
-            font=("DejaVu Sans", 12, "bold"),
-            fg=self.TEXT,
-            bg=self.PANEL,
-            anchor="w",
-        ).pack(fill=tk.X)
-        tk.Label(
-            texts,
-            text=(
-                f"Resolução mestre: {self.master_width}x{self.master_height} • "
-                "Retângulo/Círculo: arraste • Polígono: clique nos pontos e "
-                "feche no primeiro ponto ou pressione Enter • Delete remove"
-            ),
-            font=("DejaVu Sans", 8),
-            fg=self.MUTED,
-            bg=self.PANEL,
-            anchor="w",
-        ).pack(fill=tk.X, pady=(2, 0))
-
-        actions = tk.Frame(toolbar, bg=self.PANEL)
-        actions.pack(side=tk.RIGHT, padx=(8, 18), pady=8)
-
-        self.mode_buttons: dict[str, tk.Button] = {}
-        for mode, text in (
-            ("rectangle", "▭ Retângulo"),
-            ("circle", "● Círculo"),
-            ("polygon", "✎ Polígono"),
-        ):
-            button = tk.Button(
-                actions,
-                text=text,
-                command=lambda value=mode: self.set_mode(value),
-                font=("DejaVu Sans", 8, "bold"),
-                relief="flat",
-                bd=0,
-                padx=10,
-                pady=6,
-                cursor="hand2",
-            )
-            button.pack(side=tk.LEFT, padx=3)
-            self.mode_buttons[mode] = button
-
-        tk.Button(
-            actions,
-            text="Limpar",
-            command=self.clear_masks,
-            font=("DejaVu Sans", 8, "bold"),
-            bg="#7F1D1D",
-            fg="#FFFFFF",
-            activebackground="#991B1B",
-            activeforeground="#FFFFFF",
-            relief="flat",
-            bd=0,
-            padx=10,
-            pady=6,
-            cursor="hand2",
-        ).pack(side=tk.LEFT, padx=(10, 3))
-
-        tk.Button(
-            actions,
-            text="Cancelar",
-            command=self.close,
-            font=("DejaVu Sans", 8, "bold"),
-            bg="#334155",
-            fg="#FFFFFF",
-            activebackground="#475569",
-            activeforeground="#FFFFFF",
-            relief="flat",
-            bd=0,
-            padx=12,
-            pady=6,
-            cursor="hand2",
-        ).pack(side=tk.LEFT, padx=3)
-
-        tk.Button(
-            actions,
-            text="SALVAR MÁSCARAS",
-            command=self.save,
-            font=("DejaVu Sans", 9, "bold"),
-            bg="#D6A900",
-            fg="#111318",
-            activebackground="#F5C518",
-            activeforeground="#111318",
-            relief="flat",
-            bd=0,
-            padx=15,
-            pady=6,
-            cursor="hand2",
-        ).pack(side=tk.LEFT, padx=(8, 0))
-
-        self.canvas = tk.Canvas(
-            self.window,
-            bg=self.BG,
-            highlightthickness=0,
-            bd=0,
-            cursor="crosshair",
-        )
-        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        self.status = tk.Label(
-            self.window,
-            text="",
-            font=("DejaVu Sans", 9, "bold"),
-            fg=self.MUTED,
-            bg=self.PANEL,
-            anchor="w",
-        )
-        self.status.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(5, 8))
-
-        self.canvas.bind("<Configure>", lambda _event: self.redraw())
-        self.canvas.bind("<Button-1>", self._on_press)
-        self.canvas.bind("<B1-Motion>", self._on_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._on_release)
-        self.canvas.bind("<Delete>", self._delete_selected)
-        self.canvas.bind("<BackSpace>", self._delete_selected)
-        self.canvas.bind("<Return>", self._finish_polygon)
-        self.canvas.bind("<KP_Enter>", self._finish_polygon)
-        self.canvas.bind("<Escape>", self._cancel_draft)
-
-        self.set_mode("rectangle")
-        self._maximize()
-        self.window.after(60, self.redraw)
-        self.window.after(80, self.canvas.focus_set)
-
-    def _maximize(self) -> None:
-        try:
-            self.window.attributes("-fullscreen", True)
-        except Exception:
-            width = max(900, int(self.root.winfo_screenwidth()))
-            height = max(650, int(self.root.winfo_screenheight()))
-            self.window.geometry(f"{width}x{height}+0+0")
+    def __init__(self, root, master_resolution, masks, frame=None, on_save: Callable[[list[dict]],None]|None=None):
+        res=normalizar_resolucao_display(master_resolution)
+        if res is None: raise ValueError("Resolução mestre inválida para o editor Display")
+        self.root=root; self.master_width,self.master_height=res; self.on_save=on_save
+        self.masks=[converter_mascara_legada_para_editor(m) for m in normalizar_mascaras_display(deepcopy(masks or []))]
+        self.frame=None
+        if frame is not None and getattr(frame,"size",0)>0:
+            self.frame=cv2.resize(frame,(self.master_width,self.master_height),interpolation=cv2.INTER_AREA) if tuple(frame.shape[:2])!=(self.master_height,self.master_width) else frame.copy()
+        self.tool=TOOL_SEGMENT; self.selected_ids=set(); self.mode=None; self.handle=None
+        self.press_canvas=None; self.press_master=None; self.current_master=None; self.snapshot=[]; self.snapshot_sel=[]; self.snapshot_bbox=None
+        self.draft_segment=None; self.freeform=[]; self.freeform_mouse=None
+        self.zoom_factor=ZOOM_SELECAO_MIN; self.zoom_cx=None; self.zoom_cy=None; self.pan=False; self.pan_last=None
+        self._photo=None; self._magnifier=None; self.pointer_canvas=None; self.pointer_master=None
+        self.window=tk.Toplevel(root); self.window.title("ODIN • Projeto Display • Seleção e ajuste de máscaras"); self.window.configure(bg=self.BG)
+        self.window.protocol("WM_DELETE_WINDOW",self.close); self._toolbar()
+        self.canvas=tk.Canvas(self.window,bg=self.BG,highlightthickness=0,cursor="crosshair",bd=0); self.canvas.pack(fill=tk.BOTH,expand=True)
+        self.status=tk.Label(self.window,text="",font=("DejaVu Sans",9,"bold"),fg="#AAB8C8",bg=self.PANEL,anchor="w"); self.status.pack(fill=tk.X,padx=14,pady=(5,8))
+        self._bind(); self._maximize(); self.set_tool(TOOL_SEGMENT); self.window.after(60,self.redraw); self.window.after(80,self.canvas.focus_set)
 
     @property
-    def visible(self) -> bool:
-        try:
-            return bool(self.window.winfo_exists())
-        except Exception:
-            return False
+    def visible(self):
+        try: return bool(self.window.winfo_exists())
+        except Exception: return False
 
-    def set_mode(self, mode: str) -> None:
-        if mode not in self.mode_buttons:
-            return
-        self.mode = mode
-        self.drag_start = None
-        self.drag_current = None
-        self.polygon_points = []
-        for key, button in self.mode_buttons.items():
-            active = key == mode
-            button.configure(
-                bg="#D6A900" if active else "#182231",
-                fg="#111318" if active else "#DCE5EF",
-                activebackground="#F5C518" if active else "#243246",
-                activeforeground="#111318" if active else "#FFFFFF",
-            )
-        self.redraw()
+    def _toolbar(self):
+        bar=tk.Frame(self.window,bg=self.PANEL,height=72); bar.pack(fill=tk.X); bar.pack_propagate(False)
+        txt=tk.Frame(bar,bg=self.PANEL); txt.pack(side=tk.LEFT,fill=tk.BOTH,expand=True,padx=(18,8),pady=7)
+        tk.Label(txt,text="SELEÇÃO E AJUSTE DE MÁSCARAS • PROJETO DISPLAY",font=("DejaVu Sans",12,"bold"),fg="#F9FAFB",bg=self.PANEL,anchor="w").pack(fill=tk.X)
+        tk.Label(txt,text="Segmento: arraste • Shift+arraste seleciona área • Ctrl+scroll zoom • botão do meio arrasta • setas movem 1 px",font=("DejaVu Sans",8),fg="#AAB8C8",bg=self.PANEL,anchor="w").pack(fill=tk.X,pady=(2,0))
+        tk.Button(bar,text="OK",command=self.save,font=("DejaVu Sans",10,"bold"),bg="#D6A900",fg="#111318",relief="flat",padx=24,pady=8).pack(side=tk.RIGHT,padx=(8,18),pady=12)
+        self.zoom_label=tk.Label(bar,text="ZOOM 100%",font=("DejaVu Sans",9,"bold"),fg="#38BDF8",bg=self.PANEL,padx=8,pady=5); self.zoom_label.pack(side=tk.RIGHT,padx=8)
+        buttons=tk.Frame(bar,bg=self.PANEL); buttons.pack(side=tk.RIGHT,padx=4); self.tool_buttons={}
+        for tool,text in ((TOOL_SEGMENT,"▰ Segmento"),(TOOL_CIRCLE,"● Círculo"),(TOOL_FREEFORM,"✎ Segmento por pontos"),(TOOL_MASS,"▣ Seleção em massa")):
+            b=tk.Button(buttons,text=text,command=lambda v=tool:self.set_tool(v),font=("DejaVu Sans",8,"bold"),relief="flat",padx=10,pady=5); b.pack(side=tk.LEFT,padx=2); self.tool_buttons[tool]=b
 
-    def _canvas_geometry(self) -> tuple[float, float, float]:
-        width = max(1, int(self.canvas.winfo_width()))
-        height = max(1, int(self.canvas.winfo_height()))
-        scale = min(
-            width / float(self.master_width),
-            height / float(self.master_height),
-        )
-        render_width = self.master_width * scale
-        render_height = self.master_height * scale
-        return scale, (width - render_width) / 2.0, (height - render_height) / 2.0
+    def _bind(self):
+        for seq,cb in (("<Configure>",lambda e:self.redraw()),("<Button-1>",self._press),("<B1-Motion>",self._drag),("<ButtonRelease-1>",self._release),("<Motion>",self._motion),("<Leave>",self._leave),("<Button-2>",self._start_pan),("<B2-Motion>",self._drag_pan),("<ButtonRelease-2>",self._end_pan),("<Delete>",self._delete_selected),("<BackSpace>",self._delete_selected),("<Escape>",self._escape),("<Control-a>",self._select_all),("<Control-A>",self._select_all),("<Left>",self._move_keyboard),("<Right>",self._move_keyboard),("<Up>",self._move_keyboard),("<Down>",self._move_keyboard),("<Return>",self._finish_freeform),("<KP_Enter>",self._finish_freeform)):
+            self.canvas.bind(seq,cb)
+        for seq in ("<MouseWheel>","<Button-4>","<Button-5>"): self.canvas.bind(seq,self._wheel,add="+")
 
-    def _to_master(self, canvas_x: float, canvas_y: float) -> tuple[int, int] | None:
-        scale, offset_x, offset_y = self._canvas_geometry()
-        if scale <= 0:
-            return None
-        x = (float(canvas_x) - offset_x) / scale
-        y = (float(canvas_y) - offset_y) / scale
-        if x < 0 or y < 0 or x > self.master_width or y > self.master_height:
-            return None
-        return (
-            max(0, min(self.master_width - 1, int(round(x)))),
-            max(0, min(self.master_height - 1, int(round(y)))),
-        )
+    def _maximize(self):
+        try: self.window.attributes("-fullscreen",True)
+        except Exception: self.window.geometry(f"{max(900,self.root.winfo_screenwidth())}x{max(650,self.root.winfo_screenheight())}+0+0")
 
-    def _to_canvas(self, x: float, y: float) -> tuple[float, float]:
-        scale, offset_x, offset_y = self._canvas_geometry()
-        return offset_x + float(x) * scale, offset_y + float(y) * scale
-
-    def _next_id(self) -> str:
-        used = {str(mask.get("id", "")) for mask in self.masks}
-        index = 1
-        while f"MASK_{index:03d}" in used:
-            index += 1
-        return f"MASK_{index:03d}"
-
-    def _on_press(self, event) -> str:
-        self.canvas.focus_set()
-        point = self._to_master(event.x, event.y)
-        if point is None:
-            return "break"
-
-        if self.mode == "polygon":
-            if self.polygon_points and len(self.polygon_points) >= 3:
-                first = self.polygon_points[0]
-                tolerance = max(5.0, 14.0 / max(self._scale, 1e-6))
-                if math.dist(point, first) <= tolerance:
-                    return self._finish_polygon(event)
-            self.polygon_points.append([point[0], point[1]])
-            self.selected_index = None
-            self.redraw()
-            return "break"
-
-        hit = self._find_mask(point[0], point[1])
-        if hit is not None:
-            self.selected_index = hit
-            self.drag_start = None
-            self.drag_current = None
-            self.redraw()
-            return "break"
-
-        self.selected_index = None
-        self.drag_start = point
-        self.drag_current = point
-        self.redraw()
-        return "break"
-
-    def _on_drag(self, event) -> str:
-        if self.mode == "polygon" or self.drag_start is None:
-            return "break"
-        point = self._to_master(event.x, event.y)
-        if point is not None:
-            self.drag_current = point
-            self.redraw()
-        return "break"
-
-    def _on_release(self, event) -> str:
-        if self.mode == "polygon" or self.drag_start is None:
-            return "break"
-        point = self._to_master(event.x, event.y) or self.drag_current
-        start = self.drag_start
-        self.drag_start = None
-        self.drag_current = None
-        if point is None:
-            self.redraw()
-            return "break"
-
-        x1, y1 = start
-        x2, y2 = point
-        if self.mode == "rectangle":
-            left, right = sorted((x1, x2))
-            top, bottom = sorted((y1, y2))
-            if right - left >= 3 and bottom - top >= 3:
-                self.masks.append({
-                    "id": self._next_id(),
-                    "type": "rectangle",
-                    "x": left,
-                    "y": top,
-                    "width": right - left,
-                    "height": bottom - top,
-                })
-                self.selected_index = len(self.masks) - 1
-        elif self.mode == "circle":
-            radius = int(round(math.dist((x1, y1), (x2, y2))))
-            radius = min(
-                radius,
-                x1,
-                y1,
-                self.master_width - 1 - x1,
-                self.master_height - 1 - y1,
-            )
-            if radius >= 3:
-                self.masks.append({
-                    "id": self._next_id(),
-                    "type": "circle",
-                    "cx": x1,
-                    "cy": y1,
-                    "radius": radius,
-                })
-                self.selected_index = len(self.masks) - 1
-        self.masks = normalizar_mascaras_display(self.masks)
-        self.redraw()
-        return "break"
-
-    def _finish_polygon(self, _event=None) -> str:
-        if len(self.polygon_points) >= 3:
-            self.masks.append({
-                "id": self._next_id(),
-                "type": "polygon",
-                "points": deepcopy(self.polygon_points),
-            })
-            self.masks = normalizar_mascaras_display(self.masks)
-            self.selected_index = len(self.masks) - 1
-        self.polygon_points = []
-        self.redraw()
-        return "break"
-
-    def _cancel_draft(self, _event=None) -> str:
-        self.drag_start = None
-        self.drag_current = None
-        self.polygon_points = []
-        self.redraw()
-        return "break"
-
-    def _delete_selected(self, _event=None) -> str:
-        if self.selected_index is not None and 0 <= self.selected_index < len(self.masks):
-            self.masks.pop(self.selected_index)
-        self.selected_index = None
-        self.redraw()
-        return "break"
-
-    def clear_masks(self) -> None:
-        self.masks = []
-        self.selected_index = None
-        self.drag_start = None
-        self.drag_current = None
-        self.polygon_points = []
-        self.redraw()
-
-    def _find_mask(self, x: int, y: int) -> int | None:
-        for index in range(len(self.masks) - 1, -1, -1):
-            mask = self.masks[index]
-            if self._contains(mask, x, y):
-                return index
-        return None
-
-    @staticmethod
-    def _contains(mask: dict, x: int, y: int) -> bool:
-        kind = mask.get("type")
-        if kind == "rectangle":
-            return (
-                int(mask["x"]) <= x <= int(mask["x"]) + int(mask["width"])
-                and int(mask["y"]) <= y <= int(mask["y"]) + int(mask["height"])
-            )
-        if kind == "circle":
-            dx = x - int(mask["cx"])
-            dy = y - int(mask["cy"])
-            return dx * dx + dy * dy <= int(mask["radius"]) ** 2
-        if kind == "polygon":
-            points = mask.get("points", [])
-            inside = False
-            j = len(points) - 1
-            for i in range(len(points)):
-                xi, yi = points[i]
-                xj, yj = points[j]
-                if ((yi > y) != (yj > y)) and (
-                    x < (xj - xi) * (y - yi) / float((yj - yi) or 1e-9) + xi
-                ):
-                    inside = not inside
-                j = i
-            return inside
-        return False
-
-    def _background_photo(self, render_width: int, render_height: int):
-        if self.frame is None:
-            return None
-        try:
-            resized = cv2.resize(
-                self.frame,
-                (max(1, render_width), max(1, render_height)),
-                interpolation=cv2.INTER_AREA,
-            )
-            ok, buffer = cv2.imencode(
-                ".png",
-                resized,
-                [cv2.IMWRITE_PNG_COMPRESSION, 1],
-            )
-            if not ok:
-                return None
-            return tk.PhotoImage(data=base64.b64encode(buffer).decode("ascii"))
-        except Exception:
-            return None
-
-    def redraw(self) -> None:
-        if not self.visible:
-            return
-        self.canvas.delete("all")
-        scale, offset_x, offset_y = self._canvas_geometry()
-        self._scale = scale
-        self._offset_x = offset_x
-        self._offset_y = offset_y
-        render_width = max(1, int(round(self.master_width * scale)))
-        render_height = max(1, int(round(self.master_height * scale)))
-
-        self._photo = self._background_photo(render_width, render_height)
-        if self._photo is not None:
-            self.canvas.create_image(
-                offset_x,
-                offset_y,
-                image=self._photo,
-                anchor=tk.NW,
-                tags=("background",),
-            )
+    def _background(self,v):
+        if self.frame is None:return None
+        crop=self.frame[v.origem_visual_y:v.fim_visual_y,v.origem_visual_x:v.fim_visual_x]
+        if crop.size==0:return None
+        img=cv2.resize(crop,(v.largura_render,v.altura_render),interpolation=cv2.INTER_AREA if v.escala<1 else cv2.INTER_LINEAR)
+        ok,b=cv2.imencode(".png",img,[cv2.IMWRITE_PNG_COMPRESSION,1]); return tk.PhotoImage(data=base64.b64encode(b).decode("ascii")) if ok else None
+    def _draw_mask(self,m):
+        c=self.SEL if _id(m) in self.selected_ids else self.MASK; w=3 if _id(m) in self.selected_ids else 2; kind=m.get("type")
+        if kind=="circle":
+            x,y=self._to_canvas(m["cx"],m["cy"]); r=m["radius"]*self._vp().escala; self.canvas.create_oval(x-r,y-r,x+r,y+r,outline=c,width=w)
         else:
-            self.canvas.create_rectangle(
-                offset_x,
-                offset_y,
-                offset_x + render_width,
-                offset_y + render_height,
-                fill="#0B1220",
-                outline=self.BORDER,
-                width=1,
-            )
+            pts=_segment_points(m) if kind=="segment" else m.get("points",[]); coords=[]
+            for p in pts: coords.extend(self._to_canvas(p[0],p[1]))
+            if len(coords)>=6:self.canvas.create_polygon(*coords,fill="",outline=c,width=w)
+    def _draw_handles(self):
+        hs=self._handles()
+        for name,p in hs.items():
+            x,y=self._to_canvas(*p); r=HANDLE_PX
+            if name=="rotate":
+                if "n" in hs:
+                    nx,ny=self._to_canvas(*hs["n"]); self.canvas.create_line(nx,ny,x,y,fill=self.ROT,width=2,dash=(3,3))
+                self.canvas.create_oval(x-r,y-r,x+r,y+r,fill=self.ROT,outline="#111827")
+            else:self.canvas.create_rectangle(x-r,y-r,x+r,y+r,fill="#38BDF8" if name in {"n","e","s","w"} else self.SEL,outline="#111827")
+    def _draw_freeform(self):
+        if not self.freeform:return
+        pts=[self._to_canvas(*p) for p in self.freeform]
+        if len(pts)>=2:self.canvas.create_line(*[v for p in pts for v in p],fill="#38BDF8",width=3)
+        if self.freeform_mouse:
+            self.canvas.create_line(*pts[-1],*self._to_canvas(*self.freeform_mouse),fill="#7DD3FC",width=2,dash=(6,4))
+        for i,(x,y) in enumerate(pts):r=7 if i==0 else 4;self.canvas.create_oval(x-r,y-r,x+r,y+r,fill="#FBBF24" if i==0 else "#38BDF8")
+    def _draw_magnifier(self):
+        if self.frame is None or self.pointer_canvas is None or self.pointer_master is None:return
+        x,y=self.pointer_master; r=28; x1,x2=max(0,x-r),min(self.master_width,x+r); y1,y2=max(0,y-r),min(self.master_height,y+r); crop=self.frame[y1:y2,x1:x2]
+        if crop.size==0:return
+        img=cv2.resize(crop,(MAGNIFIER_SIZE_PX,MAGNIFIER_SIZE_PX),interpolation=cv2.INTER_NEAREST); ok,b=cv2.imencode(".png",img)
+        if not ok:return
+        self._magnifier=tk.PhotoImage(data=base64.b64encode(b).decode("ascii")); cw=max(1,self.canvas.winfo_width()); lx=cw-MAGNIFIER_SIZE_PX-18
+        if self.pointer_canvas[0]>lx-20:lx=18
+        ly=42; self.canvas.create_image(lx,ly,image=self._magnifier,anchor="nw"); self.canvas.create_rectangle(lx,ly,lx+MAGNIFIER_SIZE_PX,ly+MAGNIFIER_SIZE_PX,outline="#38BDF8",width=2)
+    def redraw(self):
+        if not self.visible:return
+        self.canvas.delete("all"); v=self._vp(); self._photo=self._background(v)
+        if self._photo:self.canvas.create_image(v.deslocamento_render_x,v.deslocamento_render_y,image=self._photo,anchor="nw")
+        else:self.canvas.create_rectangle(v.deslocamento_virtual_x,v.deslocamento_virtual_y,v.deslocamento_virtual_x+v.largura_virtual,v.deslocamento_virtual_y+v.altura_virtual,fill="#0B1220",outline="#1E293B")
+        for m in self.masks:self._draw_mask(m)
+        if self.draft_segment:self._draw_mask(self.draft_segment)
+        self._draw_freeform(); self._draw_handles(); self._draw_magnifier(); self.status.configure(text=f"Projeto Display • {len(self.masks)} máscara(s) • {len(self.selected_ids)} selecionada(s) • Zoom {int(round(self.zoom_factor*100))}%")
 
-        for index, mask in enumerate(self.masks):
-            self._draw_mask(mask, selected=index == self.selected_index)
-
-        if self.drag_start is not None and self.drag_current is not None:
-            self._draw_draft_drag()
-        if self.polygon_points:
-            self._draw_draft_polygon()
-
-        self.status.configure(
-            text=(
-                f"Projeto Display • {len(self.masks)} máscara(s) • "
-                f"modo {self.mode.upper()}"
-            )
-        )
-
-    def _draw_mask(self, mask: dict, selected: bool = False) -> None:
-        color = self.MASK_SELECTED if selected else self.MASK
-        width = 3 if selected else 2
-        kind = mask.get("type")
-        if kind == "rectangle":
-            x1, y1 = self._to_canvas(mask["x"], mask["y"])
-            x2, y2 = self._to_canvas(
-                int(mask["x"]) + int(mask["width"]),
-                int(mask["y"]) + int(mask["height"]),
-            )
-            self.canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=width)
-        elif kind == "circle":
-            cx, cy = self._to_canvas(mask["cx"], mask["cy"])
-            radius = float(mask["radius"]) * self._scale
-            self.canvas.create_oval(
-                cx - radius,
-                cy - radius,
-                cx + radius,
-                cy + radius,
-                outline=color,
-                width=width,
-            )
-        elif kind == "polygon":
-            coords: list[float] = []
-            for point in mask.get("points", []):
-                px, py = self._to_canvas(point[0], point[1])
-                coords.extend((px, py))
-            if len(coords) >= 6:
-                self.canvas.create_polygon(
-                    *coords,
-                    outline=color,
-                    fill="",
-                    width=width,
-                )
-
-    def _draw_draft_drag(self) -> None:
-        if self.drag_start is None or self.drag_current is None:
-            return
-        x1, y1 = self._to_canvas(*self.drag_start)
-        x2, y2 = self._to_canvas(*self.drag_current)
-        if self.mode == "rectangle":
-            self.canvas.create_rectangle(x1, y1, x2, y2, outline=self.DRAFT, width=2, dash=(5, 3))
-        elif self.mode == "circle":
-            radius = math.dist((x1, y1), (x2, y2))
-            self.canvas.create_oval(
-                x1 - radius,
-                y1 - radius,
-                x1 + radius,
-                y1 + radius,
-                outline=self.DRAFT,
-                width=2,
-                dash=(5, 3),
-            )
-
-    def _draw_draft_polygon(self) -> None:
-        coords: list[float] = []
-        for point in self.polygon_points:
-            px, py = self._to_canvas(point[0], point[1])
-            coords.extend((px, py))
-            self.canvas.create_oval(px - 4, py - 4, px + 4, py + 4, outline=self.DRAFT, width=2)
-        if len(coords) >= 4:
-            self.canvas.create_line(*coords, fill=self.DRAFT, width=2, dash=(5, 3))
-
-    def save(self) -> None:
-        if self.polygon_points:
-            self._finish_polygon()
-        masks = normalizar_mascaras_display(deepcopy(self.masks))
-        if self.on_save is not None:
-            self.on_save(masks)
+    def save(self):
+        if self.freeform:self._finish_freeform()
+        masks=normalizar_mascaras_display(deepcopy(self.masks))
+        if self.on_save:self.on_save(masks)
         self.close()
-
-    def close(self) -> None:
-        try:
-            self.window.destroy()
-        except Exception:
-            pass
+    def close(self):
+        try:self.window.destroy()
+        except Exception:pass
