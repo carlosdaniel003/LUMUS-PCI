@@ -37,13 +37,15 @@ jobs:
             src/platform/display_mask_geometry.py \
             src/platform/display_mask_editor_interactions.py \
             src/platform/display_check_editor.py \
+            src/platform/display_check_zoom.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_f3_architecture.py \
             tests/test_display_f3_phase2_architecture.py \
             tests/test_display_f3_phase3_architecture.py \
             tests/test_display_project_repository.py \
             tests/test_display_check_repository.py \
-            tests/test_display_mask_editor_f2_parity.py
+            tests/test_display_mask_editor_f2_parity.py \
+            tests/test_display_check_zoom.py
 
       - name: Run F3 phase 1, phase 2 and phase 3 isolation tests
         run: |
@@ -54,6 +56,7 @@ jobs:
             tests.test_display_project_repository \
             tests.test_display_check_repository \
             tests.test_display_mask_editor_f2_parity \
+            tests.test_display_check_zoom \
             -v
 
       - name: Run F2 regression tests
