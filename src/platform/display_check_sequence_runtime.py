@@ -168,3 +168,4 @@ class DisplayCheckSequenceRuntime:
 import src.platform.display_reference_learning  # noqa: E402,F401
 import src.platform.display_reference_learning_guard  # noqa: E402,F401
 import src.platform.display_live_roi_overlay  # noqa: E402,F401
+import src.platform.display_manual_transition_guard  # noqa: E402,F401
