@@ -62,7 +62,8 @@ jobs:
             tests/test_display_f3_auto_check.py \
             tests/test_display_f3_optional_low_light.py \
             tests/test_display_f3_auto_check_policy.py \
-            tests/test_display_f3_live_roi_overlay.py
+            tests/test_display_f3_live_roi_overlay.py \
+            tests/test_display_f3_transient_bluetooth.py
 
       - name: Run F3 isolation and runtime tests
         run: |
@@ -82,6 +83,7 @@ jobs:
             tests.test_display_f3_optional_low_light \
             tests.test_display_f3_auto_check_policy \
             tests.test_display_f3_live_roi_overlay \
+            tests.test_display_f3_transient_bluetooth \
             -v
 
       - name: Run F2 regression tests
