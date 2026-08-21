@@ -20,8 +20,8 @@ class DisplayProductionF3Mixin:
     """Runtime isolado da Produção Display F3.
 
     Projeto Display, máscaras, CHECKS, progresso operacional e contadores são
-    exclusivos do F3. Nenhum estado de OperationEngine/Produção F2 é usado para
-    avançar a sequência.
+    exclusivos do F3. Nenhum estado da Produção F2 é usado para avançar a
+    sequência.
     """
 
     DISPLAY_F3_PREVIEW_INTERVAL_MS = 90
@@ -274,9 +274,18 @@ class DisplayProductionF3Mixin:
         self.display_check_runtime.reiniciar_placa()
         janela = self.display_f3_window
         if janela is not None:
-            janela.show_waiting_camera()
-            janela.set_check_sequence(self.display_check_runtime.snapshot())
-            janela.show()
+            try:
+                janela.show_waiting_camera()
+            except Exception:
+                pass
+            try:
+                janela.set_check_sequence(self.display_check_runtime.snapshot())
+            except Exception:
+                pass
+            try:
+                janela.show()
+            except Exception:
+                pass
         self._agendar_preview_display_f3(0)
         return True
 
@@ -387,6 +396,12 @@ class DisplayProductionF3Mixin:
                     frame,
                     visual_rotation=self._obter_rotacao_visual_display_f3(),
                 )
+            except TypeError:
+                # Compatibilidade com a interface da Fase 1 e seus testes.
+                try:
+                    janela.update_camera_preview(frame)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
