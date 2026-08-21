@@ -12,6 +12,10 @@ from src.platform.display_auto_check_policy import (
 class DisplayAutomaticCheckF3Mixin:
     """Liga a análise automática somente ao loop de preview da Produção Display."""
 
+    # Sobrescreve apenas o intervalo do F3 automático pelo MRO. O F2 não usa
+    # este mixin e mantém seu próprio ritmo de captura/renderização.
+    DISPLAY_F3_PREVIEW_INTERVAL_MS = 45
+
     # O H1 fica aceso por uma janela curta. Dois frames novos e consecutivos
     # bastam para confirmar OK; NG continua deliberadamente mais conservador.
     DISPLAY_AUTO_OK_STABLE_FRAMES = 2
