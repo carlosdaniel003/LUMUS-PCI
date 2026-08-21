@@ -37,6 +37,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         self.visual_rotation = 0
         self._camera_ready = False
         self._camera_detail = "Aguardando câmera"
+        self._waiting_camera_ui_active = False
         self._check_snapshot: dict = {
             "checks": [],
             "current_check": None,
@@ -320,6 +321,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         checks = list(self._check_snapshot.get("checks", []) or [])
         current = self._check_snapshot.get("current_check")
         if not checks or not isinstance(current, dict):
+            self._waiting_camera_ui_active = not self._camera_ready
             self._set_state(
                 background=self.COLOR_WAITING,
                 foreground="#FFFFFF",
@@ -331,13 +333,27 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
 
         indice = int(self._check_snapshot.get("current_index", 0) or 0)
         nome = str(current.get("name") or current.get("id") or "CHECK")
-        detalhe_camera = self._camera_detail if self._camera_ready else "Aguardando câmera"
+        if not self._camera_ready:
+            self._waiting_camera_ui_active = True
+            self._set_state(
+                background=self.COLOR_WAITING,
+                foreground="#FFFFFF",
+                status="AGUARDANDO CÂMERA",
+                detail=(
+                    f"CHECK {indice + 1} DE {len(checks)}  •  "
+                    "A sequência iniciará quando houver imagem válida."
+                ),
+            )
+            self.status_label.configure(font=("DejaVu Sans", 28, "bold"))
+            return
+
+        self._waiting_camera_ui_active = False
         self._set_state(
             background=self.COLOR_WAITING,
             foreground="#FFFFFF",
             status=f"AGUARDANDO {nome}",
             detail=(
-                f"CHECK {indice + 1} DE {len(checks)}  •  {detalhe_camera}"
+                f"CHECK {indice + 1} DE {len(checks)}  •  {self._camera_detail}"
             ),
         )
         self.status_label.configure(font=("DejaVu Sans", 28, "bold"))
@@ -348,6 +364,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         snapshot: dict,
         discarded: bool = False,
     ) -> None:
+        self._waiting_camera_ui_active = False
         self._check_snapshot = dict(snapshot or {})
         self._set_counters(
             int(self._check_snapshot.get("total", 0) or 0),
@@ -375,8 +392,13 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         self.status_label.configure(font=("DejaVu Sans", 28, "bold"))
 
     def show_waiting_camera(self) -> None:
+        already_waiting = self._waiting_camera_ui_active and not self._camera_ready
         self._camera_ready = False
         self._camera_detail = "Aguardando câmera"
+        if already_waiting:
+            return
+
+        self._waiting_camera_ui_active = True
         self._set_state(
             background=self.COLOR_WAITING,
             foreground="#FFFFFF",
@@ -384,7 +406,6 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
             detail="A sequência de CHECKS iniciará quando houver imagem válida.",
         )
         self.status_label.configure(font=("DejaVu Sans", 28, "bold"))
-        self._render_check_cards(self._check_snapshot)
         self.set_preview_status("Aguardando câmera", self.PREVIEW_MUTED)
 
     def show_camera_ready(
@@ -393,6 +414,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         height: int,
         visual_rotation: int = 0,
     ) -> None:
+        self._waiting_camera_ui_active = False
         self._camera_ready = True
         self._camera_detail = (
             f"Câmera {int(width)}x{int(height)} • Visual {int(visual_rotation)}°"
