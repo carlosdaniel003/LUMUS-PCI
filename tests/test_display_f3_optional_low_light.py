@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from src.core.classifier import ReferenceLedClassifier
 from src.models.led_features import LedFeatures
 from src.platform.display_auto_check_analyzer import (
     DISPLAY_AUTO_CLASS_LOW_LIGHT,
@@ -36,6 +37,30 @@ class DisplayF3OptionalLowLightTests(unittest.TestCase):
         self.assertEqual("off", off_result.state)
         self.assertNotIn(DISPLAY_AUTO_CLASS_LOW_LIGHT, on_result.distances)
         self.assertNotIn(DISPLAY_AUTO_CLASS_LOW_LIGHT, off_result.distances)
+
+    def test_f3_binary_decision_matches_validated_reference_classifier(self):
+        learned_on = _features(220)
+        learned_off = _features(20)
+        validated = ReferenceLedClassifier(
+            features_referencia_acesa=learned_on,
+            features_referencia_apagada=learned_off,
+        )
+        f3 = DisplayLearnedStateClassifier(
+            learned_on=learned_on,
+            learned_off=learned_off,
+        )
+
+        for current in (_features(218), _features(18), _features(160), _features(55)):
+            expected = validated.classificar_led_por_referencia(
+                features_atual=current,
+                centro_x=0,
+                centro_y=0,
+                raio=1,
+            )
+            actual = f3.classify(current)
+            expected_state = "on" if expected.valor_binario == 1 else "off"
+            self.assertEqual(expected_state, actual.state)
+            self.assertAlmostEqual(expected.confianca, actual.confidence, places=4)
 
     def test_analyzer_builds_classifier_with_on_and_off_only(self):
         with tempfile.TemporaryDirectory() as temp:
