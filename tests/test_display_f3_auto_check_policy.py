@@ -93,10 +93,10 @@ class DisplayF3AutoCheckPolicyTests(unittest.TestCase):
         self.assertEqual(DISPLAY_AUTO_DECISION_NG, decision["decision"])
         self.assertEqual("aceso_quando_deveria_apagado", decision["reason"])
 
-    def test_low_confidence_mismatch_keeps_searching(self):
+    def test_below_classifier_minimum_confidence_keeps_searching(self):
         decision = decidir_analise_display_f3(
             _analysis(
-                _result("A", "on", "off", False, confidence=0.51),
+                _result("A", "on", "off", False, confidence=0.49),
                 _result("B", "on", "on", True, confidence=0.95),
             )
         )
