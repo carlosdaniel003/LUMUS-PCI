@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 from src.platform.display_auto_check_analyzer import DisplayAutomaticCheckAnalyzer
+from src.platform.display_auto_check_policy import (
+    DISPLAY_AUTO_DECISION_NG,
+    DISPLAY_AUTO_DECISION_OK,
+    DISPLAY_AUTO_DECISION_SEARCHING,
+    decidir_analise_display_f3,
+)
 
 
 class DisplayAutomaticCheckF3Mixin:
@@ -73,14 +79,25 @@ class DisplayAutomaticCheckF3Mixin:
             "check_display_inexistente": "CHECK atual não encontrado",
             "resolucao_mestra_ausente": "Defina a resolução mestre",
             "check_sem_mascaras_ativas": "CHECK sem máscaras ACESO/APAGADO",
-            "aprendizado_incompleto": (
-                "Configure aprendizado ACESO, APAGADO e POUCA LUZ"
-            ),
+            "aprendizado_incompleto": "Configure aprendizado ACESO e APAGADO",
             "mascara_visual_nao_encontrada": "Máscara do CHECK não encontrada",
             "mascara_invalida": "Máscara inválida para análise",
             "mascara_fora_do_frame": "Máscara fora da imagem",
         }
         return messages.get(str(reason), str(reason).replace("_", " "))
+
+    @staticmethod
+    def _display_auto_searching_text(reason: str) -> str:
+        messages = {
+            "aguardando_referencia_h1": "buscando referência H1 válida",
+            "classificacao_incerta": "leitura incerta • continuando busca",
+            "aguardando_evidencia_placa_ligada": (
+                "buscando segmento aceso para confirmar placa ligada"
+            ),
+            "aguardando_estado_do_check": "buscando estado válido do CHECK",
+            "sem_resultados_de_mascara": "aguardando segmentos identificáveis",
+        }
+        return messages.get(str(reason), "continuando busca")
 
     def _display_auto_current_context(self):
         runtime = getattr(self, "display_check_runtime", None)
@@ -101,11 +118,24 @@ class DisplayAutomaticCheckF3Mixin:
         if not check_id:
             return None
 
+        try:
+            current_index = int(snapshot.get("current_index", 0) or 0)
+        except (TypeError, ValueError):
+            current_index = 0
+
         return {
             "project_name": str(project_name),
             "check_id": check_id,
             "check_name": str(current.get("name") or check_id),
+            "current_index": current_index,
         }
+
+    @staticmethod
+    def _display_auto_is_reference_gate(context: dict) -> bool:
+        # O primeiro CHECK é protegido mesmo se o operador renomear H1.
+        if int(context.get("current_index", 0) or 0) == 0:
+            return True
+        return str(context.get("check_name") or "").strip().upper() == "H1"
 
     def _process_display_auto_check(self) -> None:
         if not bool(getattr(self, "display_f3_ativo", False)):
@@ -186,7 +216,28 @@ class DisplayAutomaticCheckF3Mixin:
             )
             return
 
-        approved = bool(analysis.get("approved"))
+        policy = decidir_analise_display_f3(
+            analysis,
+            reference_gate=self._display_auto_is_reference_gate(context),
+        )
+        decision = str(policy.get("decision") or DISPLAY_AUTO_DECISION_SEARCHING)
+
+        if decision == DISPLAY_AUTO_DECISION_SEARCHING:
+            self._display_auto_last_decision = None
+            self._display_auto_stable_frames = 0
+            self._display_auto_set_preview_status(
+                (
+                    f"AUTO • {context['check_name']} • "
+                    + self._display_auto_searching_text(policy.get("reason", ""))
+                ),
+                "#FDE68A",
+            )
+            return
+
+        approved = decision == DISPLAY_AUTO_DECISION_OK
+        if decision not in (DISPLAY_AUTO_DECISION_OK, DISPLAY_AUTO_DECISION_NG):
+            return
+
         if approved == self._display_auto_last_decision:
             self._display_auto_stable_frames += 1
         else:
@@ -200,9 +251,10 @@ class DisplayAutomaticCheckF3Mixin:
         )
         matched = int(analysis.get("matched_mask_count", 0) or 0)
         total = int(analysis.get("active_mask_count", 0) or 0)
+        decision_text = "conforme" if approved else "NG confirmado"
         self._display_auto_set_preview_status(
             (
-                f"AUTO • {context['check_name']} • {matched}/{total} conforme • "
+                f"AUTO • {context['check_name']} • {matched}/{total} {decision_text} • "
                 f"{self._display_auto_stable_frames}/{required}"
             ),
             "#86EFAC" if approved else "#FCA5A5",
