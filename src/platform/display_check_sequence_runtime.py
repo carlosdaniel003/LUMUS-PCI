@@ -6,9 +6,9 @@ from copy import deepcopy
 class DisplayCheckSequenceRuntime:
     """Máquina de sequência mínima e isolada para a Produção Display F3.
 
-    Esta classe não conhece câmera, Tkinter, OperationEngine, Produção F2 ou
-    GPIO. Ela mantém apenas a ordem dos CHECKS, o progresso da placa atual e os
-    contadores de sessão do F3. A futura análise do Display chamará
+    Esta classe não conhece câmera, Tkinter, Produção F2 ou GPIO. Ela mantém
+    apenas a ordem dos CHECKS, o progresso da placa atual e os contadores de
+    sessão do F3. A futura análise do Display chamará
     ``registrar_resultado_check`` quando o CHECK atual for validado.
     """
 
