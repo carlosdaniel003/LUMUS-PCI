@@ -11,10 +11,10 @@ DISPLAY_AUTO_DECISION_OK = "ok"
 DISPLAY_AUTO_DECISION_NG = "ng"
 DISPLAY_AUTO_DECISION_SEARCHING = "searching"
 
-# Empates muito próximos entre referências não são usados como evidência para
-# reprovar uma placa. O loop continua lendo novos frames até a classificação
-# ficar suficientemente definida.
-DISPLAY_AUTO_MIN_CONFIDENCE = 0.55
+# O ReferenceLedClassifier já calibra a confiança entre 0.50 e 0.99.
+# O F3 não adiciona um limiar mais rígido do que o modo normal, para que uma
+# leitura que é aceita fora do F3 também possa ser aceita aqui.
+DISPLAY_AUTO_MIN_CONFIDENCE = 0.50
 
 
 def _confidence(result: dict) -> float:
