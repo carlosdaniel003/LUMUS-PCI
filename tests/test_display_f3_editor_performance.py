@@ -3,13 +3,13 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from src.platform.display_check_editor import DisplayCheckMaskEditorWindow
 from src.platform.display_editor_performance import (
     DISPLAY_EDITOR_DRAG_INTERVAL_S,
     DISPLAY_EDITOR_POINTER_INTERVAL_S,
     interaction_redraw_due,
     viewport_render_cache_key,
 )
+from src.platform.display_check_editor import DisplayCheckMaskEditorWindow
 from src.platform.display_mask_editor import DisplayMaskEditorWindow
 
 
