@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
+from src.platform.display_check_sequence_runtime import DisplayCheckSequenceRuntime
 from src.platform.display_production_f3_window import DisplayProductionF3Window
 from src.platform.display_project_config import DisplayProjectConfigWindow
 from src.platform.display_project_repository import (
@@ -16,14 +17,15 @@ from src.platform.raspberry_pi3_settings import (
 
 
 class DisplayProductionF3Mixin:
-    """Runtime do F3 isolado do fluxo de Produção F2.
+    """Runtime isolado da Produção Display F3.
 
-    Fase 3 mantém Projeto Display, resolução, máscaras e CHECKS em persistência
-    própria. Ainda não existe análise automática, engine de CHECK ou resultado
-    OK/NG: esta fase configura somente a sequência e a expectativa das máscaras.
+    Projeto Display, máscaras, CHECKS, progresso operacional e contadores são
+    exclusivos do F3. Nenhum estado de OperationEngine/Produção F2 é usado para
+    avançar a sequência.
     """
 
     DISPLAY_F3_PREVIEW_INTERVAL_MS = 90
+    DISPLAY_F3_RESULT_HOLD_MS = 1200
     DISPLAY_F3_BUTTON_BG = "#0E7490"
     DISPLAY_F3_BUTTON_ACTIVE_BG = "#0891B2"
 
@@ -31,7 +33,9 @@ class DisplayProductionF3Mixin:
         self.display_f3_window: DisplayProductionF3Window | None = None
         self.display_f3_ativo = False
         self.display_f3_after_id = None
+        self.display_f3_result_after_id = None
         self.display_project_repository: DisplayProjectRepository | None = None
+        self.display_check_runtime = DisplayCheckSequenceRuntime()
         self._display_project_config_window: DisplayProjectConfigWindow | None = None
         super().__init__(*args, **kwargs)
         self.display_project_repository = DisplayProjectRepository()
@@ -43,6 +47,7 @@ class DisplayProductionF3Mixin:
             root=self.root,
             on_close=self.fechar_tela_producao_display_f3,
             on_configure=self.abrir_configuracao_projeto_display,
+            on_discard=self.descartar_placa_display_f3,
             preview_width=max(480, int(OPERATION_PREVIEW_WIDTH)),
             preview_height=max(360, int(OPERATION_PREVIEW_HEIGHT)),
         )
@@ -100,7 +105,6 @@ class DisplayProductionF3Mixin:
             )
 
     def _obter_rotacao_visual_display_f3(self) -> int:
-        """Herda somente a orientação visual atual da tela principal."""
         return obter_rotacao_visual_display(getattr(self, "view", None))
 
     def _obter_frame_para_configuracao_display(self):
@@ -122,7 +126,6 @@ class DisplayProductionF3Mixin:
                 pass
 
     def abrir_configuracao_projeto_display(self) -> None:
-        """Abre somente a configuração persistente pertencente ao F3."""
         existente = self._display_project_config_window
         if existente is not None and existente.visible:
             try:
@@ -145,6 +148,15 @@ class DisplayProductionF3Mixin:
             on_close=self._ao_fechar_configuracao_projeto_display,
         )
 
+    def _renderizar_fluxo_checks_display_f3(self) -> None:
+        janela = self.display_f3_window
+        if janela is None:
+            return
+        try:
+            janela.set_check_sequence(self.display_check_runtime.snapshot())
+        except Exception:
+            pass
+
     def _atualizar_resumo_projeto_display_f3(self) -> None:
         repository = self.display_project_repository
         janela = self.display_f3_window
@@ -154,8 +166,10 @@ class DisplayProductionF3Mixin:
         nome = repository.obter_projeto_ativo()
         projeto = repository.carregar_projeto(nome) if nome else None
         if projeto is None:
+            self.display_check_runtime.configurar_checks([])
             try:
                 janela.set_project_info(None, None, 0, 0)
+                janela.set_check_sequence(self.display_check_runtime.snapshot())
             except Exception:
                 pass
             return
@@ -165,6 +179,9 @@ class DisplayProductionF3Mixin:
         )
         mascaras = projeto.get("masks", [])
         checks = projeto.get("checks", [])
+        self.display_check_runtime.configurar_checks(
+            checks if isinstance(checks, list) else []
+        )
         try:
             janela.set_project_info(
                 projeto.get("name"),
@@ -172,22 +189,98 @@ class DisplayProductionF3Mixin:
                 len(mascaras) if isinstance(mascaras, list) else 0,
                 len(checks) if isinstance(checks, list) else 0,
             )
+            janela.set_check_sequence(self.display_check_runtime.snapshot())
         except Exception:
             pass
 
+    def _cancelar_resultado_display_f3(self) -> None:
+        if self.display_f3_result_after_id is None:
+            return
+        try:
+            self.root.after_cancel(self.display_f3_result_after_id)
+        except Exception:
+            pass
+        self.display_f3_result_after_id = None
+
+    def _retornar_ao_check_atual_display_f3(self) -> None:
+        self.display_f3_result_after_id = None
+        if self.display_f3_ativo:
+            self._renderizar_fluxo_checks_display_f3()
+
+    def _agendar_retorno_ao_fluxo_display_f3(self) -> None:
+        self._cancelar_resultado_display_f3()
+        try:
+            self.display_f3_result_after_id = self.root.after(
+                self.DISPLAY_F3_RESULT_HOLD_MS,
+                self._retornar_ao_check_atual_display_f3,
+            )
+        except Exception:
+            self.display_f3_result_after_id = None
+
+    def registrar_resultado_check_display_f3(self, aprovado: bool = True) -> dict:
+        """Entrada oficial para a futura detecção automática do Display."""
+        evento = self.display_check_runtime.registrar_resultado_check(aprovado)
+        janela = self.display_f3_window
+        tipo = str(evento.get("event", ""))
+        snapshot = evento.get("snapshot", self.display_check_runtime.snapshot())
+
+        if janela is None:
+            return evento
+
+        if tipo == DisplayCheckSequenceRuntime.EVENT_PLATE_OK:
+            try:
+                janela.show_plate_result(True, snapshot)
+            except Exception:
+                pass
+            self._agendar_retorno_ao_fluxo_display_f3()
+        elif tipo == DisplayCheckSequenceRuntime.EVENT_PLATE_NG:
+            try:
+                janela.show_plate_result(False, snapshot, discarded=False)
+            except Exception:
+                pass
+            self._agendar_retorno_ao_fluxo_display_f3()
+        else:
+            self._cancelar_resultado_display_f3()
+            self._renderizar_fluxo_checks_display_f3()
+        return evento
+
+    def concluir_check_display_f3(self) -> dict:
+        """Atalho semântico: conclui com sucesso o CHECK atualmente aguardado."""
+        return self.registrar_resultado_check_display_f3(True)
+
+    def descartar_placa_display_f3(self) -> dict | None:
+        """Tecla/botão 1: soma TOTAL+NG e reinicia no primeiro CHECK."""
+        if not self.display_f3_ativo:
+            return None
+        snapshot_atual = self.display_check_runtime.snapshot()
+        if not snapshot_atual.get("checks"):
+            return None
+
+        evento = self.display_check_runtime.descartar_placa()
+        snapshot = evento.get("snapshot", self.display_check_runtime.snapshot())
+        janela = self.display_f3_window
+        if janela is not None:
+            try:
+                janela.show_plate_result(False, snapshot, discarded=True)
+            except Exception:
+                pass
+        self._agendar_retorno_ao_fluxo_display_f3()
+        return evento
+
     def _ativar_tela_producao_display_f3(self) -> bool:
-        """Mostra somente a camada F3; não cria nem altera runtime de F2."""
         self.display_f3_ativo = True
+        self._cancelar_resultado_display_f3()
         self._atualizar_resumo_projeto_display_f3()
+        self.display_check_runtime.reiniciar_placa()
         janela = self.display_f3_window
         if janela is not None:
             janela.show_waiting_camera()
+            janela.set_check_sequence(self.display_check_runtime.snapshot())
             janela.show()
         self._agendar_preview_display_f3(0)
         return True
 
     def _abrir_f3_apos_escolha_camera(self, _indice: int) -> None:
-        """Continua o F3 usando o handoff de câmera já existente no ODIN."""
         if self._f2_esta_aberto():
             return
         try:
@@ -197,7 +290,6 @@ class DisplayProductionF3Mixin:
         self._ativar_tela_producao_display_f3()
 
     def abrir_tela_producao_display_f3(self) -> bool:
-        """Abre F3 sem inicializar engine, trigger, contadores ou estado F2."""
         if self.display_f3_ativo:
             janela = self.display_f3_window
             if janela is not None:
@@ -232,8 +324,9 @@ class DisplayProductionF3Mixin:
         return self._ativar_tela_producao_display_f3()
 
     def fechar_tela_producao_display_f3(self) -> None:
-        """Fecha somente a camada F3; a câmera e o F2 não são parados."""
         self.display_f3_ativo = False
+        self.display_check_runtime.reiniciar_placa()
+        self._cancelar_resultado_display_f3()
 
         if self.display_f3_after_id is not None:
             try:
@@ -324,4 +417,13 @@ class DisplayProductionF3Mixin:
             "ordem_checks_configuravel",
             "estado_mascara_por_check",
             "editor_visual_checks",
+        )
+
+    @staticmethod
+    def responsabilidades_f3_fluxo_checks() -> tuple[str, ...]:
+        return (
+            "sequencia_checks_em_producao",
+            "contador_total_ok_ng_f3",
+            "descarte_placa_tecla_1",
+            "reinicio_primeiro_check",
         )
