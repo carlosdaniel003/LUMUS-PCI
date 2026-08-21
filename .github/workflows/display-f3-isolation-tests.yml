@@ -57,7 +57,8 @@ jobs:
             tests/test_display_check_visual_rotation.py \
             tests/test_display_f3_check_sequence_runtime.py \
             tests/test_display_reference_learning.py \
-            tests/test_display_f3_auto_check.py
+            tests/test_display_f3_auto_check.py \
+            tests/test_display_f3_optional_low_light.py
 
       - name: Run F3 isolation and runtime tests
         run: |
@@ -74,6 +75,7 @@ jobs:
             tests.test_display_f3_check_sequence_runtime \
             tests.test_display_reference_learning \
             tests.test_display_f3_auto_check \
+            tests.test_display_f3_optional_low_light \
             -v
 
       - name: Run F2 regression tests
