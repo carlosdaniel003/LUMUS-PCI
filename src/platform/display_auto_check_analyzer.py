@@ -64,23 +64,24 @@ class DisplayStateClassification:
 
 
 class DisplayLearnedStateClassifier:
-    """Classificador de três estados baseado nos centróides aprendidos do F3."""
+    """Classificador dos estados efetivamente aprendidos pelo Display/F3."""
 
     def __init__(
         self,
         learned_on: LedFeatures,
         learned_off: LedFeatures,
-        learned_low_light: LedFeatures,
+        learned_low_light: LedFeatures | None = None,
     ) -> None:
-        if learned_on is None or learned_off is None or learned_low_light is None:
+        if learned_on is None or learned_off is None:
             raise ValueError(
-                "O aprendizado Display precisa de ACESO, APAGADO e POUCA LUZ."
+                "O aprendizado Display precisa de ACESO e APAGADO."
             )
         self._profiles = {
             DISPLAY_CHECK_STATE_ON: learned_on,
             DISPLAY_CHECK_STATE_OFF: learned_off,
-            DISPLAY_AUTO_CLASS_LOW_LIGHT: learned_low_light,
         }
+        if learned_low_light is not None:
+            self._profiles[DISPLAY_AUTO_CLASS_LOW_LIGHT] = learned_low_light
 
     @staticmethod
     def _distance(current: LedFeatures, reference: LedFeatures) -> float:
@@ -214,11 +215,13 @@ class DisplayAutomaticCheckAnalyzer:
             for state in DISPLAY_REFERENCE_TYPES
         }
         classifier = None
-        if all(learned.get(state) is not None for state in DISPLAY_REFERENCE_TYPES):
+        learned_on = learned.get(DISPLAY_CHECK_STATE_ON)
+        learned_off = learned.get(DISPLAY_CHECK_STATE_OFF)
+        if learned_on is not None and learned_off is not None:
             classifier = DisplayLearnedStateClassifier(
-                learned_on=learned[DISPLAY_CHECK_STATE_ON],
-                learned_off=learned[DISPLAY_CHECK_STATE_OFF],
-                learned_low_light=learned[DISPLAY_AUTO_CLASS_LOW_LIGHT],
+                learned_on=learned_on,
+                learned_off=learned_off,
+                learned_low_light=learned.get(DISPLAY_AUTO_CLASS_LOW_LIGHT),
             )
         self._profile_cache_key = cache_key
         self._profile_cache = classifier
