@@ -16,11 +16,15 @@ class DisplayAutomaticCheckF3Mixin:
     # este mixin e mantém seu próprio ritmo de captura/renderização.
     DISPLAY_F3_PREVIEW_INTERVAL_MS = 45
 
-    # O H1 fica aceso por uma janela curta. Dois frames novos e consecutivos
-    # bastam para confirmar OK; NG continua deliberadamente mais conservador.
+    # H1 precisa ser rápido, mas ainda exige dois frames consecutivos. Bluetooth
+    # é um evento transitório/piscante e é confirmado na primeira leitura OK.
+    # NG continua deliberadamente mais conservador.
     DISPLAY_AUTO_OK_STABLE_FRAMES = 2
     DISPLAY_AUTO_NG_STABLE_FRAMES = 6
     DISPLAY_AUTO_TRANSITION_FRAMES = 1
+    DISPLAY_AUTO_TRANSIENT_CHECK_NAMES = frozenset(
+        {"BLUETOOTH", "BLUE", "BT"}
+    )
 
     def __init__(self, *args, **kwargs) -> None:
         self._display_auto_analyzer = None
@@ -143,6 +147,16 @@ class DisplayAutomaticCheckF3Mixin:
             return True
         return str(context.get("check_name") or "").strip().upper() == "H1"
 
+    @classmethod
+    def _display_auto_is_transient_check(cls, context: dict) -> bool:
+        """Bluetooth/BLUE é momentâneo: uma aparição correta já é suficiente."""
+        name = str(context.get("check_name") or "").strip().upper()
+        normalized = " ".join(name.replace("-", " ").replace("_", " ").split())
+        if normalized in cls.DISPLAY_AUTO_TRANSIENT_CHECK_NAMES:
+            return True
+        tokens = set(normalized.split())
+        return bool(tokens.intersection(cls.DISPLAY_AUTO_TRANSIENT_CHECK_NAMES))
+
     def _process_display_auto_check(self) -> None:
         if not bool(getattr(self, "display_f3_ativo", False)):
             return
@@ -175,6 +189,7 @@ class DisplayAutomaticCheckF3Mixin:
             return
 
         reference_gate = self._display_auto_is_reference_gate(context)
+        transient_check = self._display_auto_is_transient_check(context)
         signature = (
             context["project_name"],
             context["check_id"],
@@ -183,9 +198,12 @@ class DisplayAutomaticCheckF3Mixin:
             self._display_auto_signature = signature
             self._display_auto_last_decision = None
             self._display_auto_stable_frames = 0
-            # H1 é transitório e precisa ser observado imediatamente.
+            # H1 e Bluetooth são transitórios e precisam ser observados já no
+            # primeiro frame novo disponível do CHECK.
             self._display_auto_transition_frames = (
-                0 if reference_gate else self.DISPLAY_AUTO_TRANSITION_FRAMES
+                0
+                if reference_gate or transient_check
+                else self.DISPLAY_AUTO_TRANSITION_FRAMES
             )
 
         if self._display_auto_transition_frames > 0:
@@ -255,9 +273,13 @@ class DisplayAutomaticCheckF3Mixin:
             self._display_auto_stable_frames = 1
 
         required = (
-            self.DISPLAY_AUTO_OK_STABLE_FRAMES
-            if approved
-            else self.DISPLAY_AUTO_NG_STABLE_FRAMES
+            1
+            if approved and transient_check
+            else (
+                self.DISPLAY_AUTO_OK_STABLE_FRAMES
+                if approved
+                else self.DISPLAY_AUTO_NG_STABLE_FRAMES
+            )
         )
         matched = int(analysis.get("matched_mask_count", 0) or 0)
         total = int(analysis.get("active_mask_count", 0) or 0)
