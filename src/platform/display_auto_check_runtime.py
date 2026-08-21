@@ -246,9 +246,15 @@ class DisplayAutomaticCheckF3Mixin:
         context: dict,
         event: dict,
     ) -> None:
-        if not self._display_auto_requires_manual_transition_after(
-            str(context.get("check_name") or "")
-        ):
+        # O H1 também precisa aguardar a mudança física até o Bluetooth.
+        # Para os demais passos, mantemos a regra já existente BLUE→USB e USB→AUX.
+        requires_gate = (
+            self._display_auto_is_reference_gate(context)
+            or self._display_auto_requires_manual_transition_after(
+                str(context.get("check_name") or "")
+            )
+        )
+        if not requires_gate:
             self._display_auto_clear_manual_entry_gate()
             return
 
