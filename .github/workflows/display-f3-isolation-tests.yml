@@ -40,6 +40,8 @@ jobs:
             src/platform/display_mask_editor_interactions.py \
             src/platform/display_check_editor.py \
             src/platform/display_check_zoom.py \
+            src/platform/display_reference_store.py \
+            src/platform/display_reference_learning.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_f3_architecture.py \
             tests/test_display_f3_phase2_architecture.py \
@@ -50,7 +52,8 @@ jobs:
             tests/test_display_check_zoom.py \
             tests/test_display_f3_visual_rotation.py \
             tests/test_display_check_visual_rotation.py \
-            tests/test_display_f3_check_sequence_runtime.py
+            tests/test_display_f3_check_sequence_runtime.py \
+            tests/test_display_reference_learning.py
 
       - name: Run F3 isolation and runtime tests
         run: |
@@ -65,6 +68,7 @@ jobs:
             tests.test_display_f3_visual_rotation \
             tests.test_display_check_visual_rotation \
             tests.test_display_f3_check_sequence_runtime \
+            tests.test_display_reference_learning \
             -v
 
       - name: Run F2 regression tests
