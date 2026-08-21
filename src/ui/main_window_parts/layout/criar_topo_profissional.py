@@ -83,7 +83,9 @@ def criar_topo_profissional(self) -> None:
         sticky="nsew",
         padx=(6, 8),
     )
-    self.frame_topo_direita.pack_propagate(False)
+    # F2 e F3 também ocupam esta área. Deixe o frame crescer conforme os
+    # controles para que nenhum botão seja recortado por uma largura fixa.
+    self.frame_topo_direita.pack_propagate(True)
 
     self.botao_configuracoes = tk.Button(
         self.frame_topo_direita,
