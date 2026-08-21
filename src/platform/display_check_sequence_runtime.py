@@ -162,3 +162,8 @@ class DisplayCheckSequenceRuntime:
             "completed_ids": concluidos,
             "snapshot": self.snapshot(),
         }
+
+
+# Instala somente a extensão de referências/aprendizado do F3. O módulo não
+# altera ConfigRepository, Projeto LED, OperationEngine ou qualquer estado F2.
+import src.platform.display_reference_learning  # noqa: E402,F401
