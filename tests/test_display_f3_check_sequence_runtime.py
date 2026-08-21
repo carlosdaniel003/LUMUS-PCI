@@ -16,6 +16,34 @@ CHECKS = [
 ]
 
 
+class _FakeRoot:
+    def __init__(self) -> None:
+        self.after_calls = []
+        self.cancel_calls = []
+        self._next = 0
+
+    def after(self, delay, callback):
+        self._next += 1
+        ident = f"after-{self._next}"
+        self.after_calls.append((ident, int(delay), callback))
+        return ident
+
+    def after_cancel(self, ident):
+        self.cancel_calls.append(ident)
+
+
+class _FakeWindow:
+    def __init__(self) -> None:
+        self.results = []
+        self.snapshots = []
+
+    def show_plate_result(self, is_ok, snapshot, discarded=False):
+        self.results.append((bool(is_ok), bool(discarded), dict(snapshot)))
+
+    def set_check_sequence(self, snapshot):
+        self.snapshots.append(dict(snapshot))
+
+
 class DisplayF3CheckSequenceRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.runtime = DisplayCheckSequenceRuntime()
@@ -99,6 +127,34 @@ class DisplayF3CheckSequenceRuntimeTests(unittest.TestCase):
         self.assertIn("descartar_placa_display_f3", DisplayProductionF3Mixin.__dict__)
         self.assertNotIn("disparar_inspecao_operacao", DisplayProductionF3Mixin.__dict__)
         self.assertNotIn("_evento_enter_pressionado", DisplayProductionF3Mixin.__dict__)
+
+    def test_descartar_pelo_mixin_nao_altera_contadores_f2(self):
+        app = DisplayProductionF3Mixin.__new__(DisplayProductionF3Mixin)
+        app.display_f3_ativo = True
+        app.display_check_runtime = DisplayCheckSequenceRuntime()
+        app.display_check_runtime.configurar_checks(CHECKS)
+        app.display_f3_window = _FakeWindow()
+        app.display_f3_result_after_id = None
+        app.root = _FakeRoot()
+
+        # Sentinelas pertencentes ao F2.
+        app.operacao_total = 91
+        app.operacao_ok = 80
+        app.operacao_ng = 11
+        antes_f2 = (app.operacao_total, app.operacao_ok, app.operacao_ng)
+
+        evento = app.descartar_placa_display_f3()
+
+        self.assertIsNotNone(evento)
+        self.assertEqual(
+            DisplayCheckSequenceRuntime.EVENT_PLATE_DISCARDED,
+            evento["event"],
+        )
+        snapshot = app.display_check_runtime.snapshot()
+        self.assertEqual((1, 0, 1), (snapshot["total"], snapshot["ok"], snapshot["ng"]))
+        self.assertEqual("H1", snapshot["current_check"]["name"])
+        self.assertEqual(antes_f2, (app.operacao_total, app.operacao_ok, app.operacao_ng))
+        self.assertEqual(1, len(app.display_f3_window.results))
 
     def test_janela_f3_tem_tecla_1_e_botao_de_descarte(self):
         fonte = inspect.getsource(DisplayProductionF3Window.__init__)
