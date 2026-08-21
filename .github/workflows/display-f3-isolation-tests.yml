@@ -35,6 +35,7 @@ jobs:
             src/platform/display_auto_check_analyzer.py \
             src/platform/display_auto_check_policy.py \
             src/platform/display_auto_check_runtime.py \
+            src/platform/display_live_roi_overlay.py \
             src/platform/display_visual_rotation.py \
             src/platform/display_project_repository.py \
             src/platform/display_project_config.py \
@@ -60,7 +61,8 @@ jobs:
             tests/test_display_reference_learning.py \
             tests/test_display_f3_auto_check.py \
             tests/test_display_f3_optional_low_light.py \
-            tests/test_display_f3_auto_check_policy.py
+            tests/test_display_f3_auto_check_policy.py \
+            tests/test_display_f3_live_roi_overlay.py
 
       - name: Run F3 isolation and runtime tests
         run: |
@@ -79,6 +81,7 @@ jobs:
             tests.test_display_f3_auto_check \
             tests.test_display_f3_optional_low_light \
             tests.test_display_f3_auto_check_policy \
+            tests.test_display_f3_live_roi_overlay \
             -v
 
       - name: Run F2 regression tests
