@@ -31,3 +31,6 @@ def instalar_gate_estrito_transicao_manual_display_f3() -> None:
 
 
 instalar_gate_estrito_transicao_manual_display_f3()
+
+# Extensão visual independente, carregada somente no runtime Display/F3.
+import src.platform.display_result_feedback  # noqa: E402,F401
