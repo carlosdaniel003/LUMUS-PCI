@@ -12,9 +12,11 @@ from src.platform.display_auto_check_policy import (
 class DisplayAutomaticCheckF3Mixin:
     """Liga a análise automática somente ao loop de preview da Produção Display."""
 
-    DISPLAY_AUTO_OK_STABLE_FRAMES = 3
+    # O H1 fica aceso por uma janela curta. Dois frames novos e consecutivos
+    # bastam para confirmar OK; NG continua deliberadamente mais conservador.
+    DISPLAY_AUTO_OK_STABLE_FRAMES = 2
     DISPLAY_AUTO_NG_STABLE_FRAMES = 6
-    DISPLAY_AUTO_TRANSITION_FRAMES = 4
+    DISPLAY_AUTO_TRANSITION_FRAMES = 1
 
     def __init__(self, *args, **kwargs) -> None:
         self._display_auto_analyzer = None
@@ -168,6 +170,7 @@ class DisplayAutomaticCheckF3Mixin:
             self._reset_display_auto_stability()
             return
 
+        reference_gate = self._display_auto_is_reference_gate(context)
         signature = (
             context["project_name"],
             context["check_id"],
@@ -176,7 +179,10 @@ class DisplayAutomaticCheckF3Mixin:
             self._display_auto_signature = signature
             self._display_auto_last_decision = None
             self._display_auto_stable_frames = 0
-            self._display_auto_transition_frames = self.DISPLAY_AUTO_TRANSITION_FRAMES
+            # H1 é transitório e precisa ser observado imediatamente.
+            self._display_auto_transition_frames = (
+                0 if reference_gate else self.DISPLAY_AUTO_TRANSITION_FRAMES
+            )
 
         if self._display_auto_transition_frames > 0:
             self._display_auto_transition_frames -= 1
@@ -218,7 +224,7 @@ class DisplayAutomaticCheckF3Mixin:
 
         policy = decidir_analise_display_f3(
             analysis,
-            reference_gate=self._display_auto_is_reference_gate(context),
+            reference_gate=reference_gate,
         )
         decision = str(policy.get("decision") or DISPLAY_AUTO_DECISION_SEARCHING)
 
