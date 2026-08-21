@@ -38,6 +38,7 @@ jobs:
             src/platform/display_live_roi_overlay.py \
             src/platform/display_manual_transition_guard.py \
             src/platform/display_result_feedback.py \
+            src/platform/display_editor_performance.py \
             src/platform/display_visual_rotation.py \
             src/platform/display_project_repository.py \
             src/platform/display_project_config.py \
@@ -68,7 +69,8 @@ jobs:
             tests/test_display_f3_transient_bluetooth.py \
             tests/test_display_f3_h1_to_bluetooth_gate.py \
             tests/test_display_f3_strict_manual_transition_gate.py \
-            tests/test_display_f3_result_feedback.py
+            tests/test_display_f3_result_feedback.py \
+            tests/test_display_f3_editor_performance.py
 
       - name: Run F3 isolation and runtime tests
         run: |
@@ -92,6 +94,7 @@ jobs:
             tests.test_display_f3_h1_to_bluetooth_gate \
             tests.test_display_f3_strict_manual_transition_gate \
             tests.test_display_f3_result_feedback \
+            tests.test_display_f3_editor_performance \
             -v
 
       - name: Run F2 regression tests
