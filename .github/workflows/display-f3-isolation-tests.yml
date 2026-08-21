@@ -31,6 +31,7 @@ jobs:
           python -m py_compile \
             src/platform/display_production_f3.py \
             src/platform/display_production_f3_window.py \
+            src/platform/display_check_sequence_runtime.py \
             src/platform/display_visual_rotation.py \
             src/platform/display_project_repository.py \
             src/platform/display_project_config.py \
@@ -48,9 +49,10 @@ jobs:
             tests/test_display_mask_editor_f2_parity.py \
             tests/test_display_check_zoom.py \
             tests/test_display_f3_visual_rotation.py \
-            tests/test_display_check_visual_rotation.py
+            tests/test_display_check_visual_rotation.py \
+            tests/test_display_f3_check_sequence_runtime.py
 
-      - name: Run F3 phase 1, phase 2 and phase 3 isolation tests
+      - name: Run F3 isolation and runtime tests
         run: |
           python -m unittest \
             tests.test_display_f3_architecture \
@@ -62,6 +64,7 @@ jobs:
             tests.test_display_check_zoom \
             tests.test_display_f3_visual_rotation \
             tests.test_display_check_visual_rotation \
+            tests.test_display_f3_check_sequence_runtime \
             -v
 
       - name: Run F2 regression tests
