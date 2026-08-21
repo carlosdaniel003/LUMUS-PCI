@@ -164,7 +164,6 @@ class DisplayCheckSequenceRuntime:
         }
 
 
-# Instala somente extensões pertencentes ao F3. Nenhum desses módulos altera
-# ConfigRepository, Projeto LED, OperationEngine ou estado da Produção F2.
+# Extensões instaladas somente no contexto Display/F3.
 import src.platform.display_reference_learning  # noqa: E402,F401
 import src.platform.display_reference_learning_guard  # noqa: E402,F401
