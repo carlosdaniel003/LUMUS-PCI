@@ -47,7 +47,8 @@ jobs:
             tests/test_display_check_repository.py \
             tests/test_display_mask_editor_f2_parity.py \
             tests/test_display_check_zoom.py \
-            tests/test_display_f3_visual_rotation.py
+            tests/test_display_f3_visual_rotation.py \
+            tests/test_display_check_visual_rotation.py
 
       - name: Run F3 phase 1, phase 2 and phase 3 isolation tests
         run: |
@@ -60,6 +61,7 @@ jobs:
             tests.test_display_mask_editor_f2_parity \
             tests.test_display_check_zoom \
             tests.test_display_f3_visual_rotation \
+            tests.test_display_check_visual_rotation \
             -v
 
       - name: Run F2 regression tests
