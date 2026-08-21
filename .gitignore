@@ -27,6 +27,8 @@ datacapturas
 # Dados locais de configuração
 dataconfigodin_pci_config.json
 data/config/odin_display_projects.json
+data/config/odin_display_learning.json
+data/config/display_references/
 
 # Amostrasimagens locais de LED
 dataconfigroi_samples
