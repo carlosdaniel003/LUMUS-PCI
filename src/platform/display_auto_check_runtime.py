@@ -5,7 +5,12 @@ from src.platform.display_auto_check_policy import (
     DISPLAY_AUTO_DECISION_NG,
     DISPLAY_AUTO_DECISION_OK,
     DISPLAY_AUTO_DECISION_SEARCHING,
+    DISPLAY_AUTO_MIN_CONFIDENCE,
     decidir_analise_display_f3,
+)
+from src.platform.display_project_repository import (
+    DISPLAY_CHECK_STATE_OFF,
+    DISPLAY_CHECK_STATE_ON,
 )
 
 
@@ -25,6 +30,9 @@ class DisplayAutomaticCheckF3Mixin:
     DISPLAY_AUTO_TRANSIENT_CHECK_NAMES = frozenset(
         {"BLUETOOTH", "BLUE", "BT"}
     )
+    DISPLAY_AUTO_MANUAL_TRANSITION_SOURCE_NAMES = frozenset(
+        {"BLUETOOTH", "BLUE", "BT", "USB"}
+    )
 
     def __init__(self, *args, **kwargs) -> None:
         self._display_auto_analyzer = None
@@ -34,6 +42,8 @@ class DisplayAutomaticCheckF3Mixin:
         self._display_auto_transition_frames = self.DISPLAY_AUTO_TRANSITION_FRAMES
         self._display_auto_last_frame_token = None
         self._display_auto_last_analysis = None
+        self._display_auto_manual_entry_signature = None
+        self._display_auto_manual_entry_label = ""
         super().__init__(*args, **kwargs)
         self._rebuild_display_auto_analyzer()
 
@@ -55,6 +65,10 @@ class DisplayAutomaticCheckF3Mixin:
         self._display_auto_transition_frames = (
             self.DISPLAY_AUTO_TRANSITION_FRAMES if transition else 0
         )
+
+    def _display_auto_clear_manual_entry_gate(self) -> None:
+        self._display_auto_manual_entry_signature = None
+        self._display_auto_manual_entry_label = ""
 
     def _display_auto_frame_token(self, frame):
         camera_token = getattr(self, "camera_ultimo_frame_id", None)
@@ -148,6 +162,12 @@ class DisplayAutomaticCheckF3Mixin:
         return str(context.get("check_name") or "").strip().upper() == "H1"
 
     @classmethod
+    def _display_auto_normalized_check_tokens(cls, check_name: str) -> set[str]:
+        name = str(check_name or "").strip().upper()
+        normalized = " ".join(name.replace("-", " ").replace("_", " ").split())
+        return set(normalized.split())
+
+    @classmethod
     def _display_auto_is_transient_check(cls, context: dict) -> bool:
         """Bluetooth/BLUE é momentâneo: uma aparição correta já é suficiente."""
         name = str(context.get("check_name") or "").strip().upper()
@@ -156,6 +176,100 @@ class DisplayAutomaticCheckF3Mixin:
             return True
         tokens = set(normalized.split())
         return bool(tokens.intersection(cls.DISPLAY_AUTO_TRANSIENT_CHECK_NAMES))
+
+    @classmethod
+    def _display_auto_requires_manual_transition_after(cls, check_name: str) -> bool:
+        """BLUE e USB só mudam de função após o botão físico do Display."""
+        tokens = cls._display_auto_normalized_check_tokens(check_name)
+        return bool(tokens.intersection(cls.DISPLAY_AUTO_MANUAL_TRANSITION_SOURCE_NAMES))
+
+    @staticmethod
+    def _display_auto_has_manual_entry_evidence(analysis: dict) -> bool:
+        """Confirma visualmente que a próxima função começou antes de permitir NG.
+
+        O gate exige pelo menos um segmento esperado ACESO reconhecido como ACESO.
+        Quando o CHECK também possui segmentos esperados APAGADOS, exige ao menos
+        um deles reconhecido como APAGADO. Assim um frame remanescente do modo
+        anterior ou um pisca intermediário não libera a reprovação do novo CHECK.
+        """
+        if not isinstance(analysis, dict) or not bool(analysis.get("ready")):
+            return False
+        if analysis.get("approved") is True:
+            return True
+
+        results = [
+            item
+            for item in (analysis.get("mask_results") or [])
+            if isinstance(item, dict)
+        ]
+        if not results:
+            return False
+
+        confident = []
+        for item in results:
+            try:
+                confidence = float(item.get("confidence", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            if confidence >= DISPLAY_AUTO_MIN_CONFIDENCE:
+                confident.append(item)
+
+        expected_on = [
+            item
+            for item in results
+            if str(item.get("expected")) == DISPLAY_CHECK_STATE_ON
+        ]
+        expected_off = [
+            item
+            for item in results
+            if str(item.get("expected")) == DISPLAY_CHECK_STATE_OFF
+        ]
+        on_evidence = any(
+            str(item.get("expected")) == DISPLAY_CHECK_STATE_ON
+            and str(item.get("classified")) == DISPLAY_CHECK_STATE_ON
+            for item in confident
+        )
+        if not on_evidence:
+            return False
+
+        if not expected_off:
+            return True
+
+        return any(
+            str(item.get("expected")) == DISPLAY_CHECK_STATE_OFF
+            and str(item.get("classified")) == DISPLAY_CHECK_STATE_OFF
+            for item in confident
+        )
+
+    def _display_auto_arm_manual_entry_gate(
+        self,
+        context: dict,
+        event: dict,
+    ) -> None:
+        if not self._display_auto_requires_manual_transition_after(
+            str(context.get("check_name") or "")
+        ):
+            self._display_auto_clear_manual_entry_gate()
+            return
+
+        snapshot = event.get("snapshot") if isinstance(event, dict) else None
+        current = snapshot.get("current_check") if isinstance(snapshot, dict) else None
+        if not isinstance(current, dict):
+            self._display_auto_clear_manual_entry_gate()
+            return
+
+        next_check_id = str(current.get("id") or "")
+        if not next_check_id:
+            self._display_auto_clear_manual_entry_gate()
+            return
+
+        self._display_auto_manual_entry_signature = (
+            str(context.get("project_name") or ""),
+            next_check_id,
+        )
+        self._display_auto_manual_entry_label = str(
+            current.get("name") or next_check_id
+        )
 
     def _process_display_auto_check(self) -> None:
         if not bool(getattr(self, "display_f3_ativo", False)):
@@ -194,15 +308,23 @@ class DisplayAutomaticCheckF3Mixin:
             context["project_name"],
             context["check_id"],
         )
+        manual_entry_waiting = self._display_auto_manual_entry_signature == signature
+        if (
+            self._display_auto_manual_entry_signature is not None
+            and not manual_entry_waiting
+        ):
+            self._display_auto_clear_manual_entry_gate()
+
         if signature != self._display_auto_signature:
             self._display_auto_signature = signature
             self._display_auto_last_decision = None
             self._display_auto_stable_frames = 0
-            # H1 e Bluetooth são transitórios e precisam ser observados já no
-            # primeiro frame novo disponível do CHECK.
+            # H1 e Bluetooth são transitórios. Um CHECK protegido pelo botão
+            # físico também é observado imediatamente, porém sem permitir NG
+            # até surgir evidência visual da nova função.
             self._display_auto_transition_frames = (
                 0
-                if reference_gate or transient_check
+                if reference_gate or transient_check or manual_entry_waiting
                 else self.DISPLAY_AUTO_TRANSITION_FRAMES
             )
 
@@ -243,6 +365,18 @@ class DisplayAutomaticCheckF3Mixin:
                 "#FCA5A5",
             )
             return
+
+        if manual_entry_waiting:
+            if not self._display_auto_has_manual_entry_evidence(analysis):
+                self._display_auto_last_decision = None
+                self._display_auto_stable_frames = 0
+                target = self._display_auto_manual_entry_label or context["check_name"]
+                self._display_auto_set_preview_status(
+                    f"AUTO • {target} • aguardando botão / mudança de função",
+                    "#FDE68A",
+                )
+                return
+            self._display_auto_clear_manual_entry_gate()
 
         policy = decidir_analise_display_f3(
             analysis,
@@ -300,9 +434,11 @@ class DisplayAutomaticCheckF3Mixin:
         event = self.registrar_resultado_check_display_f3(approved)
         event_type = str(event.get("event", ""))
         if event_type == "check_advanced":
+            self._display_auto_arm_manual_entry_gate(context, event)
             self._display_auto_signature = None
             self._display_auto_transition_frames = self.DISPLAY_AUTO_TRANSITION_FRAMES
         else:
+            self._display_auto_clear_manual_entry_gate()
             self._reset_display_auto_stability()
 
     def _atualizar_preview_display_f3(self) -> None:
