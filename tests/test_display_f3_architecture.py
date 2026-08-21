@@ -177,9 +177,10 @@ class DisplayF3ArchitectureTests(unittest.TestCase):
     def test_janela_f3_reutiliza_somente_renderer_base_da_camera(self):
         self.assertTrue(issubclass(DisplayProductionF3Window, RaspberryOperationWindow))
         fonte = inspect.getsource(DisplayProductionF3Window.update_camera_preview)
-        self.assertIn("self.update_preview(frame, leds=())", fonte)
+        self.assertIn("self.update_preview(visual_frame, leds=())", fonte)
+        self.assertIn("preparar_frame_visual_display", fonte)
         self.assertNotIn("operacao_engine", fonte)
-        self.assertNotIn("result", fonte.lower())
+        self.assertNotIn("camera_service", fonte)
 
     def test_enter_e_f2_sao_consumidos_localmente_na_tela_f3(self):
         fonte = inspect.getsource(DisplayProductionF3Window.__init__)
