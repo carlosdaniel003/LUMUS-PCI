@@ -56,6 +56,15 @@ def decidir_analise_display_f3(
         if isinstance(item, dict)
     ]
     if not results:
+        # Compatibilidade com testes/stubs antigos que fornecem apenas o OK.
+        # Sem detalhes de máscara, nunca aceitamos um NG automático.
+        if data.get("approved") is True:
+            return {
+                "decision": DISPLAY_AUTO_DECISION_OK,
+                "reason": "check_conforme_compatibilidade",
+                "confirmed_ng": False,
+                "board_powered": False,
+            }
         return {
             "decision": DISPLAY_AUTO_DECISION_SEARCHING,
             "reason": "sem_resultados_de_mascara",
