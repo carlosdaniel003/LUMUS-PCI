@@ -213,7 +213,8 @@ class DisplayF3AutoCheckTests(unittest.TestCase):
         )
         app.display_check_runtime = SimpleNamespace(
             snapshot=lambda: {
-                "current_check": {"id": "CHECK_001", "name": "H1"}
+                "current_index": 0,
+                "current_check": {"id": "CHECK_001", "name": "H1"},
             }
         )
         app._display_auto_analyzer = SimpleNamespace(
@@ -244,10 +245,6 @@ class DisplayF3AutoCheckTests(unittest.TestCase):
         self.assertEqual(1, app._display_auto_stable_frames)
 
         app.camera_ultimo_frame_id = 2
-        app._process_display_auto_check()
-        self.assertEqual([], events)
-
-        app.camera_ultimo_frame_id = 3
         app._process_display_auto_check()
         self.assertEqual([True], events)
 
