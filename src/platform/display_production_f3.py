@@ -8,6 +8,7 @@ from src.platform.display_project_repository import (
     DisplayProjectRepository,
     normalizar_resolucao_display,
 )
+from src.platform.display_visual_rotation import obter_rotacao_visual_display
 from src.platform.raspberry_pi3_settings import (
     OPERATION_PREVIEW_HEIGHT,
     OPERATION_PREVIEW_WIDTH,
@@ -97,6 +98,10 @@ class DisplayProductionF3Mixin:
                 padx=(0, 8),
                 pady=18,
             )
+
+    def _obter_rotacao_visual_display_f3(self) -> int:
+        """Herda somente a orientação visual atual da tela principal."""
+        return obter_rotacao_visual_display(getattr(self, "view", None))
 
     def _obter_frame_para_configuracao_display(self):
         frame = getattr(self, "camera_frame_atual", None)
@@ -285,7 +290,10 @@ class DisplayProductionF3Mixin:
         frame = getattr(self, "camera_frame_atual", None)
         if janela is not None:
             try:
-                janela.update_camera_preview(frame)
+                janela.update_camera_preview(
+                    frame,
+                    visual_rotation=self._obter_rotacao_visual_display_f3(),
+                )
             except Exception:
                 pass
 
