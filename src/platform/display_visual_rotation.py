@@ -141,6 +141,36 @@ def preparar_mascara_visual_display(
     return item
 
 
+def restaurar_mascara_original_display(
+    mascara_visual: dict,
+    largura_original: int,
+    altura_original: int,
+    rotacao: int,
+) -> dict:
+    """Converte uma máscara editada visualmente de volta à orientação mestre.
+
+    O editor de máscaras trabalha na mesma orientação que o operador enxerga.
+    Antes de persistir, a geometria volta para as coordenadas da resolução
+    mestre, mantendo câmera e arquivos Display independentes da rotação visual.
+    """
+    angulo = normalizar_rotacao_visual(rotacao)
+    if angulo == 0:
+        return deepcopy(mascara_visual)
+
+    largura_visual, altura_visual = dimensoes_visuais(
+        max(1, int(largura_original)),
+        max(1, int(altura_original)),
+        angulo,
+    )
+    rotacao_inversa = normalizar_rotacao_visual(360 - angulo)
+    return preparar_mascara_visual_display(
+        mascara_visual,
+        largura_visual,
+        altura_visual,
+        rotacao_inversa,
+    )
+
+
 def preparar_check_visual_display(
     frame,
     master_resolution,
@@ -172,6 +202,86 @@ def preparar_check_visual_display(
         (largura_visual, altura_visual),
         mascaras_visuais,
     )
+
+
+def instalar_rotacao_visual_editor_mascaras_display() -> None:
+    """Aplica rotação visual também ao editor de máscaras do Projeto Display."""
+    import src.platform.display_project_config as config_module
+
+    config_window = config_module.DisplayProjectConfigWindow
+    if getattr(config_window, "_odin_display_mask_visual_rotation", False):
+        return
+
+    def edit_masks(self) -> None:
+        name = self._selected_name()
+        if not name:
+            config_module.messagebox.showwarning(
+                "Sem Projeto Display",
+                "Selecione ou crie um projeto primeiro.",
+                parent=self.window,
+            )
+            return
+        resolution = self._read_resolution_fields()
+        if resolution is None:
+            return
+        if not self.repository.salvar_resolucao_mestra(name, *resolution):
+            return
+        project = self.repository.carregar_projeto(name)
+        if project is None:
+            return
+        try:
+            frame = self.frame_provider()
+        except Exception:
+            frame = None
+
+        visual_rotation = obter_rotacao_visual_do_frame_provider(
+            self.frame_provider
+        )
+        frame_visual, resolution_visual, masks_visual = (
+            preparar_check_visual_display(
+                frame,
+                resolution,
+                project.get("masks", []),
+                visual_rotation,
+            )
+        )
+
+        def save_masks(masks: list[dict]) -> None:
+            masks_original = [
+                restaurar_mascara_original_display(
+                    mask,
+                    resolution[0],
+                    resolution[1],
+                    visual_rotation,
+                )
+                for mask in (masks or [])
+                if isinstance(mask, dict)
+            ]
+            if self.repository.salvar_configuracao_projeto(
+                name,
+                resolution,
+                masks_original,
+            ):
+                self.refresh(name)
+                self.status.configure(
+                    text=f"{len(masks_original)} máscara(s) salvas em {name}."
+                )
+                self._notify_change()
+
+        self.mask_editor = config_module.DisplayMaskEditorWindow(
+            root=self.root,
+            master_resolution=resolution_visual,
+            masks=masks_visual,
+            frame=frame_visual,
+            on_save=save_masks,
+        )
+        try:
+            self.mask_editor.visual_rotation = visual_rotation
+        except Exception:
+            pass
+
+    config_window.edit_masks = edit_masks
+    config_window._odin_display_mask_visual_rotation = True
 
 
 def instalar_rotacao_visual_editor_check_display() -> None:
@@ -252,4 +362,5 @@ def instalar_rotacao_visual_editor_check_display() -> None:
     manager._odin_display_check_visual_rotation = True
 
 
+instalar_rotacao_visual_editor_mascaras_display()
 instalar_rotacao_visual_editor_check_display()
