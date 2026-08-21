@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import cv2
 
+from src.core.classifier import ReferenceLedClassifier
 from src.core.feature_extractor import extrair_features_selecao
 from src.core.roi_geometry import (
     TIPO_ROI_CIRCULO,
@@ -35,9 +36,9 @@ DISPLAY_AUTO_CLASS_LABELS = {
     DISPLAY_AUTO_CLASS_LOW_LIGHT: "POUCA LUZ",
 }
 
-# Mantém a mesma relevância relativa das características ópticas já validadas
-# pelo ODIN, mas a decisão abaixo é exclusiva do Display/F3 e não instancia o
-# motor de produção existente.
+# Distância mantida apenas para detectar a classe opcional POUCA LUZ.
+# A decisão ACESO/APAGADO usa exatamente o ReferenceLedClassifier já validado
+# no fluxo normal do ODIN.
 DISPLAY_AUTO_FEATURE_WEIGHTS = {
     "v_mean": 0.08,
     "v_max": 0.45,
@@ -54,6 +55,10 @@ DISPLAY_AUTO_FEATURE_WEIGHTS = {
     "glow_score": 1.85,
 }
 
+# POUCA LUZ só substitui a decisão binária quando estiver claramente mais
+# próxima da própria referência do que de ACESO/APAGADO.
+DISPLAY_AUTO_LOW_LIGHT_DISTANCE_RATIO = 0.85
+
 
 @dataclass(frozen=True)
 class DisplayStateClassification:
@@ -64,7 +69,7 @@ class DisplayStateClassification:
 
 
 class DisplayLearnedStateClassifier:
-    """Classificador dos estados efetivamente aprendidos pelo Display/F3."""
+    """Classificação F3 alinhada ao classificador validado do ODIN."""
 
     def __init__(
         self,
@@ -76,12 +81,14 @@ class DisplayLearnedStateClassifier:
             raise ValueError(
                 "O aprendizado Display precisa de ACESO e APAGADO."
             )
-        self._profiles = {
-            DISPLAY_CHECK_STATE_ON: learned_on,
-            DISPLAY_CHECK_STATE_OFF: learned_off,
-        }
-        if learned_low_light is not None:
-            self._profiles[DISPLAY_AUTO_CLASS_LOW_LIGHT] = learned_low_light
+
+        self.learned_on = learned_on
+        self.learned_off = learned_off
+        self.learned_low_light = learned_low_light
+        self._binary_classifier = ReferenceLedClassifier(
+            features_referencia_acesa=learned_on,
+            features_referencia_apagada=learned_off,
+        )
 
     @staticmethod
     def _distance(current: LedFeatures, reference: LedFeatures) -> float:
@@ -93,23 +100,63 @@ class DisplayLearnedStateClassifier:
             ) * float(weight)
         return float(distance)
 
-    def classify(self, features: LedFeatures) -> DisplayStateClassification:
-        distances = {
-            state: self._distance(features, profile)
-            for state, profile in self._profiles.items()
-        }
-        ordered = sorted(distances.items(), key=lambda item: (item[1], item[0]))
-        state, best = ordered[0]
-        second = ordered[1][1]
+    def classify(
+        self,
+        features: LedFeatures,
+        selection: LedSelection | None = None,
+    ) -> DisplayStateClassification:
+        center_x = int(getattr(selection, "centro_x", 0) or 0)
+        center_y = int(getattr(selection, "centro_y", 0) or 0)
+        radius = max(1, int(getattr(selection, "raio", 1) or 1))
 
-        denominator = max(1e-9, best + second)
-        confidence = second / denominator
-        confidence = max(0.50, min(0.99, float(confidence)))
+        # Mesma decisão óptica usada no modo normal: brilho, similaridade,
+        # picos, contraste, glow, métricas e limiares dinâmicos.
+        binary = self._binary_classifier.classificar_led_por_referencia(
+            features_atual=features,
+            centro_x=center_x,
+            centro_y=center_y,
+            raio=radius,
+        )
+        binary_state = (
+            DISPLAY_CHECK_STATE_ON
+            if int(getattr(binary, "valor_binario", 0) or 0) == 1
+            else DISPLAY_CHECK_STATE_OFF
+        )
+        confidence = float(getattr(binary, "confianca", 0.50) or 0.50)
+
+        distance_on = float(getattr(binary, "distancia_on", 0.0) or 0.0)
+        distance_off = float(getattr(binary, "distancia_off", 0.0) or 0.0)
+        distances = {
+            DISPLAY_CHECK_STATE_ON: distance_on,
+            DISPLAY_CHECK_STATE_OFF: distance_off,
+        }
+
+        state = binary_state
+
+        if self.learned_low_light is not None:
+            low_distance = self._distance(features, self.learned_low_light)
+            distances[DISPLAY_AUTO_CLASS_LOW_LIGHT] = low_distance
+            binary_best = min(distance_on, distance_off)
+
+            if (
+                binary_best > 1e-9
+                and low_distance
+                <= binary_best * DISPLAY_AUTO_LOW_LIGHT_DISTANCE_RATIO
+            ):
+                state = DISPLAY_AUTO_CLASS_LOW_LIGHT
+                ordered = sorted(distances.values())
+                best = ordered[0]
+                second = ordered[1]
+                denominator = max(1e-9, best + second)
+                confidence = max(
+                    0.50,
+                    min(0.99, float(second / denominator)),
+                )
 
         return DisplayStateClassification(
             state=state,
             label=DISPLAY_AUTO_CLASS_LABELS[state],
-            confidence=round(confidence, 4),
+            confidence=round(float(confidence), 4),
             distances={
                 key: round(float(value), 4)
                 for key, value in distances.items()
@@ -354,7 +401,10 @@ class DisplayAutomaticCheckAnalyzer:
                     mask_id=mask_id,
                 )
 
-            classification = classifier.classify(features)
+            classification = classifier.classify(
+                features,
+                selection=selection,
+            )
             matched = classification.state == expected
             results.append(
                 {
