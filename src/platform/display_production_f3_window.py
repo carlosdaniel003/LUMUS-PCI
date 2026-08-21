@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Callable
 
+from src.platform.display_visual_rotation import preparar_frame_visual_display
 from src.ui.operation_window_raspberry import RaspberryOperationWindow
 
 
@@ -30,6 +31,7 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         )
 
         self.on_configure = on_configure
+        self.visual_rotation = 0
         self.brand_label.configure(text="ODIN  |  PRODUÇÃO DISPLAY  F3")
         self.mode_label.configure(text="DISPLAY • PROJETO + MÁSCARAS + CHECKS")
         self.status_label.configure(text="AGUARDANDO CÂMERA")
@@ -163,23 +165,45 @@ class DisplayProductionF3Window(RaspberryOperationWindow):
         )
         self.set_preview_status("Aguardando câmera", self.PREVIEW_MUTED)
 
-    def show_camera_ready(self, width: int, height: int) -> None:
+    def show_camera_ready(
+        self,
+        width: int,
+        height: int,
+        visual_rotation: int = 0,
+    ) -> None:
         self.status_label.configure(text="DISPLAY F3")
         self.detail_label.configure(
             text=(
                 f"Câmera ao vivo • {int(width)}x{int(height)} • "
-                "Fase 3 sem análise automática"
+                f"Visual {int(visual_rotation)}° • Fase 3 sem análise automática"
             )
         )
 
-    def update_camera_preview(self, frame) -> bool:
-        """Renderiza somente o frame; não recebe ROIs nem estado do F2."""
+    def update_camera_preview(self, frame, visual_rotation: int = 0) -> bool:
+        """Renderiza o frame com a mesma rotação visual da tela principal.
+
+        A rotação é aplicada somente à cópia exibida no F3. O frame da câmera,
+        as coordenadas das ROIs e todo o estado do F2 permanecem inalterados.
+        """
         if frame is None or getattr(frame, "size", 0) == 0:
             self.show_waiting_camera()
             return False
 
-        height, width = frame.shape[:2]
-        rendered = self.update_preview(frame, leds=())
+        try:
+            rotation = int(visual_rotation) % 360
+        except (TypeError, ValueError):
+            rotation = 0
+        if rotation not in (0, 90, 180, 270):
+            rotation = 0
+        self.visual_rotation = rotation
+
+        visual_frame = preparar_frame_visual_display(frame, rotation)
+        if visual_frame is None or getattr(visual_frame, "size", 0) == 0:
+            self.show_waiting_camera()
+            return False
+
+        height, width = visual_frame.shape[:2]
+        rendered = self.update_preview(visual_frame, leds=())
         if rendered:
-            self.show_camera_ready(width, height)
+            self.show_camera_ready(width, height, rotation)
         return rendered
