@@ -88,24 +88,39 @@ def instalar_otimizacao_editor_mascaras_display_f3() -> None:
         return
 
     original_init = cls.__init__
+    original_vp = cls._vp
     original_redraw = cls.redraw
     original_motion = cls._motion
     original_drag = cls._drag
     original_drag_pan = cls._drag_pan
+    original_end_pan = cls._end_pan
 
     def init(self, *args, **kwargs) -> None:
         self._odin_editor_background_key = None
         self._odin_editor_background_photo = None
+        self._odin_editor_active_viewport = None
         self._odin_editor_suppress_redraw = False
         self._odin_editor_last_motion_s = 0.0
         self._odin_editor_last_drag_s = 0.0
         self._odin_editor_last_pan_s = 0.0
         original_init(self, *args, **kwargs)
 
+    def vp(self):
+        active = getattr(self, "_odin_editor_active_viewport", None)
+        if active is not None:
+            return active
+        return original_vp(self)
+
     def redraw(self) -> None:
         if bool(getattr(self, "_odin_editor_suppress_redraw", False)):
             return
-        return original_redraw(self)
+        # Uma única geometria por frame visual. _draw_mask/_to_canvas reutilizam
+        # esta mesma instância em vez de recalcular o viewport para cada ponto.
+        self._odin_editor_active_viewport = original_vp(self)
+        try:
+            return original_redraw(self)
+        finally:
+            self._odin_editor_active_viewport = None
 
     def background(self, viewport):
         frame = getattr(self, "frame", None)
@@ -190,7 +205,15 @@ def instalar_otimizacao_editor_mascaras_display_f3() -> None:
             width=2,
         )
 
+    def end_pan(self, event=None):
+        result = original_end_pan(self, event)
+        # Se o último B2-Motion caiu dentro do throttle, o release sempre pinta
+        # a posição final calculada para que não exista salto no próximo evento.
+        self.redraw()
+        return result
+
     cls.__init__ = init
+    cls._vp = vp
     cls.redraw = redraw
     cls._background = background
     cls._draw_magnifier = draw_magnifier
@@ -209,6 +232,7 @@ def instalar_otimizacao_editor_mascaras_display_f3() -> None:
         "_odin_editor_last_pan_s",
         DISPLAY_EDITOR_DRAG_INTERVAL_S,
     )
+    cls._end_pan = end_pan
     cls._odin_display_editor_performance = True
 
 
@@ -220,20 +244,33 @@ def instalar_otimizacao_editor_check_display_f3() -> None:
         return
 
     original_init = cls.__init__
+    original_canvas_geometry = cls._canvas_geometry
     original_redraw = cls.redraw
     original_pan = getattr(cls, "_arrastar_pan_check", None)
+    original_finish_pan = getattr(cls, "_finalizar_pan_check", None)
 
     def init(self, *args, **kwargs) -> None:
         self._odin_check_background_key = None
         self._odin_check_background_photo = None
+        self._odin_check_active_geometry = None
         self._odin_editor_suppress_redraw = False
         self._odin_check_last_pan_s = 0.0
         original_init(self, *args, **kwargs)
 
+    def canvas_geometry(self):
+        active = getattr(self, "_odin_check_active_geometry", None)
+        if active is not None:
+            return active
+        return original_canvas_geometry(self)
+
     def redraw(self) -> None:
         if bool(getattr(self, "_odin_editor_suppress_redraw", False)):
             return
-        return original_redraw(self)
+        self._odin_check_active_geometry = original_canvas_geometry(self)
+        try:
+            return original_redraw(self)
+        finally:
+            self._odin_check_active_geometry = None
 
     def background_zoom(self, viewport):
         frame = getattr(self, "frame", None)
@@ -333,7 +370,18 @@ def instalar_otimizacao_editor_check_display_f3() -> None:
             update_segment_button(self, index)
         self.redraw()
 
+    def finish_pan(self, event=None):
+        if not callable(original_finish_pan):
+            return "break"
+        result = original_finish_pan(self, event)
+        # Chamadas internas de reset de zoom já fazem redraw em seguida; no
+        # ButtonRelease real, garantimos a posição final mesmo após throttle.
+        if event is not None:
+            self.redraw()
+        return result
+
     cls.__init__ = init
+    cls._canvas_geometry = canvas_geometry
     cls.redraw = redraw
     cls.toggle_mask = toggle_mask
     cls.set_all_ignore = set_all_ignore
@@ -350,6 +398,8 @@ def instalar_otimizacao_editor_check_display_f3() -> None:
             "_odin_check_last_pan_s",
             DISPLAY_EDITOR_DRAG_INTERVAL_S,
         )
+    if callable(original_finish_pan):
+        cls._finalizar_pan_check = finish_pan
 
     cls._odin_display_check_editor_performance = True
 
