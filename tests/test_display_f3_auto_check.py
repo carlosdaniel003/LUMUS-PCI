@@ -232,6 +232,8 @@ class DisplayF3AutoCheckTests(unittest.TestCase):
         app._display_auto_transition_frames = 0
         app._display_auto_last_frame_token = None
         app._display_auto_last_analysis = None
+        app._display_auto_manual_entry_signature = None
+        app._display_auto_manual_entry_label = ""
         app._obter_rotacao_visual_display_f3 = lambda: 0
         events = []
         app.registrar_resultado_check_display_f3 = (
