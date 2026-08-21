@@ -42,6 +42,7 @@ jobs:
             src/platform/display_check_zoom.py \
             src/platform/display_reference_store.py \
             src/platform/display_reference_learning.py \
+            src/platform/display_reference_learning_guard.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_f3_architecture.py \
             tests/test_display_f3_phase2_architecture.py \
