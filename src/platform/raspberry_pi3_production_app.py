@@ -24,6 +24,9 @@ from src.platform.camera_selection import (
 from src.platform.camera_stability_runtime import (
     RaspberryCameraStabilityMixin,
 )
+from src.platform.display_auto_check_runtime import (
+    DisplayAutomaticCheckF3Mixin,
+)
 from src.platform.display_awake_runtime import (
     LinuxDisplayAwakeMixin,
 )
@@ -123,6 +126,7 @@ from src.platform.windows_camera_handoff import (
 class RaspberryPi3ProductionApp(
     LinuxDisplayAwakeMixin,
     DisplayThemeMixin,
+    DisplayAutomaticCheckF3Mixin,
     DisplayProductionF3Mixin,
     CameraSelectionMixin,
     LinuxF2FixedResolutionMixin,
