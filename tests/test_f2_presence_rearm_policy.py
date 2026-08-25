@@ -12,6 +12,7 @@ from src.platform.f2_automatic_cycle_guard import (
     F2VisualBoardRemovalDetector,
 )
 from src.platform.f2_automatic_presence_cycle_policy import (
+    F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED,
     F2AutomaticPresenceCyclePolicyMixin,
 )
 from src.platform.f2_board_presence_references import (
@@ -33,19 +34,33 @@ class _Engine:
         )
 
 
-class _AutomaticHarness(F2AutomaticPresenceCyclePolicyMixin):
+class _AutomaticBase:
+    def disparar_inspecao_operacao(self) -> None:
+        self.operacao_total += 1
+
+
+class _AutomaticHarness(
+    F2AutomaticPresenceCyclePolicyMixin,
+    F2AutomaticCycleGuardMixin,
+    _AutomaticBase,
+):
     def __init__(self) -> None:
         self.operacao_engine = _Engine()
         self.camera_frame_atual = np.zeros((20, 20, 3), dtype=np.uint8)
+        self.operacao_leds_preview = ()
         self.operacao_processando = False
         self.operacao_total = 0
         self._operacao_resultado_after_id = None
         self._presence = F2_BOARD_PRESENCE_PRESENT
         self._f2_auto_cycle = F2AutomaticCycleState(trigger_on_frames_required=2)
+        self._f2_auto_visual_removal = F2VisualBoardRemovalDetector()
         self._f2_auto_reference_empty_frames = 0
         self._f2_auto_last_raw_states = {}
         self._f2_auto_last_states = {}
         self._f2_auto_last_presence = None
+        self._f2_auto_waiting_new_board_off = False
+        self._f2_auto_new_board_off_frames = 0
+        self._f2_board_presence_refs = None
 
     def _f2_auto_enabled(self) -> bool:
         return True
@@ -59,23 +74,11 @@ class _AutomaticHarness(F2AutomaticPresenceCyclePolicyMixin):
     def _f2_auto_result_hold_active(self) -> bool:
         return False
 
-    def _f2_auto_observe_removal(self, frame, presence: str) -> bool:
-        return F2AutomaticCycleGuardMixin._f2_auto_observe_removal(
-            self,
-            frame,
-            presence,
-        )
-
     def _f2_auto_publish_states(self, states, _presence) -> None:
         self._f2_auto_last_states = dict(states)
 
     def _f2_auto_can_trigger(self) -> bool:
         return True
-
-    def disparar_inspecao_operacao(self) -> None:
-        self.operacao_total += 1
-        self._f2_auto_cycle.mark_inspected()
-        self._f2_auto_reference_empty_frames = 0
 
 
 class _ManualBase:
@@ -86,12 +89,16 @@ class _ManualBase:
         self.operacao_total += 1
 
 
-class _ManualHarness(F2AutomaticCycleGuardMixin, _ManualBase):
+class _ManualHarness(
+    F2AutomaticPresenceCyclePolicyMixin,
+    F2AutomaticCycleGuardMixin,
+    _ManualBase,
+):
     pass
 
 
 class F2PresenceRearmPolicyTests(unittest.TestCase):
-    def test_led_aceso_dispara_sem_usar_presenca_como_gate(self):
+    def test_led_aceso_dispara_sem_usar_presenca_como_gate_inicial(self):
         app = _AutomaticHarness()
         app._presence = F2_BOARD_PRESENCE_UNKNOWN
         app.operacao_engine.status = "ACESO"
@@ -101,7 +108,22 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         self.assertEqual(1, app.operacao_total)
         self.assertTrue(app._f2_auto_cycle.waiting_removal)
 
-    def test_fluxo_completo_exige_ausencia_antes_da_proxima_automatica(self):
+    def test_disparo_real_marca_placa_como_ja_analisada(self):
+        app = _AutomaticHarness()
+        app.operacao_engine.status = "ACESO"
+
+        self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertTrue(app._f2_auto_analyze_current_frame())
+        self.assertEqual(1, app.operacao_total)
+        self.assertTrue(app._f2_auto_cycle.waiting_removal)
+
+        # O resultado pode sumir e os LEDs podem continuar acesos por tempo
+        # indefinido: a mesma placa não dispara novamente.
+        for _ in range(100):
+            self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertEqual(1, app.operacao_total)
+
+    def test_fluxo_completo_exige_vazio_e_nova_placa_apagada(self):
         app = _AutomaticHarness()
 
         # Placa 1 colocada e ligada: dois frames estáveis com LED ACESO.
@@ -133,19 +155,41 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
             self.assertFalse(app._f2_auto_analyze_current_frame())
         self.assertTrue(app._f2_auto_cycle.waiting_removal)
 
-        # Somente SUPORTE VAZIO confirmado rearma o automático.
+        # SUPORTE VAZIO confirma que a placa anterior saiu, porém ainda NÃO
+        # libera o próximo gatilho automático.
         app._presence = F2_BOARD_PRESENCE_EMPTY
         for _ in range(F2_AUTO_REFERENCE_EMPTY_FRAMES_REQUIRED):
             self.assertFalse(app._f2_auto_analyze_current_frame())
         self.assertFalse(app._f2_auto_cycle.waiting_removal)
-
-        # Placa 2 entra desligada: ainda não há análise.
-        app._presence = F2_BOARD_PRESENCE_PRESENT
-        for _ in range(5):
-            self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertTrue(app._f2_auto_waiting_new_board_off)
         self.assertEqual(1, app.operacao_total)
 
-        # Placa 2 liga: agora um novo ciclo automático é permitido.
+        # Mesmo que alguma ROI do suporte vazio pareça acesa, o automático
+        # continua bloqueado enquanto não entrar uma nova placa apagada.
+        app.operacao_engine.status = "ACESO"
+        for _ in range(10):
+            self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertEqual(1, app.operacao_total)
+        self.assertTrue(app._f2_auto_waiting_new_board_off)
+
+        # Se a nova placa entrar já ligada, também não libera: o processo
+        # físico esperado é nova placa presente e apagada antes de ligar.
+        app._presence = F2_BOARD_PRESENCE_PRESENT
+        for _ in range(10):
+            self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertEqual(1, app.operacao_total)
+        self.assertTrue(app._f2_auto_waiting_new_board_off)
+
+        # Nova placa presente e apagada libera o ciclo após confirmação.
+        app.operacao_engine.status = "APAGADO"
+        for _ in range(F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED - 1):
+            self.assertFalse(app._f2_auto_analyze_current_frame())
+            self.assertTrue(app._f2_auto_waiting_new_board_off)
+        self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertFalse(app._f2_auto_waiting_new_board_off)
+        self.assertEqual(1, app.operacao_total)
+
+        # Só agora, quando a nova placa liga, nasce a segunda automática.
         app.operacao_engine.status = "ACESO"
         self.assertFalse(app._f2_auto_analyze_current_frame())
         self.assertTrue(app._f2_auto_analyze_current_frame())
@@ -160,6 +204,8 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         app._f2_auto_reference_empty_frames = 0
         app._f2_auto_visual_removal = F2VisualBoardRemovalDetector()
         app._f2_board_presence_refs = None
+        app._f2_auto_waiting_new_board_off = False
+        app._f2_auto_new_board_off_frames = 0
         app.camera_frame_atual = None
         app.operacao_leds_preview = ()
 
