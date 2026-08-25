@@ -76,9 +76,11 @@ class F2AutomaticCycleState:
         )
 
     def visible_states(self, states: dict[str, str] | None) -> dict[str, str]:
-        """Suporte vazio fica neutro; placa luminosa mantém feedback das ROIs."""
+        """Suporte vazio fica neutro; placa já detectada mantém feedback das ROIs."""
         current = dict(states or {})
-        if self.has_on(current) or self.has_low_light(current):
+        if self.has_on(current):
+            return current
+        if self.waiting_removal and self.has_low_light(current):
             return current
         return {}
 
@@ -129,9 +131,9 @@ class F2AutomaticCycleGuardMixin:
         states = estados_resultado_operacao(result)
         self._f2_auto_last_raw_states = states
 
-        # A retirada é avaliada antes da publicação visual. Assim que o frame
-        # deixa de ter ACESO, o suporte já fica neutro em vez de permanecer
-        # vermelho enquanto o debounce confirma a saída da placa.
+        # A retirada é avaliada antes da publicação visual. Quando deixa de
+        # existir um LED ACESO, o suporte já fica neutro; POUCA_LUZ só continua
+        # visível enquanto a placa inspecionada ainda aguarda confirmação de saída.
         self._f2_auto_cycle.observe_after_result(states)
         self._f2_auto_publish_states(states)
 
