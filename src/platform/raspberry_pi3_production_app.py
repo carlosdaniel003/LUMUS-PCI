@@ -45,6 +45,9 @@ from src.platform.f2_automatic_analysis import (
 from src.platform.f2_automatic_cycle_guard import (
     F2AutomaticCycleGuardMixin,
 )
+from src.platform.f2_board_status_display import (
+    F2BoardStatusDisplayMixin,
+)
 from src.platform.fixed_mask_geometry_guard import (
     FixedMaskGeometryGuardMixin,
     instalar_repositorio_mascaras_absolutas,
@@ -137,6 +140,7 @@ class RaspberryPi3ProductionApp(
     DisplayThemeMixin,
     DisplayAutomaticCheckF3Mixin,
     DisplayProductionF3Mixin,
+    F2BoardStatusDisplayMixin,
     F2AutomaticCycleGuardMixin,
     F2AutomaticAnalysisMixin,
     CameraSelectionMixin,
