@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.platform.linux_local_config_bootstrap import (
+from linux_local_config_bootstrap import (
     ODIN_CONFIG_DIR_ENV,
     ODIN_CONFIG_FILENAME,
     preparar_configuracao_local_linux,
