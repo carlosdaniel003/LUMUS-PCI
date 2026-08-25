@@ -34,6 +34,7 @@ jobs:
             src/platform/f2_automatic_analysis.py \
             src/platform/f2_automatic_cycle_guard.py \
             src/platform/f2_board_presence_references.py \
+            src/platform/f2_board_status_display.py \
             src/platform/segment_display_runtime.py \
             src/platform/segment_display_operation_window.py \
             src/platform/raspberry_pi3_production_app.py \
