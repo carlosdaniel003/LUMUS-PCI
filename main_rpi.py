@@ -1,6 +1,19 @@
-import tkinter as tk
+from __future__ import annotations
 
-from src.platform.raspberry_pi3_production_app import (
+import sys
+import tkinter as tk
+from pathlib import Path
+
+from src.platform.linux_local_config_bootstrap import (
+    preparar_configuracao_local_linux,
+)
+
+
+if sys.platform.startswith("linux"):
+    preparar_configuracao_local_linux(Path(__file__).resolve().parent)
+
+
+from src.platform.raspberry_pi3_production_app import (  # noqa: E402
     RaspberryPi3ProductionApp,
 )
 
