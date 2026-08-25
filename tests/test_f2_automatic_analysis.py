@@ -29,12 +29,18 @@ class F2AutomaticAnalysisTests(unittest.TestCase):
         self.assertFalse(latch.observe({"LED_001": "ACESO"}, can_trigger=True))
         self.assertFalse(latch.armed)
 
-    def test_low_light_is_luminous_and_can_start_inspection(self):
+    def test_low_light_is_visible_but_does_not_trigger_by_itself(self):
         latch = F2AutomaticTriggerLatch()
-        self.assertTrue(
+        self.assertFalse(
             latch.observe({"LED_001": "POUCA_LUZ"}, can_trigger=True)
         )
-        self.assertFalse(latch.armed)
+        self.assertTrue(latch.armed)
+        self.assertTrue(
+            latch.observe(
+                {"LED_001": "POUCA_LUZ", "LED_002": "ACESO"},
+                can_trigger=True,
+            )
+        )
 
     def test_same_board_rearms_only_after_two_all_off_frames(self):
         latch = F2AutomaticTriggerLatch(off_frames_required=2)
@@ -100,6 +106,7 @@ class F2AutomaticAnalysisTests(unittest.TestCase):
         source = inspect.getsource(module)
         self.assertIn("Ativar análise automática", source)
         self.assertIn("A mesma configuração não altera o F3", source)
+        self.assertIn("ao menos um LED ACESO", source)
 
 
 if __name__ == "__main__":
