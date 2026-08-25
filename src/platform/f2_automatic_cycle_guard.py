@@ -132,6 +132,10 @@ class F2AutomaticCycleGuardMixin:
         if callable(setter):
             setter(visible, enabled=True)
 
+    def _f2_auto_result_hold_active(self) -> bool:
+        """A tela OK/NG nunca conta como tempo de retirada da placa."""
+        return getattr(self, "_operacao_resultado_after_id", None) is not None
+
     def _f2_auto_analyze_current_frame(self) -> bool:
         if not self._f2_auto_enabled():
             return False
@@ -158,7 +162,10 @@ class F2AutomaticCycleGuardMixin:
 
         # O OperationEngine já passou pela guarda física do LED. Portanto
         # STATUS_ACESO aqui representa emissão real, não somente glow/reflexo.
-        self._f2_auto_cycle.observe_after_result(states)
+        # Durante a tela de resultado não observamos retirada: o frame pode
+        # estar pausado/transitório e não pode rearmar a mesma placa escondido.
+        if not self._f2_auto_result_hold_active():
+            self._f2_auto_cycle.observe_after_result(states)
         self._f2_auto_publish_states(states)
 
         if not self._f2_auto_cycle.should_trigger(
