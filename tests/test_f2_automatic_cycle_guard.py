@@ -5,6 +5,7 @@ import unittest
 
 from src.platform.f2_automatic_cycle_guard import (
     F2_AUTO_REMOVAL_SCORE_REQUIRED,
+    F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED,
     F2AutomaticCycleState,
 )
 
@@ -22,19 +23,29 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
         self.assertEqual(cycle.visible_states(states), {})
         self.assertFalse(cycle.waiting_removal)
 
-    def test_at_least_one_on_starts_inspection_but_does_not_approve_itself(self):
-        cycle = F2AutomaticCycleState()
+    def test_on_requires_two_fresh_frames_before_trigger(self):
+        cycle = F2AutomaticCycleState(trigger_on_frames_required=2)
         states = {
             "LED_001": "ACESO",
             "LED_002": "APAGADO",
             "LED_003": "APAGADO",
         }
 
+        self.assertFalse(cycle.should_trigger(states, can_trigger=True))
         self.assertTrue(cycle.should_trigger(states, can_trigger=True))
         self.assertEqual(cycle.visible_states(states), states)
         # A classe decide somente o gatilho. OK/NG continua sendo responsabilidade
         # do OperationEngine oficial, portanto não existe qualquer regra de OK aqui.
         self.assertFalse(hasattr(cycle, "is_ok"))
+
+    def test_single_on_glitch_does_not_trigger(self):
+        cycle = F2AutomaticCycleState(trigger_on_frames_required=2)
+        on = {"LED_001": "ACESO"}
+        off = {"LED_001": "APAGADO"}
+
+        self.assertFalse(cycle.should_trigger(on, can_trigger=True))
+        self.assertFalse(cycle.should_trigger(off, can_trigger=True))
+        self.assertFalse(cycle.should_trigger(on, can_trigger=True))
 
     def test_all_off_board_never_fires_false_ng(self):
         cycle = F2AutomaticCycleState()
@@ -45,53 +56,57 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
         self.assertFalse(cycle.waiting_removal)
 
     def test_same_board_cannot_trigger_twice_before_removal(self):
-        cycle = F2AutomaticCycleState()
+        cycle = F2AutomaticCycleState(trigger_on_frames_required=2)
         board = {"LED_001": "ACESO", "LED_002": "APAGADO"}
 
+        self.assertFalse(cycle.should_trigger(board, can_trigger=True))
         self.assertTrue(cycle.should_trigger(board, can_trigger=True))
         cycle.mark_inspected()
         self.assertTrue(cycle.waiting_removal)
 
-        for _ in range(10):
+        for _ in range(100):
             self.assertFalse(cycle.observe_after_result(board))
             self.assertFalse(cycle.should_trigger(board, can_trigger=True))
 
         self.assertTrue(cycle.waiting_removal)
         self.assertEqual(cycle.removal_score, 0)
 
-    def test_removal_tolerates_one_false_on_frame(self):
-        cycle = F2AutomaticCycleState(removal_score_required=5, on_penalty=2)
+    def test_any_on_during_removal_resets_off_sequence(self):
+        cycle = F2AutomaticCycleState(removal_score_required=5)
         cycle.mark_inspected()
         off = {"LED_001": "APAGADO", "LED_002": "APAGADO"}
-        flicker = {"LED_001": "ACESO", "LED_002": "APAGADO"}
+        on = {"LED_001": "ACESO", "LED_002": "APAGADO"}
 
-        self.assertFalse(cycle.observe_after_result(off))
-        self.assertFalse(cycle.observe_after_result(off))
-        self.assertFalse(cycle.observe_after_result(off))
-        self.assertEqual(cycle.removal_score, 3)
+        for _ in range(4):
+            self.assertFalse(cycle.observe_after_result(off))
+        self.assertEqual(cycle.removal_score, 4)
 
-        self.assertFalse(cycle.observe_after_result(flicker))
-        self.assertEqual(cycle.removal_score, 1)
-
-        self.assertFalse(cycle.observe_after_result(off))
-        self.assertFalse(cycle.observe_after_result(off))
-        self.assertFalse(cycle.observe_after_result(off))
-        self.assertTrue(cycle.observe_after_result(off))
-        self.assertFalse(cycle.waiting_removal)
+        self.assertFalse(cycle.observe_after_result(on))
         self.assertEqual(cycle.removal_score, 0)
 
+        for _ in range(4):
+            self.assertFalse(cycle.observe_after_result(off))
+        self.assertTrue(cycle.observe_after_result(off))
+        self.assertFalse(cycle.waiting_removal)
+
     def test_second_board_can_trigger_after_confirmed_removal(self):
-        cycle = F2AutomaticCycleState(removal_score_required=3)
+        cycle = F2AutomaticCycleState(
+            removal_score_required=3,
+            trigger_on_frames_required=2,
+        )
         first_board = {"LED_001": "ACESO", "LED_002": "APAGADO"}
         empty = {"LED_001": "APAGADO", "LED_002": "APAGADO"}
         second_board = {"LED_001": "APAGADO", "LED_002": "ACESO"}
 
+        self.assertFalse(cycle.should_trigger(first_board, can_trigger=True))
         self.assertTrue(cycle.should_trigger(first_board, can_trigger=True))
         cycle.mark_inspected()
-        for index in range(3):
+        removed = False
+        for _ in range(3):
             removed = cycle.observe_after_result(empty)
         self.assertTrue(removed)
         self.assertFalse(cycle.waiting_removal)
+        self.assertFalse(cycle.should_trigger(second_board, can_trigger=True))
         self.assertTrue(cycle.should_trigger(second_board, can_trigger=True))
 
     def test_low_light_only_is_neutral_before_board_detection(self):
@@ -119,8 +134,11 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
         self.assertFalse(cycle.waiting_removal)
         self.assertEqual(cycle.visible_states(states), {})
 
-    def test_removal_confirmation_has_real_debounce(self):
-        self.assertGreaterEqual(F2_AUTO_REMOVAL_SCORE_REQUIRED, 4)
+    def test_default_removal_confirmation_is_over_one_second(self):
+        self.assertGreaterEqual(F2_AUTO_REMOVAL_SCORE_REQUIRED, 10)
+
+    def test_default_entry_has_stability_debounce(self):
+        self.assertGreaterEqual(F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED, 2)
 
     def test_guard_is_f2_named_and_does_not_patch_display_f3(self):
         import src.platform.f2_automatic_cycle_guard as module
