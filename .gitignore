@@ -1,37 +1,42 @@
 # Python
-__pycache__
-.py[cod]
-.pyo
-.pyd
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 .Python
-.venv
-venv
-env
+.venv/
+venv/
+env/
 
 # VS Code
-.vscode
+.vscode/
 
-# Sistema  temporários
+# Sistema / temporários
 .DS_Store
 Thumbs.db
 
 # Resultados gerados pelo sistema
-dataresultados
-datacapturas
+data/resultados/
+data/capturas/
 
 # Cache e arquivos temporários
-.log
-.tmp
-.bak
+*.log
+*.tmp
+*.bak
 
 # Dados locais de configuração
-dataconfigodin_pci_config.json
+# No JIG Linux a configuração ativa fica em ~/.config/odin.
+data/config/odin_pci_config.json
 data/config/odin_display_projects.json
 data/config/odin_display_learning.json
 data/config/display_references/
+data/config/f2_board_presence/
+data/config/reference_on.png
+data/config/reference_off.png
+data/config/reference_low_light.png
 
-# Amostrasimagens locais de LED
-dataconfigroi_samples
+# Amostras/imagens locais de LED
+data/config/roi_samples/
 
 # Logs locais de produção
 data/logs/
