@@ -7,13 +7,21 @@ import numpy as np
 
 from src.core.segment_low_light import STATUS_ACESO
 from src.platform.f2_automatic_analysis import estados_resultado_operacao
+from src.platform.f2_board_presence_references import (
+    F2_BOARD_PRESENCE_EMPTY,
+    F2_BOARD_PRESENCE_PRESENT,
+    F2_BOARD_PRESENCE_UNAVAILABLE,
+    F2_BOARD_PRESENCE_UNKNOWN,
+    F2BoardPresenceReferenceController,
+)
 
 
 F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED = 2
+F2_AUTO_REFERENCE_EMPTY_FRAMES_REQUIRED = 4
 
-# A mesma placa fica travada até a câmera enxergar uma mudança estrutural real
-# fora das ROIs dos LEDs. Na primeira retirada da sessão, o ODIN aprende como é
-# o suporte vazio; nas retiradas seguintes, compara diretamente com essa cena.
+# Fallback visual usado somente enquanto o projeto ainda não possui as três
+# referências completas de presença. Depois de 3/3, o projeto passa a ser a
+# fonte autoritativa para presença/retirada da placa.
 F2_AUTO_VISUAL_FIRST_REMOVAL_FRAMES_REQUIRED = 8
 F2_AUTO_VISUAL_KNOWN_EMPTY_FRAMES_REQUIRED = 4
 F2_AUTO_VISUAL_CHANGE_PIXEL_THRESHOLD = 24
@@ -28,7 +36,7 @@ F2_AUTO_VISUAL_MIN_VALID_PIXELS = 8000
 F2_AUTO_VISUAL_ROI_PADDING_PX = 10
 F2_AUTO_VISUAL_ZONE_MARGIN_PX = 40
 
-# Alias preservado apenas para código legado que ainda importe o nome antigo.
+# Alias preservado para código/testes que ainda importam o nome antigo.
 F2_AUTO_REMOVAL_SCORE_REQUIRED = F2_AUTO_VISUAL_FIRST_REMOVAL_FRAMES_REQUIRED
 
 
@@ -83,21 +91,17 @@ class F2AutomaticCycleState:
         if self.waiting_removal:
             self.trigger_on_frames = 0
             return False
-
         if not can_trigger:
+            self.trigger_on_frames = 0
             return False
-
         if not self.has_on(states):
             self.trigger_on_frames = 0
             return False
 
-        # A entrada de placa precisa aparecer em dois frames novos. Um único
-        # reflexo/transiente nunca equivale ao ENTER automático.
         self.trigger_on_frames += 1
         return self.trigger_on_frames >= self.trigger_on_frames_required
 
     def visible_states(self, states: dict[str, str] | None) -> dict[str, str]:
-        """Suporte vazio fica neutro; placa luminosa mantém feedback das ROIs."""
         current = dict(states or {})
         if self.has_on(current):
             return current
@@ -107,16 +111,7 @@ class F2AutomaticCycleState:
 
 
 class F2VisualBoardRemovalDetector:
-    """Detecta retirada física pela cena da câmera, ignorando as áreas dos LEDs.
-
-    Estratégia:
-    1. Ao inspecionar, salva uma referência visual da placa atual.
-    2. Compara somente a região ao redor da placa e exclui as ROIs dos LEDs.
-    3. A primeira retirada exige uma cena bem diferente e estável por vários
-       frames; essa cena passa a ser a referência do suporte vazio.
-    4. Depois disso, retirar significa voltar de forma estável à referência do
-       suporte vazio. Oscilações ACESO/APAGADO não participam do rearme.
-    """
+    """Fallback que aprende visualmente a retirada quando faltam referências."""
 
     def __init__(
         self,
@@ -194,7 +189,6 @@ class F2VisualBoardRemovalDetector:
                 )
             except Exception:
                 pass
-
         return (
             cx - half_w,
             cy - half_h,
@@ -235,38 +229,6 @@ class F2VisualBoardRemovalDetector:
             y2 = int(round(height * 0.92))
 
         cv2.rectangle(mask, (x1, y1), (x2, y2), 255, thickness=-1)
-
-        # Exclui generosamente as próprias ROIs para que ligar/desligar LEDs não
-        # pareça retirada física da placa.
-        for led in tuple(leds or ()):
-            item = cls._led_bounds(led)
-            if item is None:
-                continue
-            left, top, right, bottom = item
-            left = max(0, left - F2_AUTO_VISUAL_ROI_PADDING_PX)
-            top = max(0, top - F2_AUTO_VISUAL_ROI_PADDING_PX)
-            right = min(width - 1, right + F2_AUTO_VISUAL_ROI_PADDING_PX)
-            bottom = min(height - 1, bottom + F2_AUTO_VISUAL_ROI_PADDING_PX)
-            cv2.rectangle(
-                mask,
-                (left, top),
-                (right, bottom),
-                0,
-                thickness=-1,
-            )
-
-        if int(cv2.countNonZero(mask)) >= F2_AUTO_VISUAL_MIN_VALID_PIXELS:
-            return mask
-
-        # Fallback conservador se as ROIs ocuparem quase toda a área calculada.
-        mask.fill(0)
-        cv2.rectangle(
-            mask,
-            (int(width * 0.05), int(height * 0.05)),
-            (int(width * 0.95), int(height * 0.95)),
-            255,
-            thickness=-1,
-        )
         for led in tuple(leds or ()):
             item = cls._led_bounds(led)
             if item is None:
@@ -285,6 +247,18 @@ class F2VisualBoardRemovalDetector:
                 0,
                 thickness=-1,
             )
+
+        if int(cv2.countNonZero(mask)) >= F2_AUTO_VISUAL_MIN_VALID_PIXELS:
+            return mask
+
+        mask.fill(0)
+        cv2.rectangle(
+            mask,
+            (int(width * 0.05), int(height * 0.05)),
+            (int(width * 0.95), int(height * 0.95)),
+            255,
+            thickness=-1,
+        )
         return mask
 
     @staticmethod
@@ -300,7 +274,6 @@ class F2VisualBoardRemovalDetector:
         valid_count = int(np.count_nonzero(valid))
         if valid_count < F2_AUTO_VISUAL_MIN_VALID_PIXELS:
             return 1.0, 255.0
-
         diff = cv2.absdiff(current, reference)
         values = diff[valid]
         changed_fraction = float(
@@ -317,7 +290,6 @@ class F2VisualBoardRemovalDetector:
             self.valid_mask = None
             self.confirmation_frames = 0
             return False
-
         self.board_reference = prepared.copy()
         self.previous_frame = prepared.copy()
         self.valid_mask = self._build_valid_mask(prepared.shape, leds)
@@ -351,7 +323,6 @@ class F2VisualBoardRemovalDetector:
             or self.valid_mask is None
         ):
             return False
-
         changed_fraction, changed_mean = self._difference_metrics(
             current,
             self.board_reference,
@@ -374,17 +345,12 @@ class F2VisualBoardRemovalDetector:
             stable_fraction <= F2_AUTO_VISUAL_STABLE_FRACTION_MAX
             and stable_mean <= F2_AUTO_VISUAL_STABLE_MEAN_MAX
         )
-
         if scene_left_board and scene_is_stable:
             self.confirmation_frames += 1
         else:
             self.confirmation_frames = 0
-
         if self.confirmation_frames < self.first_removal_frames_required:
             return False
-
-        # Primeira retirada confirmada: a cena estável e sem a placa passa a ser
-        # a referência visual do suporte vazio para o restante da sessão F2.
         self.empty_reference = current.copy()
         return True
 
@@ -398,15 +364,12 @@ class F2VisualBoardRemovalDetector:
         ):
             self.confirmation_frames = 0
             return False
-
         if self.empty_reference is not None:
             removed = self._observe_against_known_empty(current)
         else:
             removed = self._observe_first_removal(current)
-
         if not removed:
             return False
-
         self.board_reference = None
         self.previous_frame = None
         self.confirmation_frames = 0
@@ -414,23 +377,57 @@ class F2VisualBoardRemovalDetector:
 
 
 class F2AutomaticCycleGuardMixin:
-    """Ciclo visual robusto e exclusivo da análise automática da Produção F2."""
+    """Ciclo automático F2 com presença visual vinculada ao projeto LED."""
 
     def __init__(self, *args, **kwargs) -> None:
         self._f2_auto_cycle = F2AutomaticCycleState()
         self._f2_auto_visual_removal = F2VisualBoardRemovalDetector()
+        self._f2_auto_reference_empty_frames = 0
         self._f2_auto_last_raw_states: dict[str, str] = {}
+        self._f2_auto_last_presence = F2_BOARD_PRESENCE_UNAVAILABLE
+        self._f2_board_presence_refs = None
         super().__init__(*args, **kwargs)
+        self._f2_board_presence_refs = F2BoardPresenceReferenceController(self)
+
+    def abrir_configuracoes(self) -> None:
+        result = super().abrir_configuracoes()
+        controller = getattr(self, "_f2_board_presence_refs", None)
+        finder = getattr(self, "_encontrar_janela_configuracoes_aberta", None)
+        if controller is not None and callable(finder):
+            try:
+                controller.render_settings(finder())
+            except Exception:
+                pass
+        return result
 
     def _f2_auto_reset_runtime(self) -> None:
         result = super()._f2_auto_reset_runtime()
         self._f2_auto_cycle.reset()
         self._f2_auto_visual_removal.reset()
+        self._f2_auto_reference_empty_frames = 0
         self._f2_auto_last_raw_states = {}
+        self._f2_auto_last_presence = F2_BOARD_PRESENCE_UNAVAILABLE
         return result
 
-    def _f2_auto_publish_states(self, states: dict[str, str]) -> None:
-        visible = self._f2_auto_cycle.visible_states(states)
+    def _f2_auto_presence(self, frame) -> tuple[str, dict[str, float]]:
+        controller = getattr(self, "_f2_board_presence_refs", None)
+        if controller is None:
+            return F2_BOARD_PRESENCE_UNAVAILABLE, {}
+        try:
+            return controller.classify(frame)
+        except Exception:
+            return F2_BOARD_PRESENCE_UNAVAILABLE, {}
+
+    def _f2_auto_publish_states(
+        self,
+        states: dict[str, str],
+        presence: str = F2_BOARD_PRESENCE_UNAVAILABLE,
+    ) -> None:
+        visible = (
+            {}
+            if presence == F2_BOARD_PRESENCE_EMPTY
+            else self._f2_auto_cycle.visible_states(states)
+        )
         self._f2_auto_last_states = visible
         window = getattr(self, "operacao_window", None)
         setter = getattr(window, "set_live_roi_states", None)
@@ -438,22 +435,43 @@ class F2AutomaticCycleGuardMixin:
             setter(visible, enabled=True)
 
     def _f2_auto_result_hold_active(self) -> bool:
-        """A tela OK/NG nunca conta como tempo de retirada da placa."""
         return getattr(self, "_operacao_resultado_after_id", None) is not None
 
     def _f2_auto_mark_inspected(self) -> None:
         self._f2_auto_cycle.mark_inspected()
-        self._f2_auto_visual_removal.capture_board(
-            getattr(self, "camera_frame_atual", None),
-            getattr(self, "operacao_leds_preview", ()),
-        )
+        self._f2_auto_reference_empty_frames = 0
+        frame = getattr(self, "camera_frame_atual", None)
+        presence, _scores = self._f2_auto_presence(frame)
+        if presence == F2_BOARD_PRESENCE_UNAVAILABLE:
+            self._f2_auto_visual_removal.capture_board(
+                frame,
+                getattr(self, "operacao_leds_preview", ()),
+            )
 
-    def _f2_auto_observe_removal(self) -> bool:
+    def _f2_auto_observe_removal(
+        self,
+        frame,
+        presence: str,
+    ) -> bool:
         if not self._f2_auto_cycle.waiting_removal:
             return False
-        removed = self._f2_auto_visual_removal.observe_removal(
-            getattr(self, "camera_frame_atual", None)
-        )
+
+        if presence != F2_BOARD_PRESENCE_UNAVAILABLE:
+            if presence == F2_BOARD_PRESENCE_EMPTY:
+                self._f2_auto_reference_empty_frames += 1
+            else:
+                # PRESENTE e AMBÍGUO mantêm a placa travada. Uma oscilação de
+                # iluminação nunca pode somar tempo de retirada.
+                self._f2_auto_reference_empty_frames = 0
+            if (
+                self._f2_auto_reference_empty_frames
+                < F2_AUTO_REFERENCE_EMPTY_FRAMES_REQUIRED
+            ):
+                return False
+            self._f2_auto_reference_empty_frames = 0
+            return self._f2_auto_cycle.confirm_removal()
+
+        removed = self._f2_auto_visual_removal.observe_removal(frame)
         if not removed:
             return False
         return self._f2_auto_cycle.confirm_removal()
@@ -481,30 +499,34 @@ class F2AutomaticCycleGuardMixin:
 
         states = estados_resultado_operacao(result)
         self._f2_auto_last_raw_states = states
+        presence, _scores = self._f2_auto_presence(frame)
+        self._f2_auto_last_presence = presence
 
-        # O rearme é visual e usa somente a estrutura da cena fora das ROIs.
-        # Oscilações ACESO/APAGADO não conseguem liberar a mesma placa.
         if not self._f2_auto_result_hold_active():
-            self._f2_auto_observe_removal()
-        self._f2_auto_publish_states(states)
+            self._f2_auto_observe_removal(frame, presence)
+        self._f2_auto_publish_states(states, presence)
 
+        # Com as 3 referências configuradas, somente PLACA PRESENTE pode iniciar
+        # uma inspeção. SUPORTE VAZIO e AMBÍGUO ficam bloqueados. Sem 3/3, mantém
+        # o fallback anterior para não quebrar projetos ainda não treinados.
+        presence_allows_trigger = presence in {
+            F2_BOARD_PRESENCE_PRESENT,
+            F2_BOARD_PRESENCE_UNAVAILABLE,
+        }
         if not self._f2_auto_cycle.should_trigger(
             states,
-            can_trigger=self._f2_auto_can_trigger(),
+            can_trigger=(self._f2_auto_can_trigger() and presence_allows_trigger),
         ):
             return False
 
         total_before = int(getattr(self, "operacao_total", 0) or 0)
         self.disparar_inspecao_operacao()
-        disparou = int(getattr(self, "operacao_total", 0) or 0) > total_before
-        if not disparou:
-            # Se o disparo oficial recusou por alguma proteção transitória,
-            # exige novamente dois frames ACESO em vez de martelar o callback.
+        fired = int(getattr(self, "operacao_total", 0) or 0) > total_before
+        if not fired:
             self._f2_auto_cycle.trigger_on_frames = 0
-        return disparou
+        return fired
 
     def disparar_inspecao_operacao(self) -> None:
-        """Qualquer inspeção válida inicia o gate visual de retirada."""
         total_before = int(getattr(self, "operacao_total", 0) or 0)
         result = super().disparar_inspecao_operacao()
         if (
