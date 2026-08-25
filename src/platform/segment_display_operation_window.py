@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import cv2
+import numpy as np
+
 from src.core.roi_geometry import (
     TIPO_ROI_SEGMENTO,
     bbox_roi,
@@ -9,15 +12,128 @@ from src.core.roi_geometry import (
 from src.platform.blue_operation_window import BlueRaspberryOperationWindow
 
 
+F2_LIVE_ROI_OVERLAY_ALPHA = 0.14
+F2_LIVE_ROI_COLORS_BGR = {
+    "ACESO": (94, 197, 34),
+    "APAGADO": (68, 68, 239),
+    "POUCA_LUZ": (21, 204, 250),
+    "POUCA LUZ": (21, 204, 250),
+    "UNKNOWN": (184, 163, 148),
+}
+F2_LIVE_ROI_LEGEND = (
+    "VERDE: ACESO  •  VERMELHO: APAGADO  •  AMARELO: POUCA LUZ"
+)
+
+
+def renderizar_overlay_rois_f2(frame, leds, states: dict[str, str] | None):
+    """Desenha uma cópia translúcida das ROIs sem alterar o frame da câmera."""
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return frame
+
+    result = frame.copy()
+    tint = result.copy()
+    outlines: list[tuple[str, object, tuple[int, int, int]]] = []
+    state_map = {
+        str(key): str(value).strip().upper()
+        for key, value in dict(states or {}).items()
+    }
+
+    for led in tuple(leds or ()):
+        led_id = str(getattr(led, "id", ""))
+        status = state_map.get(led_id, "UNKNOWN")
+        color = F2_LIVE_ROI_COLORS_BGR.get(
+            status,
+            F2_LIVE_ROI_COLORS_BGR["UNKNOWN"],
+        )
+        tipo = normalizar_tipo_roi(getattr(led, "tipo_roi", None))
+
+        if tipo == TIPO_ROI_SEGMENTO:
+            points = np.asarray(
+                [(int(round(x)), int(round(y))) for x, y in pontos_segmento(led)],
+                dtype=np.int32,
+            )
+            if len(points) < 3:
+                continue
+            polygon = points.reshape((-1, 1, 2))
+            cv2.fillPoly(tint, [polygon], color, lineType=cv2.LINE_AA)
+            outlines.append(("segment", polygon, color))
+        else:
+            center = (
+                int(getattr(led, "centro_x", 0)),
+                int(getattr(led, "centro_y", 0)),
+            )
+            radius = max(2, int(getattr(led, "raio", 2)))
+            cv2.circle(tint, center, radius, color, -1, cv2.LINE_AA)
+            outlines.append(("circle", (center, radius), color))
+
+    cv2.addWeighted(
+        tint,
+        F2_LIVE_ROI_OVERLAY_ALPHA,
+        result,
+        1.0 - F2_LIVE_ROI_OVERLAY_ALPHA,
+        0.0,
+        dst=result,
+    )
+
+    for kind, geometry, color in outlines:
+        if kind == "segment":
+            cv2.polylines(
+                result,
+                [geometry],
+                True,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+        else:
+            center, radius = geometry
+            cv2.circle(result, center, radius, color, 2, cv2.LINE_AA)
+
+    return result
+
+
 class SegmentDisplayOperationWindow(BlueRaspberryOperationWindow):
     """Prévia F2 capaz de desenhar simultaneamente círculos e segmentos."""
 
     def __init__(self, *args, **kwargs) -> None:
+        self._live_roi_states: dict[str, str] = {}
+        self._live_roi_overlay_enabled = False
         super().__init__(*args, **kwargs)
         try:
             self.preview_legend.configure(text="AZUL: ROI APAGADA")
         except Exception:
             pass
+
+    def set_live_roi_states(
+        self,
+        states: dict[str, str] | None,
+        enabled: bool = True,
+    ) -> None:
+        """Liga o overlay somente quando a análise automática F2 está ativa."""
+        self._live_roi_states = {
+            str(key): str(value).strip().upper()
+            for key, value in dict(states or {}).items()
+        }
+        self._live_roi_overlay_enabled = bool(enabled)
+        try:
+            self.preview_legend.configure(
+                text=(F2_LIVE_ROI_LEGEND if enabled else "AZUL: ROI APAGADA")
+            )
+        except Exception:
+            pass
+
+    def update_preview(self, frame, leds=()) -> bool:
+        if not self._live_roi_overlay_enabled:
+            return super().update_preview(frame, leds)
+
+        decorated = renderizar_overlay_rois_f2(
+            frame,
+            leds,
+            self._live_roi_states,
+        )
+        # As ROIs já estão desenhadas no frame com transparência; não sobrepor
+        # as guias legadas azul/ciano do modo manual.
+        return super().update_preview(decorated, leds=())
 
     def _draw_guides(
         self,
