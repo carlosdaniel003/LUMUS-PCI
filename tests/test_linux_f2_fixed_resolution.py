@@ -10,6 +10,10 @@ from src.platform.linux_f2_fixed_resolution import (
     LINUX_F2_FIXED_RESOLUTION,
     LinuxF2FixedResolutionMixin,
 )
+from src.platform.live_fixed_full_hd_camera_service import (
+    LINUX_CAMERA_START_RESOLUTION,
+    LiveFixedFullHdCameraService,
+)
 from src.platform.neutral_project_startup import NeutralProjectStartupMixin
 from src.platform.project_master_resolution_guard import ProjectMasterResolutionGuardMixin
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
@@ -146,6 +150,26 @@ class _App(LinuxF2FixedResolutionMixin, _Base):
 class LinuxF2FixedResolutionTests(unittest.TestCase):
     def test_constante_operacional_linux_e_640x480(self):
         self.assertEqual((640, 480), LINUX_F2_FIXED_RESOLUTION)
+        self.assertEqual(LINUX_F2_FIXED_RESOLUTION, LINUX_CAMERA_START_RESOLUTION)
+
+    def test_camera_linux_nasce_travada_antes_de_iniciar_pipeline(self):
+        with patch("src.platform.live_fixed_full_hd_camera_service.sys.platform", "linux"):
+            service = LiveFixedFullHdCameraService(indice_camera=0)
+            self.assertEqual((640, 480), service.obter_resolucao_travada())
+            self.assertEqual((640, 480), (service.largura, service.altura))
+            self.assertEqual((640, 480), service._resolucao_solicitada)
+
+    def test_camera_windows_nao_recebe_trava_linux(self):
+        with patch("src.platform.live_fixed_full_hd_camera_service.sys.platform", "win32"):
+            service = LiveFixedFullHdCameraService(indice_camera=0)
+            self.assertIsNone(service.obter_resolucao_travada())
+
+    def test_linux_sem_projeto_ja_pede_640x480(self):
+        with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
+            app = _App()
+            app.projeto_led_ativo = ""
+            app._linux_f2_resolution_lock_active = False
+            self.assertEqual((640, 480, 20), app.obter_parametros_camera_dinamicos())
 
     def test_projeto_led_linux_ignora_master_antiga_e_usa_640x480(self):
         with patch("src.platform.linux_f2_fixed_resolution.sys.platform", "linux"):
