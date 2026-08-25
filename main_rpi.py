@@ -4,9 +4,7 @@ import sys
 import tkinter as tk
 from pathlib import Path
 
-from src.platform.linux_local_config_bootstrap import (
-    preparar_configuracao_local_linux,
-)
+from linux_local_config_bootstrap import preparar_configuracao_local_linux
 
 
 if sys.platform.startswith("linux"):
