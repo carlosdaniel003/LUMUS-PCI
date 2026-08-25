@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import tkinter as tk
+
 import cv2
 import numpy as np
 
@@ -23,6 +25,14 @@ F2_LIVE_ROI_COLORS_BGR = {
 F2_LIVE_ROI_LEGEND = (
     "VERDE: ACESO  •  VERMELHO: APAGADO  •  AMARELO: POUCA LUZ"
 )
+
+F2_BOARD_STATUS_UI = {
+    "board_on": ("PLACA PRESENTE — LIGADA", "#86EFAC"),
+    "board_off": ("PLACA PRESENTE — DESLIGADA", "#FBBF24"),
+    "empty_support": ("PLACA AUSENTE", "#94A3B8"),
+    "unknown": ("IDENTIFICANDO...", "#CBD5E1"),
+    "unavailable": ("REFERÊNCIAS DE PRESENÇA NÃO CONFIGURADAS", "#FBBF24"),
+}
 
 
 def renderizar_overlay_rois_f2(frame, leds, states: dict[str, str] | None):
@@ -98,9 +108,55 @@ class SegmentDisplayOperationWindow(BlueRaspberryOperationWindow):
     def __init__(self, *args, **kwargs) -> None:
         self._live_roi_states: dict[str, str] = {}
         self._live_roi_overlay_enabled = False
+        self._board_presence_status = "unknown"
         super().__init__(*args, **kwargs)
         try:
             self.preview_legend.configure(text="AZUL: ROI APAGADA")
+        except Exception:
+            pass
+
+        self.board_presence_label = tk.Label(
+            self.preview_header,
+            text="STATUS DA PLACA: IDENTIFICANDO...",
+            font=("DejaVu Sans", 10, "bold"),
+            bg=self.PREVIEW_PANEL,
+            fg="#CBD5E1",
+            anchor="w",
+            justify="left",
+        )
+        self.board_presence_label.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            pady=(7, 0),
+        )
+        self.board_presence_label.grid_remove()
+
+    def set_board_presence_status(
+        self,
+        status: str | None,
+        enabled: bool = True,
+    ) -> None:
+        """Mostra o estado físico da placa somente no F2 automático."""
+        if not enabled:
+            try:
+                self.board_presence_label.grid_remove()
+            except Exception:
+                pass
+            return
+
+        normalized = str(status or "unknown").strip().lower()
+        if normalized not in F2_BOARD_STATUS_UI:
+            normalized = "unknown"
+        self._board_presence_status = normalized
+        text, color = F2_BOARD_STATUS_UI[normalized]
+        try:
+            self.board_presence_label.configure(
+                text=f"STATUS DA PLACA: {text}",
+                fg=color,
+            )
+            self.board_presence_label.grid()
         except Exception:
             pass
 
@@ -121,6 +177,14 @@ class SegmentDisplayOperationWindow(BlueRaspberryOperationWindow):
             )
         except Exception:
             pass
+
+        if enabled:
+            self.set_board_presence_status(
+                self._board_presence_status,
+                enabled=True,
+            )
+        else:
+            self.set_board_presence_status(None, enabled=False)
 
     def update_preview(self, frame, leds=()) -> bool:
         if not self._live_roi_overlay_enabled:
