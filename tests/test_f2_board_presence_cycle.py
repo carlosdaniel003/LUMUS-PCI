@@ -14,6 +14,14 @@ from src.platform.f2_board_presence_references import (
     F2_BOARD_PRESENCE_PRESENT,
     F2_BOARD_PRESENCE_UNKNOWN,
 )
+from src.platform.f2_board_status_display import (
+    F2_BOARD_STATUS_EMPTY,
+    F2_BOARD_STATUS_OFF,
+    F2_BOARD_STATUS_ON,
+    F2_BOARD_STATUS_UNKNOWN,
+    F2BoardStatusDisplayMixin,
+    status_visual_placa_f2,
+)
 
 
 class F2BoardPresenceCycleTests(unittest.TestCase):
@@ -97,6 +105,48 @@ class F2BoardPresenceCycleTests(unittest.TestCase):
         source = inspect.getsource(F2AutomaticCycleGuardMixin.abrir_configuracoes)
         self.assertIn("render_settings", source)
         self.assertIn("_f2_board_presence_refs", source)
+
+    def test_status_visual_identifica_placa_ligada(self):
+        status = status_visual_placa_f2(
+            F2_BOARD_PRESENCE_PRESENT,
+            {"LED_001": "ACESO", "LED_002": "APAGADO"},
+        )
+        self.assertEqual(F2_BOARD_STATUS_ON, status)
+
+    def test_status_visual_identifica_placa_desligada(self):
+        status = status_visual_placa_f2(
+            F2_BOARD_PRESENCE_PRESENT,
+            {"LED_001": "APAGADO", "LED_002": "APAGADO"},
+        )
+        self.assertEqual(F2_BOARD_STATUS_OFF, status)
+
+    def test_status_visual_considera_pouca_luz_como_placa_ligada(self):
+        status = status_visual_placa_f2(
+            F2_BOARD_PRESENCE_PRESENT,
+            {"LED_001": "POUCA_LUZ", "LED_002": "APAGADO"},
+        )
+        self.assertEqual(F2_BOARD_STATUS_ON, status)
+
+    def test_status_visual_identifica_suporte_vazio(self):
+        status = status_visual_placa_f2(
+            F2_BOARD_PRESENCE_EMPTY,
+            {"LED_001": "APAGADO"},
+        )
+        self.assertEqual(F2_BOARD_STATUS_EMPTY, status)
+
+    def test_status_visual_ambiguous_fica_identificando(self):
+        status = status_visual_placa_f2(
+            F2_BOARD_PRESENCE_UNKNOWN,
+            {"LED_001": "ACESO"},
+        )
+        self.assertEqual(F2_BOARD_STATUS_UNKNOWN, status)
+
+    def test_status_display_intercepts_only_publicacao_f2(self):
+        source = inspect.getsource(F2BoardStatusDisplayMixin._f2_auto_publish_states)
+        self.assertIn("set_board_presence_status", source)
+        self.assertIn("super()._f2_auto_publish_states", source)
+        self.assertNotIn("DisplayProductionF3", source)
+        self.assertNotIn("DisplayAutomaticCheckF3", source)
 
 
 if __name__ == "__main__":
