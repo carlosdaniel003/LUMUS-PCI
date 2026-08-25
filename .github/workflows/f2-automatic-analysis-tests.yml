@@ -29,13 +29,16 @@ jobs:
       - name: Compile F2 automatic modules
         run: |
           python -m py_compile \
+            src/core/f2_led_physical_guard.py \
             src/core/operation_engine.py \
             src/platform/f2_automatic_analysis.py \
             src/platform/f2_automatic_cycle_guard.py \
+            src/platform/segment_display_runtime.py \
             src/platform/segment_display_operation_window.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_f2_automatic_analysis.py \
             tests/test_f2_automatic_cycle_guard.py \
+            tests/test_f2_led_physical_guard.py \
             tests/test_f2_strong_on_reconciliation.py
 
       - name: Run F2 automatic analysis tests
@@ -43,6 +46,7 @@ jobs:
           python -m unittest \
             tests.test_f2_automatic_analysis \
             tests.test_f2_automatic_cycle_guard \
+            tests.test_f2_led_physical_guard \
             tests.test_f2_strong_on_reconciliation \
             tests.test_operation_confirmation \
             tests.test_segment_operation_preview \
