@@ -7,15 +7,20 @@ LINUX_F2_FIXED_RESOLUTION = (640, 480)
 
 
 class LinuxF2FixedResolutionMixin:
-    """Barreira de segurança exclusiva da Produção F2 no Linux.
+    """Barreira de segurança da geometria F2 no Linux.
 
-    O modo PCI LED em produção deixa de tratar resolução como algo adaptável:
-    no Linux a resolução operacional é sempre 640x480. Frames diferentes são
-    rejeitados e a sincronização dinâmica de máscaras fica bloqueada enquanto
-    o F2 estiver ativo, impedindo deslocamento/redimensionamento de ROIs por uma
-    renegociação inesperada do driver.
+    No JIG Linux o transporte da câmera já nasce em 640x480, antes mesmo de
+    carregar um Projeto LED. Assim não existe mais uma primeira geometria em
+    1280x720/1920x1080 capaz de esticar ROIs quando o projeto 640x480 entra.
 
-    Windows e o subsistema Display F3 não usam esta regra.
+    Durante a Produção F2 a resolução operacional continua estritamente
+    640x480: frames diferentes são rejeitados e a sincronização dinâmica de
+    máscaras fica bloqueada, impedindo deslocamento/redimensionamento de ROIs
+    por uma renegociação inesperada do driver.
+
+    Windows não usa esta regra. A lógica funcional do Display F3 não é alterada;
+    somente o transporte inicial compartilhado da câmera no Linux passa a abrir
+    diretamente em 640x480.
     """
 
     def __init__(self, *args, **kwargs) -> None:
@@ -73,7 +78,10 @@ class LinuxF2FixedResolutionMixin:
 
     def obter_parametros_camera_dinamicos(self) -> tuple[int, int, int]:
         largura, altura, fps = super().obter_parametros_camera_dinamicos()
-        if self._linux_f2_deve_forcar_640():
+        # No Linux não esperamos mais um projeto ser carregado para corrigir a
+        # resolução. O primeiro frame da sessão já deve pertencer ao mesmo
+        # sistema de coordenadas 640x480 usado pelas ROIs do F2.
+        if self._linux_f2_runtime():
             largura, altura = LINUX_F2_FIXED_RESOLUTION
         return int(largura), int(altura), int(fps)
 
@@ -180,8 +188,9 @@ class LinuxF2FixedResolutionMixin:
         self._resolucao_mestra_projeto_ativa = LINUX_F2_FIXED_RESOLUTION
         self._resolucao_mestra_producao = LINUX_F2_FIXED_RESOLUTION
 
-        # Faz a troca antes de ativar a tela de produção. Se a câmera já estiver
-        # em 640x480, não reinicia nem reconecta.
+        # Faz a troca antes de ativar a tela de produção. Como a câmera Linux
+        # agora já nasce em 640x480, este caminho normalmente apenas confirma
+        # a mesma trava sem reiniciar nem renegociar o stream.
         self._aplicar_resolucao_mestra_projeto(
             getattr(self, "projeto_led_ativo", None),
             reiniciar_se_necessario=True,
