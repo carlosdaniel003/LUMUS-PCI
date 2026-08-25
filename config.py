@@ -1,12 +1,17 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 
 DATA_DIR = BASE_DIR / "data"
-CONFIG_DIR = DATA_DIR / "config"
+LEGACY_CONFIG_DIR = DATA_DIR / "config"
+CONFIG_DIR = Path(
+    os.environ.get("ODIN_CONFIG_DIR", str(LEGACY_CONFIG_DIR))
+).expanduser()
 RESULTS_DIR = DATA_DIR / "resultados"
 CAPTURES_DIR = DATA_DIR / "capturas"
 
+LEGACY_CONFIG_FILE = LEGACY_CONFIG_DIR / "odin_pci_config.json"
 CONFIG_FILE = CONFIG_DIR / "odin_pci_config.json"
 
 DEFAULT_THRESHOLD_V = 160
