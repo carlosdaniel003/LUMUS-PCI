@@ -29,7 +29,7 @@ jobs:
           python -m py_compile \
             config.py \
             main_rpi.py \
-            src/platform/linux_local_config_bootstrap.py \
+            linux_local_config_bootstrap.py \
             tests/test_linux_local_config_bootstrap.py
 
       - name: Keep JIG config outside Git checkout
