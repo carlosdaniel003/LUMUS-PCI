@@ -6,6 +6,7 @@ import unittest
 from src.platform.f2_automatic_cycle_guard import (
     F2_AUTO_REMOVAL_SCORE_REQUIRED,
     F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED,
+    F2AutomaticCycleGuardMixin,
     F2AutomaticCycleState,
 )
 
@@ -133,6 +134,21 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
         self.assertTrue(cycle.observe_after_result(states))
         self.assertFalse(cycle.waiting_removal)
         self.assertEqual(cycle.visible_states(states), {})
+
+    def test_result_hold_is_explicitly_detected(self):
+        guard = object.__new__(F2AutomaticCycleGuardMixin)
+        guard._operacao_resultado_after_id = "after-result"
+        self.assertTrue(guard._f2_auto_result_hold_active())
+
+        guard._operacao_resultado_after_id = None
+        self.assertFalse(guard._f2_auto_result_hold_active())
+
+    def test_result_hold_protects_removal_observation_in_runtime(self):
+        source = inspect.getsource(
+            F2AutomaticCycleGuardMixin._f2_auto_analyze_current_frame
+        )
+        self.assertIn("_f2_auto_result_hold_active", source)
+        self.assertIn("observe_after_result", source)
 
     def test_default_removal_confirmation_is_over_one_second(self):
         self.assertGreaterEqual(F2_AUTO_REMOVAL_SCORE_REQUIRED, 10)
