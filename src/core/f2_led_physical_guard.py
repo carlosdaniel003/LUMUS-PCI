@@ -11,6 +11,7 @@ from src.core.segment_low_light import STATUS_ACESO, STATUS_APAGADO
 # V=160 e no máximo ~3,5% dos pixels em V>=250. Um LED realmente emitindo no
 # JIG ocupa uma fração significativamente maior da ROI.
 F2_PHYSICAL_MIN_PERCENT_ON = 0.35
+F2_PHYSICAL_STRONG_PERCENT_ON = 0.75
 F2_PHYSICAL_MIN_HOT_245 = 0.050
 F2_PHYSICAL_MIN_HOT_250 = 0.040
 F2_PHYSICAL_REFERENCE_HOT_RATIO = 0.35
@@ -66,13 +67,21 @@ def avaliar_emissao_fisica_f2(features, reference_on=None) -> F2PhysicalEmission
     )
 
     broad_light = percent_on >= F2_PHYSICAL_MIN_PERCENT_ON
+    very_broad_light = percent_on >= F2_PHYSICAL_STRONG_PERCENT_ON
     hot_core = (
         percent_hot_245 >= min_hot_245
         or percent_hot_250 >= min_hot_250
     )
 
+    # Duas formas de confirmar emissão:
+    # 1) a maior parte da ROI está claramente iluminada; ou
+    # 2) existe área iluminada suficiente acompanhada de um núcleo quente.
+    # Reflexos do suporte/encapsulamento no debug desligado não satisfazem
+    # nenhuma das duas condições.
+    emitted = very_broad_light or (broad_light and hot_core)
+
     return F2PhysicalEmissionEvaluation(
-        emitted=bool(broad_light and hot_core),
+        emitted=bool(emitted),
         percent_on=percent_on,
         percent_hot_245=percent_hot_245,
         percent_hot_250=percent_hot_250,
