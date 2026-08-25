@@ -94,12 +94,30 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
         self.assertFalse(cycle.waiting_removal)
         self.assertTrue(cycle.should_trigger(second_board, can_trigger=True))
 
-    def test_low_light_stays_visible_but_does_not_trigger_without_on(self):
+    def test_low_light_only_is_neutral_before_board_detection(self):
         cycle = F2AutomaticCycleState()
         states = {"LED_001": "POUCA_LUZ", "LED_002": "APAGADO"}
 
         self.assertFalse(cycle.should_trigger(states, can_trigger=True))
+        self.assertEqual(cycle.visible_states(states), {})
+
+    def test_low_light_remains_visible_while_inspected_board_waits_removal(self):
+        cycle = F2AutomaticCycleState()
+        states = {"LED_001": "POUCA_LUZ", "LED_002": "APAGADO"}
+        cycle.mark_inspected()
+
         self.assertEqual(cycle.visible_states(states), states)
+
+    def test_low_light_noise_becomes_neutral_after_removal_confirmation(self):
+        cycle = F2AutomaticCycleState(removal_score_required=2)
+        states = {"LED_001": "POUCA_LUZ", "LED_002": "APAGADO"}
+        cycle.mark_inspected()
+
+        self.assertFalse(cycle.observe_after_result(states))
+        self.assertEqual(cycle.visible_states(states), states)
+        self.assertTrue(cycle.observe_after_result(states))
+        self.assertFalse(cycle.waiting_removal)
+        self.assertEqual(cycle.visible_states(states), {})
 
     def test_removal_confirmation_has_real_debounce(self):
         self.assertGreaterEqual(F2_AUTO_REMOVAL_SCORE_REQUIRED, 4)
