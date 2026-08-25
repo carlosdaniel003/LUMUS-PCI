@@ -25,11 +25,32 @@ class FakeCanvas:
         return len(self.calls)
 
 
+class FakeLabel:
+    def __init__(self):
+        self.options = {}
+        self.visible = False
+
+    def configure(self, **kwargs):
+        self.options.update(kwargs)
+
+    def grid(self, *args, **kwargs):
+        self.visible = True
+
+    def grid_remove(self):
+        self.visible = False
+
+
 class SegmentOperationPreviewTests(unittest.TestCase):
     def _window(self):
         window = SegmentDisplayOperationWindow.__new__(SegmentDisplayOperationWindow)
         window.preview_canvas = FakeCanvas()
         window._failed_led_ids = frozenset()
+        return window
+
+    def _status_window(self):
+        window = SegmentDisplayOperationWindow.__new__(SegmentDisplayOperationWindow)
+        window.board_presence_label = FakeLabel()
+        window._board_presence_status = "unknown"
         return window
 
     def test_segmento_e_desenhado_com_poligono(self):
@@ -82,6 +103,38 @@ class SegmentOperationPreviewTests(unittest.TestCase):
             if chamada[0] == "text"
         ]
         self.assertIn("DIGITO_2_F APAGADO", textos)
+
+    def test_status_mostra_placa_ligada(self):
+        window = self._status_window()
+        window.set_board_presence_status("board_on", enabled=True)
+        self.assertTrue(window.board_presence_label.visible)
+        self.assertEqual(
+            "STATUS DA PLACA: PLACA PRESENTE — LIGADA",
+            window.board_presence_label.options["text"],
+        )
+
+    def test_status_mostra_placa_desligada(self):
+        window = self._status_window()
+        window.set_board_presence_status("board_off", enabled=True)
+        self.assertEqual(
+            "STATUS DA PLACA: PLACA PRESENTE — DESLIGADA",
+            window.board_presence_label.options["text"],
+        )
+
+    def test_status_mostra_placa_ausente(self):
+        window = self._status_window()
+        window.set_board_presence_status("empty_support", enabled=True)
+        self.assertEqual(
+            "STATUS DA PLACA: PLACA AUSENTE",
+            window.board_presence_label.options["text"],
+        )
+
+    def test_status_some_quando_automatico_desativado(self):
+        window = self._status_window()
+        window.set_board_presence_status("board_on", enabled=True)
+        self.assertTrue(window.board_presence_label.visible)
+        window.set_board_presence_status(None, enabled=False)
+        self.assertFalse(window.board_presence_label.visible)
 
 
 if __name__ == "__main__":
