@@ -6,12 +6,11 @@ from src.core.segment_low_light import STATUS_ACESO
 from src.platform.f2_automatic_analysis import estados_resultado_operacao
 
 
-# A análise roda a ~100 ms. A retirada precisa permanecer sem nenhum LED
-# fisicamente ACESO por cerca de 1,2 s antes de liberar outra inspeção.
-# Isso impede que frames transitórios na volta da tela de resultado rearme a
-# mesma placa que continua ligada no suporte.
+# Fallback quando o GPIO do JIG não está disponível. A análise roda a ~100 ms,
+# então a ausência precisa permanecer estável por cerca de 1,2 s.
 F2_AUTO_REMOVAL_OFF_FRAMES_REQUIRED = 12
 F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED = 2
+F2_AUTO_GPIO_RELEASE_FRAMES_REQUIRED = 2
 
 # Alias mantido para testes/código legado que importava o nome antigo.
 F2_AUTO_REMOVAL_SCORE_REQUIRED = F2_AUTO_REMOVAL_OFF_FRAMES_REQUIRED
@@ -23,6 +22,7 @@ class F2AutomaticCycleState:
 
     removal_score_required: int = F2_AUTO_REMOVAL_OFF_FRAMES_REQUIRED
     trigger_on_frames_required: int = F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED
+    gpio_release_frames_required: int = F2_AUTO_GPIO_RELEASE_FRAMES_REQUIRED
     waiting_removal: bool = False
     removal_score: int = 0
     trigger_on_frames: int = 0
@@ -32,6 +32,10 @@ class F2AutomaticCycleState:
         self.trigger_on_frames_required = max(
             1,
             int(self.trigger_on_frames_required),
+        )
+        self.gpio_release_frames_required = max(
+            1,
+            int(self.gpio_release_frames_required),
         )
 
     @staticmethod
@@ -58,15 +62,18 @@ class F2AutomaticCycleState:
         self.removal_score = 0
         self.trigger_on_frames = 0
 
+    def _confirm_removal(self) -> bool:
+        self.waiting_removal = False
+        self.removal_score = 0
+        self.trigger_on_frames = 0
+        return True
+
     def observe_after_result(self, states: dict[str, str] | None) -> bool:
-        """Libera nova placa somente após retirada estável e contínua."""
+        """Fallback visual usado somente quando não existe GPIO confiável."""
         if not self.waiting_removal:
             return False
 
         if self.has_on(states):
-            # Qualquer LED fisicamente aceso significa que a placa anterior
-            # ainda está presente/ligada. O debounce de retirada volta a zero;
-            # não existe mais o rearme permissivo por pontuação acumulada.
             self.removal_score = 0
             return False
 
@@ -74,10 +81,22 @@ class F2AutomaticCycleState:
         if self.removal_score < self.removal_score_required:
             return False
 
-        self.waiting_removal = False
-        self.removal_score = 0
-        self.trigger_on_frames = 0
-        return True
+        return self._confirm_removal()
+
+    def observe_physical_removal(self, board_present: bool) -> bool:
+        """Usa o sensor físico do JIG como fonte autoritativa de retirada."""
+        if not self.waiting_removal:
+            return False
+
+        if bool(board_present):
+            self.removal_score = 0
+            return False
+
+        self.removal_score += 1
+        if self.removal_score < self.gpio_release_frames_required:
+            return False
+
+        return self._confirm_removal()
 
     def should_trigger(
         self,
@@ -116,12 +135,14 @@ class F2AutomaticCycleGuardMixin:
     def __init__(self, *args, **kwargs) -> None:
         self._f2_auto_cycle = F2AutomaticCycleState()
         self._f2_auto_last_raw_states: dict[str, str] = {}
+        self._f2_auto_gpio_presence_seen = False
         super().__init__(*args, **kwargs)
 
     def _f2_auto_reset_runtime(self) -> None:
         result = super()._f2_auto_reset_runtime()
         self._f2_auto_cycle.reset()
         self._f2_auto_last_raw_states = {}
+        self._f2_auto_gpio_presence_seen = False
         return result
 
     def _f2_auto_publish_states(self, states: dict[str, str]) -> None:
@@ -135,6 +156,47 @@ class F2AutomaticCycleGuardMixin:
     def _f2_auto_result_hold_active(self) -> bool:
         """A tela OK/NG nunca conta como tempo de retirada da placa."""
         return getattr(self, "_operacao_resultado_after_id", None) is not None
+
+    def _f2_auto_gpio_board_present(self) -> bool | None:
+        """Retorna presença física do JIG ou None quando o GPIO não é confiável."""
+        service = getattr(self, "gpio_trigger_service", None)
+        if service is None or not bool(getattr(service, "available", False)):
+            return None
+        try:
+            return bool(service.is_pressed)
+        except Exception:
+            return None
+
+    def _f2_auto_mark_inspected(self) -> None:
+        self._f2_auto_cycle.mark_inspected()
+        self._f2_auto_gpio_presence_seen = (
+            self._f2_auto_gpio_board_present() is True
+        )
+
+    def _f2_auto_observe_removal(self, states: dict[str, str]) -> bool:
+        """GPIO é autoritativo; LEDs são apenas fallback sem sensor físico."""
+        if not self._f2_auto_cycle.waiting_removal:
+            return False
+
+        board_present = self._f2_auto_gpio_board_present()
+        if board_present is None:
+            return self._f2_auto_cycle.observe_after_result(states)
+
+        if board_present:
+            self._f2_auto_gpio_presence_seen = True
+            return self._f2_auto_cycle.observe_physical_removal(True)
+
+        # Se o GPIO está disponível mas nunca vimos a placa pressionando o
+        # sensor, não interpretamos "solto" como uma retirada. Isso evita que
+        # um sensor fora de posição faça a mesma placa ser analisada em loop.
+        if not self._f2_auto_gpio_presence_seen:
+            self._f2_auto_cycle.removal_score = 0
+            return False
+
+        removed = self._f2_auto_cycle.observe_physical_removal(False)
+        if removed:
+            self._f2_auto_gpio_presence_seen = False
+        return removed
 
     def _f2_auto_analyze_current_frame(self) -> bool:
         if not self._f2_auto_enabled():
@@ -160,12 +222,11 @@ class F2AutomaticCycleGuardMixin:
         states = estados_resultado_operacao(result)
         self._f2_auto_last_raw_states = states
 
-        # O OperationEngine já passou pela guarda física do LED. Portanto
-        # STATUS_ACESO aqui representa emissão real, não somente glow/reflexo.
-        # Durante a tela de resultado não observamos retirada: o frame pode
-        # estar pausado/transitório e não pode rearmar a mesma placa escondido.
+        # Enquanto existe GPIO disponível no JIG, a retirada física é definida
+        # pelo sensor do suporte, não por oscilações ACESO/APAGADO do classificador.
+        # A tela OK/NG também nunca conta como tempo de retirada.
         if not self._f2_auto_result_hold_active():
-            self._f2_auto_cycle.observe_after_result(states)
+            self._f2_auto_observe_removal(states)
         self._f2_auto_publish_states(states)
 
         if not self._f2_auto_cycle.should_trigger(
@@ -191,5 +252,5 @@ class F2AutomaticCycleGuardMixin:
             self._f2_auto_enabled()
             and int(getattr(self, "operacao_total", 0) or 0) > total_before
         ):
-            self._f2_auto_cycle.mark_inspected()
+            self._f2_auto_mark_inspected()
         return result
