@@ -8,6 +8,7 @@ import numpy as np
 
 from config import DEFAULT_THRESHOLD_V
 from src.core.classifier import ReferenceLedClassifier
+from src.core.f2_led_physical_guard import aplicar_guarda_emissao_fisica_f2
 from src.core.roi_geometry import criar_mascaras_roi, normalizar_tipo_roi
 from src.core.segment_low_light import aplicar_diagnostico_pouca_luz
 from src.models.led_features import LedFeatures
@@ -183,7 +184,10 @@ class OperationEngine:
         razao_distancia = distancia_on / max(distancia_off, 0.0001)
         features = getattr(result, "features", None)
         percent_on = float(getattr(features, "percent_on", 0.0) or 0.0)
-        motivos = tuple(str(item).lower() for item in getattr(result, "motivos", ()) or ())
+        motivos = tuple(
+            str(item).lower()
+            for item in getattr(result, "motivos", ()) or ()
+        )
 
         evidencia_aceso_forte = (
             razao_distancia <= F2_STRONG_ON_DISTANCE_RATIO
@@ -239,6 +243,7 @@ class OperationEngine:
         hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         results = []
         failed_led_ids: list[str] = []
+        reference_on = self._classifier.features_referencia_acesa
 
         for prepared_led in self._prepared_leds:
             features = self._extract_prepared_features(hsv_frame, prepared_led)
@@ -258,6 +263,10 @@ class OperationEngine:
                 result,
                 prepared_led.tipo_roi,
                 habilitado=self._diagnostico_pouca_luz_habilitado,
+            )
+            aplicar_guarda_emissao_fisica_f2(
+                result,
+                reference_on=reference_on,
             )
             results.append(result)
             if result.status != "ACESO":
@@ -328,10 +337,18 @@ class OperationEngine:
         percent_on = float(
             np.count_nonzero(pixels_v >= DEFAULT_THRESHOLD_V) / pixels_v.size
         )
-        percent_hot_220 = float(np.count_nonzero(pixels_v >= 220) / pixels_v.size)
-        percent_hot_235 = float(np.count_nonzero(pixels_v >= 235) / pixels_v.size)
-        percent_hot_245 = float(np.count_nonzero(pixels_v >= 245) / pixels_v.size)
-        percent_hot_250 = float(np.count_nonzero(pixels_v >= 250) / pixels_v.size)
+        percent_hot_220 = float(
+            np.count_nonzero(pixels_v >= 220) / pixels_v.size
+        )
+        percent_hot_235 = float(
+            np.count_nonzero(pixels_v >= 235) / pixels_v.size
+        )
+        percent_hot_245 = float(
+            np.count_nonzero(pixels_v >= 245) / pixels_v.size
+        )
+        percent_hot_250 = float(
+            np.count_nonzero(pixels_v >= 250) / pixels_v.size
+        )
 
         glow_score = (
             max(0.0, center_to_ring_v) * 1.20
