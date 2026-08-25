@@ -26,6 +26,7 @@ class F2AutomaticPresenceCyclePolicyMixin:
 
     def _f2_auto_reset_runtime(self) -> None:
         result = super()._f2_auto_reset_runtime()
+        self._f2_auto_cycle_locked = False
         self._f2_auto_waiting_new_board_off = False
         self._f2_auto_new_board_off_frames = 0
         return result
@@ -63,12 +64,20 @@ class F2AutomaticPresenceCyclePolicyMixin:
         ):
             return False
 
+        # Este é o ÚNICO ponto de rearme do ciclo automático: a placa anterior
+        # já saiu, o suporte vazio já foi confirmado e agora uma nova placa foi
+        # vista PRESENTE e APAGADA de forma estável.
+        self._f2_auto_cycle_locked = False
         self._f2_auto_waiting_new_board_off = False
         self._f2_auto_new_board_off_frames = 0
         return True
 
     def _f2_auto_mark_cycle_inspected(self) -> None:
-        """Trava o automático logo após qualquer inspeção F2 bem-sucedida."""
+        """Trava o automático imediatamente para a placa corrente."""
+        # A trava independente é autoritativa. Ela não depende de contador,
+        # timer de resultado nem da cadeia de super() do F2/GPIO.
+        self._f2_auto_cycle_locked = True
+
         marker = getattr(self, "_f2_auto_mark_inspected", None)
         if callable(marker):
             marker()
@@ -77,6 +86,20 @@ class F2AutomaticPresenceCyclePolicyMixin:
             self._f2_auto_reference_empty_frames = 0
         self._f2_auto_waiting_new_board_off = False
         self._f2_auto_new_board_off_frames = 0
+
+    def _f2_auto_rollback_failed_trigger(self) -> None:
+        """Desfaz a trava somente quando a inspeção nem chegou a iniciar."""
+        self._f2_auto_cycle_locked = False
+        self._f2_auto_waiting_new_board_off = False
+        self._f2_auto_new_board_off_frames = 0
+        self._f2_auto_reference_empty_frames = 0
+        self._f2_auto_cycle.waiting_removal = False
+        self._f2_auto_cycle.trigger_on_frames = 0
+
+        detector = getattr(self, "_f2_auto_visual_removal", None)
+        reset = getattr(detector, "reset", None)
+        if callable(reset):
+            reset()
 
     def disparar_inspecao_operacao(self) -> None:
         """Mantém Enter livre, mas registra a placa como já analisada."""
@@ -133,6 +156,7 @@ class F2AutomaticPresenceCyclePolicyMixin:
 
         can_trigger = (
             self._f2_auto_can_trigger()
+            and not bool(getattr(self, "_f2_auto_cycle_locked", False))
             and not bool(getattr(self, "_f2_auto_waiting_new_board_off", False))
         )
         if not self._f2_auto_cycle.should_trigger(
@@ -141,9 +165,15 @@ class F2AutomaticPresenceCyclePolicyMixin:
         ):
             return False
 
+        # Consome o ciclo ANTES de chamar a inspeção oficial. Assim a mesma
+        # placa não consegue gerar um segundo disparo mesmo se o resultado
+        # desaparecer, algum wrapper não retornar valor ou o contador mudar em
+        # outro ponto da cadeia de execução.
+        self._f2_auto_mark_cycle_inspected()
+
         total_before = int(getattr(self, "operacao_total", 0) or 0)
         self.disparar_inspecao_operacao()
         fired = int(getattr(self, "operacao_total", 0) or 0) > total_before
         if not fired:
-            self._f2_auto_cycle.trigger_on_frames = 0
+            self._f2_auto_rollback_failed_trigger()
         return fired
