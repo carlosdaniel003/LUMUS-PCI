@@ -8,6 +8,7 @@ from src.core.f2_led_physical_guard import (
     F2_PHYSICAL_MIN_HOT_245,
     F2_PHYSICAL_MIN_HOT_250,
     F2_PHYSICAL_MIN_PERCENT_ON,
+    F2_PHYSICAL_STRONG_PERCENT_ON,
     aplicar_guarda_emissao_fisica_f2,
     avaliar_emissao_fisica_f2,
 )
@@ -101,6 +102,20 @@ class F2LedPhysicalGuardTests(unittest.TestCase):
         self.assertEqual("ACESO", result.status)
         self.assertEqual(1, result.valor_binario)
 
+    def test_area_muito_ampla_preserva_aceso_mesmo_com_hot_core_variavel(self):
+        features = LedFeatures(
+            percent_on=F2_PHYSICAL_STRONG_PERCENT_ON + 0.05,
+            percent_hot_245=0.025,
+            percent_hot_250=0.020,
+            v_max=255.0,
+            v_p99=250.0,
+        )
+        evaluation = avaliar_emissao_fisica_f2(
+            features,
+            reference_on=self.reference_on(),
+        )
+        self.assertTrue(evaluation.emitted)
+
     def test_pouca_luz_nao_e_sobrescrita_pela_guarda_de_aceso_saudavel(self):
         result = self.result(
             "POUCA_LUZ",
@@ -122,6 +137,7 @@ class F2LedPhysicalGuardTests(unittest.TestCase):
         self.assertGreater(F2_PHYSICAL_MIN_PERCENT_ON, 0.258110)
         self.assertGreater(F2_PHYSICAL_MIN_HOT_245, 0.038082)
         self.assertGreater(F2_PHYSICAL_MIN_HOT_250, 0.035261)
+        self.assertGreater(F2_PHYSICAL_STRONG_PERCENT_ON, 0.258110)
 
     def test_modulo_nao_altera_display_f3(self):
         import src.core.f2_led_physical_guard as module
