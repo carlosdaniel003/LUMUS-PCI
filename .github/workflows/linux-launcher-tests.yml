@@ -15,9 +15,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Validate launcher
         run: |
           test -f scripts/iniciar_odin_linux.sh
           test -x scripts/iniciar_odin_linux.sh
           bash -n scripts/iniciar_odin_linux.sh
           grep -q 'main_rpi.py' scripts/iniciar_odin_linux.sh
+          python -m py_compile \
+            config.py \
+            main_rpi.py \
+            src/platform/linux_local_config_bootstrap.py \
+            tests/test_linux_local_config_bootstrap.py
+
+      - name: Keep JIG config outside Git checkout
+        run: |
+          python -m unittest tests.test_linux_local_config_bootstrap -v
