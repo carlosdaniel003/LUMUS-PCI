@@ -9,6 +9,9 @@ from src.platform.f2_automatic_cycle_guard import (
     F2AutomaticCycleState,
     F2VisualBoardRemovalDetector,
 )
+from src.platform.f2_automatic_presence_cycle_policy import (
+    F2AutomaticPresenceCyclePolicyMixin,
+)
 from src.platform.f2_board_presence_references import (
     F2_BOARD_PRESENCE_EMPTY,
     F2_BOARD_PRESENCE_PRESENT,
@@ -92,14 +95,14 @@ class F2BoardPresenceCycleTests(unittest.TestCase):
         self.assertEqual(0, guard._f2_auto_reference_empty_frames)
         self.assertTrue(guard._f2_auto_cycle.waiting_removal)
 
-    def test_runtime_blocks_empty_and_unknown_from_triggering(self):
+    def test_runtime_usa_presenca_para_rearme_e_nao_como_gate_do_led(self):
         source = inspect.getsource(
-            F2AutomaticCycleGuardMixin._f2_auto_analyze_current_frame
+            F2AutomaticPresenceCyclePolicyMixin._f2_auto_analyze_current_frame
         )
-        self.assertIn("F2_BOARD_PRESENCE_PRESENT", source)
-        self.assertIn("F2_BOARD_PRESENCE_UNAVAILABLE", source)
-        self.assertIn("presence_allows_trigger", source)
-        self.assertNotIn("F2_BOARD_PRESENCE_EMPTY,\n            F2_BOARD_PRESENCE_UNAVAILABLE", source)
+        self.assertIn("_f2_auto_observe_removal", source)
+        self.assertIn("can_trigger=self._f2_auto_can_trigger()", source)
+        self.assertNotIn("presence_allows_trigger", source)
+        self.assertNotIn("F2_BOARD_PRESENCE_PRESENT", source)
 
     def test_settings_are_rendered_from_f2_cycle_mixin(self):
         source = inspect.getsource(F2AutomaticCycleGuardMixin.abrir_configuracoes)
