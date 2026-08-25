@@ -32,11 +32,13 @@ jobs:
             src/platform/led_project_repository.py \
             src/platform/project_master_resolution.py \
             src/platform/project_master_resolution_guard.py \
+            src/platform/project_mask_geometry_anchor.py \
             src/platform/linux_f2_fixed_resolution.py \
             src/platform/live_fixed_full_hd_camera_service.py \
             src/platform/linux_camera_compatibility.py \
             src/platform/windows_camera_compatibility.py \
             src/platform/raspberry_pi3_production_app.py \
+            tests/test_project_mask_geometry_anchor.py \
             tests/test_linux_f2_fixed_resolution.py
 
       - name: Run master resolution tests
@@ -45,6 +47,7 @@ jobs:
             tests.test_project_master_resolution \
             tests.test_project_master_resolution_guard \
             tests.test_project_master_resolution_service_guard \
+            tests.test_project_mask_geometry_anchor \
             tests.test_linux_f2_fixed_resolution \
             tests.test_led_mask_resolution_sync \
             tests.test_fixed_mask_geometry_guard \
