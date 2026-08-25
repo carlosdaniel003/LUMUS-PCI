@@ -45,6 +45,9 @@ from src.platform.f2_automatic_analysis import (
 from src.platform.f2_automatic_cycle_guard import (
     F2AutomaticCycleGuardMixin,
 )
+from src.platform.f2_automatic_presence_cycle_policy import (
+    F2AutomaticPresenceCyclePolicyMixin,
+)
 from src.platform.f2_board_status_display import (
     F2BoardStatusDisplayMixin,
 )
@@ -141,6 +144,7 @@ class RaspberryPi3ProductionApp(
     DisplayAutomaticCheckF3Mixin,
     DisplayProductionF3Mixin,
     F2BoardStatusDisplayMixin,
+    F2AutomaticPresenceCyclePolicyMixin,
     F2AutomaticCycleGuardMixin,
     F2AutomaticAnalysisMixin,
     CameraSelectionMixin,
