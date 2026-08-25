@@ -95,14 +95,16 @@ class F2BoardPresenceCycleTests(unittest.TestCase):
         self.assertEqual(0, guard._f2_auto_reference_empty_frames)
         self.assertTrue(guard._f2_auto_cycle.waiting_removal)
 
-    def test_runtime_usa_presenca_para_rearme_e_nao_como_gate_do_led(self):
+    def test_runtime_usa_presenca_no_ciclo_fisico_sem_substituir_gatilho_led(self):
         source = inspect.getsource(
             F2AutomaticPresenceCyclePolicyMixin._f2_auto_analyze_current_frame
         )
         self.assertIn("_f2_auto_observe_removal", source)
-        self.assertIn("can_trigger=self._f2_auto_can_trigger()", source)
+        self.assertIn("_f2_auto_observe_new_board_off", source)
+        self.assertIn("_f2_auto_waiting_new_board_off", source)
+        self.assertIn("self._f2_auto_can_trigger()", source)
+        self.assertIn("can_trigger=can_trigger", source)
         self.assertNotIn("presence_allows_trigger", source)
-        self.assertNotIn("F2_BOARD_PRESENCE_PRESENT", source)
 
     def test_settings_are_rendered_from_f2_cycle_mixin(self):
         source = inspect.getsource(F2AutomaticCycleGuardMixin.abrir_configuracoes)
