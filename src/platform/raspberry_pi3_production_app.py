@@ -39,6 +39,9 @@ from src.platform.display_theme import (
     DISPLAY_YELLOW_DARK,
     DisplayThemeMixin,
 )
+from src.platform.f2_automatic_analysis import (
+    F2AutomaticAnalysisMixin,
+)
 from src.platform.fixed_mask_geometry_guard import (
     FixedMaskGeometryGuardMixin,
     instalar_repositorio_mascaras_absolutas,
@@ -128,6 +131,7 @@ class RaspberryPi3ProductionApp(
     DisplayThemeMixin,
     DisplayAutomaticCheckF3Mixin,
     DisplayProductionF3Mixin,
+    F2AutomaticAnalysisMixin,
     CameraSelectionMixin,
     LinuxF2FixedResolutionMixin,
     ProjectMasterResolutionGuardMixin,
