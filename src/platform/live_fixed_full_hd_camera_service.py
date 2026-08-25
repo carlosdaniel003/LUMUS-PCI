@@ -19,6 +19,9 @@ from src.platform.windows_camera_compatibility import (
 )
 
 
+LINUX_CAMERA_START_RESOLUTION = (640, 480)
+
+
 class LiveFixedFullHdCameraService(
     CameraLiveControlServiceMixin,
     WindowsCameraCompatibilityMixin,
@@ -30,6 +33,14 @@ class LiveFixedFullHdCameraService(
     def __init__(self, *args, **kwargs) -> None:
         self._resolucao_mestra_travada: tuple[int, int] | None = None
         super().__init__(*args, **kwargs)
+
+        # No JIG Linux o primeiro pipeline já precisa nascer no mesmo sistema
+        # de coordenadas usado pelas ROIs do F2. A trava é definida antes de
+        # ``iniciar()`` abrir qualquer backend, portanto a lista de candidatos
+        # Linux já é construída exclusivamente para 640x480 e não existe mais
+        # a transição inicial 1280/1920 -> 640 que distorcia a geometria.
+        if sys.platform.startswith("linux"):
+            self.definir_resolucao_travada(*LINUX_CAMERA_START_RESOLUTION)
 
     def definir_resolucao_travada(
         self,
@@ -75,9 +86,9 @@ class LiveFixedFullHdCameraService(
     ) -> None:
         """Salva controles sem deixar o perfil legado trocar a resolução.
 
-        ``FixedFullHdCameraService`` força 1920x1080 no Linux. Enquanto um
-        projeto possui resolução mestre, pulamos apenas essa normalização de
-        transporte e mantemos todo o restante da configuração da câmera.
+        No Linux deste perfil a resolução já nasce travada em 640x480. Enquanto
+        existe uma resolução mestre, pulamos apenas a normalização de transporte
+        do perfil legado e mantemos todo o restante da configuração da câmera.
         Nenhum ``capture.set`` de largura/altura e nenhum restart ocorre aqui.
         """
         travada = self.obter_resolucao_travada()
