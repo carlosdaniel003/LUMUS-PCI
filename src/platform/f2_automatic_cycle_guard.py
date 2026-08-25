@@ -6,22 +6,33 @@ from src.core.segment_low_light import STATUS_ACESO
 from src.platform.f2_automatic_analysis import estados_resultado_operacao
 
 
-F2_AUTO_REMOVAL_SCORE_REQUIRED = 5
-F2_AUTO_REMOVAL_ON_PENALTY = 2
+# A análise roda a ~100 ms. A retirada precisa permanecer sem nenhum LED
+# fisicamente ACESO por cerca de 1,2 s antes de liberar outra inspeção.
+# Isso impede que frames transitórios na volta da tela de resultado rearme a
+# mesma placa que continua ligada no suporte.
+F2_AUTO_REMOVAL_OFF_FRAMES_REQUIRED = 12
+F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED = 2
+
+# Alias mantido para testes/código legado que importava o nome antigo.
+F2_AUTO_REMOVAL_SCORE_REQUIRED = F2_AUTO_REMOVAL_OFF_FRAMES_REQUIRED
 
 
 @dataclass
 class F2AutomaticCycleState:
-    """Controla presença, inspeção e retirada sem depender de um frame perfeito."""
+    """Controla entrada, inspeção e retirada de uma placa no F2 automático."""
 
-    removal_score_required: int = F2_AUTO_REMOVAL_SCORE_REQUIRED
-    on_penalty: int = F2_AUTO_REMOVAL_ON_PENALTY
+    removal_score_required: int = F2_AUTO_REMOVAL_OFF_FRAMES_REQUIRED
+    trigger_on_frames_required: int = F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED
     waiting_removal: bool = False
     removal_score: int = 0
+    trigger_on_frames: int = 0
 
     def __post_init__(self) -> None:
         self.removal_score_required = max(1, int(self.removal_score_required))
-        self.on_penalty = max(1, int(self.on_penalty))
+        self.trigger_on_frames_required = max(
+            1,
+            int(self.trigger_on_frames_required),
+        )
 
     @staticmethod
     def has_on(states: dict[str, str] | None) -> bool:
@@ -40,20 +51,23 @@ class F2AutomaticCycleState:
     def reset(self) -> None:
         self.waiting_removal = False
         self.removal_score = 0
+        self.trigger_on_frames = 0
 
     def mark_inspected(self) -> None:
         self.waiting_removal = True
         self.removal_score = 0
+        self.trigger_on_frames = 0
 
     def observe_after_result(self, states: dict[str, str] | None) -> bool:
-        """Retorna True somente quando a retirada da placa foi confirmada."""
+        """Libera nova placa somente após retirada estável e contínua."""
         if not self.waiting_removal:
             return False
 
         if self.has_on(states):
-            # Um reflexo ou oscilação isolada não deve apagar todo o progresso,
-            # mas uma placa ainda presente e continuamente acesa impede o rearme.
-            self.removal_score = max(0, self.removal_score - self.on_penalty)
+            # Qualquer LED fisicamente aceso significa que a placa anterior
+            # ainda está presente/ligada. O debounce de retirada volta a zero;
+            # não existe mais o rearme permissivo por pontuação acumulada.
+            self.removal_score = 0
             return False
 
         self.removal_score += 1
@@ -62,6 +76,7 @@ class F2AutomaticCycleState:
 
         self.waiting_removal = False
         self.removal_score = 0
+        self.trigger_on_frames = 0
         return True
 
     def should_trigger(
@@ -69,14 +84,24 @@ class F2AutomaticCycleState:
         states: dict[str, str] | None,
         can_trigger: bool,
     ) -> bool:
-        return bool(
-            not self.waiting_removal
-            and can_trigger
-            and self.has_on(states)
-        )
+        if self.waiting_removal:
+            self.trigger_on_frames = 0
+            return False
+
+        if not can_trigger:
+            return False
+
+        if not self.has_on(states):
+            self.trigger_on_frames = 0
+            return False
+
+        # A entrada de placa precisa aparecer em dois frames novos. Um único
+        # reflexo/transiente nunca equivale ao ENTER automático.
+        self.trigger_on_frames += 1
+        return self.trigger_on_frames >= self.trigger_on_frames_required
 
     def visible_states(self, states: dict[str, str] | None) -> dict[str, str]:
-        """Suporte vazio fica neutro; placa já detectada mantém feedback das ROIs."""
+        """Suporte vazio fica neutro; placa luminosa mantém feedback das ROIs."""
         current = dict(states or {})
         if self.has_on(current):
             return current
@@ -131,9 +156,8 @@ class F2AutomaticCycleGuardMixin:
         states = estados_resultado_operacao(result)
         self._f2_auto_last_raw_states = states
 
-        # A retirada é avaliada antes da publicação visual. Quando deixa de
-        # existir um LED ACESO, o suporte já fica neutro; POUCA_LUZ só continua
-        # visível enquanto a placa inspecionada ainda aguarda confirmação de saída.
+        # O OperationEngine já passou pela guarda física do LED. Portanto
+        # STATUS_ACESO aqui representa emissão real, não somente glow/reflexo.
         self._f2_auto_cycle.observe_after_result(states)
         self._f2_auto_publish_states(states)
 
@@ -145,7 +169,12 @@ class F2AutomaticCycleGuardMixin:
 
         total_before = int(getattr(self, "operacao_total", 0) or 0)
         self.disparar_inspecao_operacao()
-        return int(getattr(self, "operacao_total", 0) or 0) > total_before
+        disparou = int(getattr(self, "operacao_total", 0) or 0) > total_before
+        if not disparou:
+            # Se o disparo oficial recusou por alguma proteção transitória,
+            # exige novamente dois frames ACESO em vez de martelar o callback.
+            self._f2_auto_cycle.trigger_on_frames = 0
+        return disparou
 
     def disparar_inspecao_operacao(self) -> None:
         """Qualquer inspeção válida inicia o gate de retirada, inclusive Enter/GPIO."""
