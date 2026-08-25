@@ -7,7 +7,6 @@ import tkinter as tk
 from src.core.segment_low_light import (
     STATUS_ACESO,
     STATUS_APAGADO,
-    STATUS_POUCA_LUZ,
 )
 
 
@@ -34,8 +33,10 @@ class F2AutomaticTriggerLatch:
 
     @staticmethod
     def _has_light(states: dict[str, str]) -> bool:
-        luminous = {STATUS_ACESO, STATUS_POUCA_LUZ}
-        return any(str(status).upper() in luminous for status in states.values())
+        return any(
+            str(status).upper() == STATUS_ACESO
+            for status in states.values()
+        )
 
     @staticmethod
     def _all_off(states: dict[str, str]) -> bool:
@@ -176,7 +177,7 @@ def _add_auto_analysis_setting(app, settings_window) -> None:
         card,
         text=(
             "Quando ativado, o modo Produção F2 monitora as ROIs em tempo real "
-            "e inicia a inspeção automaticamente ao detectar emissão luminosa. "
+            "e inicia a inspeção automaticamente ao detectar ao menos um LED ACESO. "
             "Desativado, Enter/GPIO e o comportamento atual permanecem inalterados."
         ),
         font=("Segoe UI", 9),
