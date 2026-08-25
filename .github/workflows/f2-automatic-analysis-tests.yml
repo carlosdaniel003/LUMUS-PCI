@@ -33,6 +33,7 @@ jobs:
             src/core/operation_engine.py \
             src/platform/f2_automatic_analysis.py \
             src/platform/f2_automatic_cycle_guard.py \
+            src/platform/f2_automatic_presence_cycle_policy.py \
             src/platform/f2_board_presence_references.py \
             src/platform/f2_board_status_display.py \
             src/platform/segment_display_runtime.py \
@@ -43,6 +44,7 @@ jobs:
             tests/test_f2_board_presence_cycle.py \
             tests/test_f2_board_presence_references.py \
             tests/test_f2_led_physical_guard.py \
+            tests/test_f2_presence_rearm_policy.py \
             tests/test_f2_strong_on_reconciliation.py
 
       - name: Run F2 automatic analysis tests
@@ -53,6 +55,7 @@ jobs:
             tests.test_f2_board_presence_cycle \
             tests.test_f2_board_presence_references \
             tests.test_f2_led_physical_guard \
+            tests.test_f2_presence_rearm_policy \
             tests.test_f2_strong_on_reconciliation \
             tests.test_operation_confirmation \
             tests.test_segment_operation_preview \
