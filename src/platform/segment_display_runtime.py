@@ -5,6 +5,7 @@ from tkinter import messagebox
 
 from config import MAX_RADIUS_PX, MIN_RADIUS_PX
 from src.core.classifier import ReferenceLedClassifier
+from src.core.f2_led_physical_guard import aplicar_guarda_emissao_fisica_f2
 from src.core.feature_extractor import extrair_features_selecao, validar_roi_selecao
 from src.core.roi_geometry import TIPO_ROI_SEGMENTO, normalizar_tipo_roi
 from src.core.segment_low_light import aplicar_diagnostico_pouca_luz
@@ -250,6 +251,10 @@ class SegmentDisplayRuntimeMixin:
                 resultado,
                 led.tipo_roi,
                 habilitado=diagnostico_pouca_luz_habilitado,
+            )
+            aplicar_guarda_emissao_fisica_f2(
+                resultado,
+                reference_on=self.features_referencia_acesa,
             )
             resultados_led.append(resultado)
 
