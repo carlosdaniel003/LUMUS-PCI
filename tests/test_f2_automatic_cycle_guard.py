@@ -4,11 +4,18 @@ import inspect
 import unittest
 
 from src.platform.f2_automatic_cycle_guard import (
+    F2_AUTO_GPIO_RELEASE_FRAMES_REQUIRED,
     F2_AUTO_REMOVAL_SCORE_REQUIRED,
     F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED,
     F2AutomaticCycleGuardMixin,
     F2AutomaticCycleState,
 )
+
+
+class _GPIO:
+    def __init__(self, pressed: bool, available: bool = True) -> None:
+        self.available = bool(available)
+        self.is_pressed = bool(pressed)
 
 
 class F2AutomaticCycleGuardTests(unittest.TestCase):
@@ -35,8 +42,6 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
         self.assertFalse(cycle.should_trigger(states, can_trigger=True))
         self.assertTrue(cycle.should_trigger(states, can_trigger=True))
         self.assertEqual(cycle.visible_states(states), states)
-        # A classe decide somente o gatilho. OK/NG continua sendo responsabilidade
-        # do OperationEngine oficial, portanto não existe qualquer regra de OK aqui.
         self.assertFalse(hasattr(cycle, "is_ok"))
 
     def test_single_on_glitch_does_not_trigger(self):
@@ -135,6 +140,69 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
         self.assertFalse(cycle.waiting_removal)
         self.assertEqual(cycle.visible_states(states), {})
 
+    def test_gpio_pressed_blocks_rearm_even_if_all_leds_flicker_off(self):
+        guard = object.__new__(F2AutomaticCycleGuardMixin)
+        guard._f2_auto_cycle = F2AutomaticCycleState(
+            gpio_release_frames_required=2
+        )
+        guard._f2_auto_cycle.mark_inspected()
+        guard._f2_auto_gpio_presence_seen = True
+        guard.gpio_trigger_service = _GPIO(pressed=True)
+        all_off = {"LED_001": "APAGADO", "LED_002": "APAGADO"}
+
+        for _ in range(100):
+            self.assertFalse(guard._f2_auto_observe_removal(all_off))
+
+        self.assertTrue(guard._f2_auto_cycle.waiting_removal)
+        self.assertEqual(0, guard._f2_auto_cycle.removal_score)
+
+    def test_gpio_release_is_required_before_same_jig_can_rearm(self):
+        guard = object.__new__(F2AutomaticCycleGuardMixin)
+        guard._f2_auto_cycle = F2AutomaticCycleState(
+            gpio_release_frames_required=2
+        )
+        guard.gpio_trigger_service = _GPIO(pressed=True)
+        guard._f2_auto_gpio_presence_seen = False
+        guard._f2_auto_mark_inspected()
+        states = {"LED_001": "ACESO"}
+
+        self.assertTrue(guard._f2_auto_gpio_presence_seen)
+        self.assertFalse(guard._f2_auto_observe_removal(states))
+        self.assertTrue(guard._f2_auto_cycle.waiting_removal)
+
+        guard.gpio_trigger_service.is_pressed = False
+        self.assertFalse(guard._f2_auto_observe_removal(states))
+        self.assertTrue(guard._f2_auto_observe_removal(states))
+        self.assertFalse(guard._f2_auto_cycle.waiting_removal)
+
+    def test_gpio_available_but_never_pressed_does_not_create_scan_loop(self):
+        guard = object.__new__(F2AutomaticCycleGuardMixin)
+        guard._f2_auto_cycle = F2AutomaticCycleState(
+            gpio_release_frames_required=2
+        )
+        guard.gpio_trigger_service = _GPIO(pressed=False)
+        guard._f2_auto_gpio_presence_seen = False
+        guard._f2_auto_mark_inspected()
+        all_off = {"LED_001": "APAGADO"}
+
+        for _ in range(50):
+            self.assertFalse(guard._f2_auto_observe_removal(all_off))
+
+        self.assertTrue(guard._f2_auto_cycle.waiting_removal)
+        self.assertFalse(guard._f2_auto_gpio_presence_seen)
+
+    def test_gpio_unavailable_keeps_visual_fallback(self):
+        guard = object.__new__(F2AutomaticCycleGuardMixin)
+        guard._f2_auto_cycle = F2AutomaticCycleState(removal_score_required=2)
+        guard.gpio_trigger_service = _GPIO(pressed=False, available=False)
+        guard._f2_auto_gpio_presence_seen = False
+        guard._f2_auto_cycle.mark_inspected()
+        all_off = {"LED_001": "APAGADO"}
+
+        self.assertFalse(guard._f2_auto_observe_removal(all_off))
+        self.assertTrue(guard._f2_auto_observe_removal(all_off))
+        self.assertFalse(guard._f2_auto_cycle.waiting_removal)
+
     def test_result_hold_is_explicitly_detected(self):
         guard = object.__new__(F2AutomaticCycleGuardMixin)
         guard._operacao_resultado_after_id = "after-result"
@@ -148,10 +216,13 @@ class F2AutomaticCycleGuardTests(unittest.TestCase):
             F2AutomaticCycleGuardMixin._f2_auto_analyze_current_frame
         )
         self.assertIn("_f2_auto_result_hold_active", source)
-        self.assertIn("observe_after_result", source)
+        self.assertIn("_f2_auto_observe_removal", source)
 
     def test_default_removal_confirmation_is_over_one_second(self):
         self.assertGreaterEqual(F2_AUTO_REMOVAL_SCORE_REQUIRED, 10)
+
+    def test_default_gpio_release_has_debounce(self):
+        self.assertGreaterEqual(F2_AUTO_GPIO_RELEASE_FRAMES_REQUIRED, 2)
 
     def test_default_entry_has_stability_debounce(self):
         self.assertGreaterEqual(F2_AUTO_TRIGGER_ON_FRAMES_REQUIRED, 2)
