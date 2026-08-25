@@ -85,6 +85,9 @@ from src.platform.native_resolution_config import (
 from src.platform.neutral_project_startup import (
     NeutralProjectStartupMixin,
 )
+from src.platform.project_mask_geometry_anchor import (
+    ProjectMaskGeometryAnchorMixin,
+)
 from src.platform.project_master_resolution import (
     ProjectMasterResolutionMixin,
 )
@@ -148,6 +151,7 @@ class RaspberryPi3ProductionApp(
     ReferenceCaptureMixin,
     FreeformSegmentDrawingMixin,
     FullscreenLedSelectionMixin,
+    ProjectMaskGeometryAnchorMixin,
     FixedMaskGeometryGuardMixin,
     SegmentProjectGeometryPersistenceMixin,
     AnalysisResponseMetricsMixin,
