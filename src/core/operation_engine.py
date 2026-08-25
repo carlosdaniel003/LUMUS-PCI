@@ -14,6 +14,10 @@ from src.models.led_features import LedFeatures
 from src.models.led_selection import LedSelection
 
 
+F2_STRONG_ON_DISTANCE_RATIO = 0.70
+F2_STRONG_ON_MIN_PERCENT_ON = 0.90
+
+
 class OperationPreparationError(RuntimeError):
     """Indica que o modo de operação ainda não pode ser executado."""
 
@@ -154,6 +158,66 @@ class OperationEngine:
             angulo=float(getattr(led, "angulo", 0.0) or 0.0),
         )
 
+    @staticmethod
+    def _reconciliar_falso_apagado_f2(result) -> None:
+        """
+        Corrige um falso APAGADO específico do caminho Produção F2.
+
+        Em ROIs fixas de produção pode ocorrer uma região claramente luminosa
+        ficar com votação secundária 4x6 ou 5x5 por baixo contraste centro/anel.
+        Se a amostra estiver fortemente mais próxima da referência ACESA,
+        possuir brilho/pico compatíveis e praticamente toda a ROI estiver
+        acima do limiar de luminosidade, a evidência de ACESO prevalece.
+
+        Esta reconciliação vive somente no OperationEngine; o classificador
+        compartilhado e o Display F3 permanecem inalterados.
+        """
+        if str(getattr(result, "status", "")).upper() != "APAGADO":
+            return
+
+        distancia_on = float(getattr(result, "distancia_on", 0.0) or 0.0)
+        distancia_off = float(getattr(result, "distancia_off", 0.0) or 0.0)
+        if distancia_off <= 0.0:
+            return
+
+        razao_distancia = distancia_on / max(distancia_off, 0.0001)
+        features = getattr(result, "features", None)
+        percent_on = float(getattr(features, "percent_on", 0.0) or 0.0)
+        motivos = tuple(str(item).lower() for item in getattr(result, "motivos", ()) or ())
+
+        evidencia_aceso_forte = (
+            razao_distancia <= F2_STRONG_ON_DISTANCE_RATIO
+            and bool(getattr(result, "brilho_indica_aceso", False))
+            and bool(getattr(result, "similaridade_indica_aceso", False))
+            and bool(getattr(result, "pico_indica_aceso", False))
+            and percent_on >= F2_STRONG_ON_MIN_PERCENT_ON
+            and "apagado forte" not in motivos
+        )
+        if not evidencia_aceso_forte:
+            return
+
+        result.status = "ACESO"
+        result.valor_binario = 1
+        confianca_similaridade = distancia_off / max(
+            distancia_on + distancia_off,
+            0.0001,
+        )
+        result.confianca = round(
+            min(
+                0.99,
+                max(
+                    float(getattr(result, "confianca", 0.50) or 0.50),
+                    confianca_similaridade,
+                ),
+            ),
+            4,
+        )
+        motivos_resultado = list(getattr(result, "motivos", ()) or ())
+        motivos_resultado.append(
+            "F2 produção: similaridade forte confirmou aceso"
+        )
+        result.motivos = motivos_resultado
+
     def analyze(self, frame) -> OperationResult:
         if not self.ready or self._classifier is None:
             raise OperationPreparationError("Motor de operação não preparado.")
@@ -189,6 +253,7 @@ class OperationEngine:
             result.largura = prepared_led.largura
             result.altura = prepared_led.altura
             result.angulo = prepared_led.angulo
+            self._reconciliar_falso_apagado_f2(result)
             aplicar_diagnostico_pouca_luz(
                 result,
                 prepared_led.tipo_roi,
