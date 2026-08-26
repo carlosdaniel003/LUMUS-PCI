@@ -42,6 +42,9 @@ from src.platform.display_theme import (
     DISPLAY_YELLOW_DARK,
     DisplayThemeMixin,
 )
+from src.platform.display_visual_reference_status import (
+    instalar_status_referencias_visuais_display,
+)
 from src.platform.f2_automatic_analysis import (
     F2AutomaticAnalysisMixin,
 )
@@ -193,6 +196,7 @@ class RaspberryPi3ProductionApp(
         instalar_repositorio_mascaras_absolutas()
         instalar_preservacao_segmentos_resolution_sync()
         instalar_referencia_presenca_check_display()
+        instalar_status_referencias_visuais_display()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
