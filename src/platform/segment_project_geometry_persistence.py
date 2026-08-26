@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.core.roi_geometry import TIPO_ROI_SEGMENTO, normalizar_tipo_roi
 from src.models.led_selection import LedSelection
 
 
@@ -47,6 +48,62 @@ def normalizar_lista_geometria(
         )
         for led in completos
     ]
+
+
+def restaurar_tipo_roi_apos_adaptacao(
+    original: LedSelection,
+    adaptado: LedSelection,
+) -> LedSelection:
+    """Recupera segmentos quando um fallback legado devolve apenas círculo.
+
+    ``LedSelection.adaptar_para_resolucao`` já preserva a geometria completa.
+    O tratamento abaixo existe para os caminhos legados de ``ODINApp`` que
+    calculam centro/escala e depois recriam uma instância apenas com raio.
+    """
+    if normalizar_tipo_roi(getattr(original, "tipo_roi", None)) != TIPO_ROI_SEGMENTO:
+        return copiar_led_geometria_completa(adaptado)
+    if normalizar_tipo_roi(getattr(adaptado, "tipo_roi", None)) == TIPO_ROI_SEGMENTO:
+        return copiar_led_geometria_completa(adaptado)
+
+    escala = float(getattr(adaptado, "raio", 1) or 1) / max(
+        1.0,
+        float(getattr(original, "raio", 1) or 1),
+    )
+    pontos = getattr(original, "pontos_segmento_livre", None)
+    pontos_escalados = (
+        [
+            (float(x) * escala, float(y) * escala)
+            for x, y in pontos
+        ]
+        if pontos
+        else None
+    )
+    largura = getattr(original, "largura", None)
+    altura = getattr(original, "altura", None)
+    return LedSelection(
+        id=str(adaptado.id),
+        centro_x=int(adaptado.centro_x),
+        centro_y=int(adaptado.centro_y),
+        raio=max(1, int(adaptado.raio)),
+        centro_x_normalizado=adaptado.centro_x_normalizado,
+        centro_y_normalizado=adaptado.centro_y_normalizado,
+        raio_normalizado=adaptado.raio_normalizado,
+        largura_base=adaptado.largura_base,
+        altura_base=adaptado.altura_base,
+        tipo_roi=TIPO_ROI_SEGMENTO,
+        largura=(
+            max(1, int(round(float(largura) * escala)))
+            if largura is not None
+            else None
+        ),
+        altura=(
+            max(1, int(round(float(altura) * escala)))
+            if altura is not None
+            else None
+        ),
+        angulo=float(getattr(original, "angulo", 0.0) or 0.0),
+        pontos_segmento_livre=pontos_escalados,
+    )
 
 
 def instalar_preservacao_segmentos_resolution_sync() -> None:
@@ -175,6 +232,119 @@ class SegmentProjectGeometryPersistenceMixin:
                     pass
 
         return copiar_lista_geometria_completa(self.leds_selecionados)
+
+    def _restaurar_geometria_manual_camera(self, redesenhar: bool = False) -> bool:
+        manuais = copiar_lista_geometria_completa(
+            getattr(self, "leds_manuais_camera", ())
+        )
+        if not manuais:
+            return False
+        self.leds_selecionados = manuais
+        view = getattr(self, "view", None)
+        if view is not None:
+            try:
+                view.selecao_manual_camera_visivel = True
+            except Exception:
+                pass
+        if not redesenhar or view is None:
+            return True
+        try:
+            view.desenhar_canvas(
+                self.leds_selecionados,
+                getattr(self, "resultados_led_atual", []),
+            )
+        except Exception:
+            pass
+        return True
+
+    def atualizar_frame_camera(self) -> None:
+        """Impede o refresh da câmera de reduzir segmento livre a círculo."""
+        resultado = super().atualizar_frame_camera()
+        if (
+            bool(getattr(self, "camera_ativa", False))
+            and getattr(self, "leds_manuais_camera", None)
+            and not bool(getattr(self, "camera_em_pausa_analise", False))
+        ):
+            self._restaurar_geometria_manual_camera(redesenhar=True)
+        return resultado
+
+    def iniciar_selecao_led(self) -> None:
+        """Ao reabrir Selecionar LEDs, restaura a geometria completa da ROI."""
+        resultado = super().iniciar_selecao_led()
+        if (
+            bool(getattr(self, "camera_ativa", False))
+            and getattr(self, "leds_manuais_camera", None)
+        ):
+            self._restaurar_geometria_manual_camera(redesenhar=True)
+        return resultado
+
+    def analisar_led_selecionado(self, *args, **kwargs):
+        """Garante que a análise use o polígono real, não o raio compatível."""
+        if (
+            bool(getattr(self, "camera_ativa", False))
+            and getattr(self, "leds_manuais_camera", None)
+        ):
+            self._restaurar_geometria_manual_camera(redesenhar=False)
+        return super().analisar_led_selecionado(*args, **kwargs)
+
+    def adaptar_leds_fixos_para_frame_camera(self, leds_fixos):
+        """Mantém o tipo/contorno mesmo quando o fallback legado reposiciona ROIs."""
+        adaptados = list(super().adaptar_leds_fixos_para_frame_camera(leds_fixos) or [])
+        origem_por_id = {
+            str(getattr(led, "id", "")): led
+            for led in (leds_fixos or ())
+        }
+        resultado = []
+        for adaptado in adaptados:
+            origem = origem_por_id.get(str(getattr(adaptado, "id", "")))
+            if origem is None:
+                resultado.append(copiar_led_geometria_completa(adaptado))
+                continue
+            resultado.append(restaurar_tipo_roi_apos_adaptacao(origem, adaptado))
+        return resultado
+
+    def salvar_leds_fixos(self) -> None:
+        """Regrava o salvamento legado com a mesma geometria vista no editor."""
+        largura = int(getattr(self, "largura_original", 0) or 0)
+        altura = int(getattr(self, "altura_original", 0) or 0)
+        geometria_antes = normalizar_lista_geometria(
+            getattr(self, "leds_selecionados", ()),
+            largura if largura > 0 else None,
+            altura if altura > 0 else None,
+        )
+        resultado = super().salvar_leds_fixos()
+        if not geometria_antes or not any(
+            normalizar_tipo_roi(getattr(led, "tipo_roi", None)) == TIPO_ROI_SEGMENTO
+            for led in geometria_antes
+        ):
+            return resultado
+
+        repository = getattr(self, "config_repository", None)
+        salvar = getattr(repository, "salvar_leds_fixos", None)
+        if callable(salvar):
+            try:
+                salvar(
+                    copiar_lista_geometria_completa(geometria_antes),
+                    largura_base=None,
+                    altura_base=None,
+                    projeto=getattr(self, "projeto_led_ativo", None),
+                )
+            except TypeError:
+                try:
+                    salvar(
+                        copiar_lista_geometria_completa(geometria_antes),
+                        largura_base=None,
+                        altura_base=None,
+                    )
+                except TypeError:
+                    salvar(copiar_lista_geometria_completa(geometria_antes))
+        self.leds_fixos_configurados = copiar_lista_geometria_completa(
+            geometria_antes
+        )
+        self.leds_selecionados = copiar_lista_geometria_completa(
+            geometria_antes
+        )
+        return resultado
 
     def _salvar_leds_no_projeto(
         self,
