@@ -32,15 +32,23 @@ jobs:
             src/platform/display_project_config.py \
             src/platform/display_check_presence_reference.py \
             src/platform/display_visual_reference_status.py \
+            src/platform/display_f3_status_layout_fix.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_project_config_scroll.py \
             tests/test_display_check_presence_reference.py \
-            tests/test_display_visual_reference_status.py
+            tests/test_display_visual_reference_status.py \
+            tests/test_display_f3_status_layout_fix.py
 
       - name: Run Project Display scroll tests
         run: |
           python -m unittest \
             tests.test_display_project_config_scroll \
+            -v
+
+      - name: Run F3 fixed status layout tests
+        run: |
+          python -m unittest \
+            tests.test_display_f3_status_layout_fix \
             -v
 
       - name: Run presence reference tests
