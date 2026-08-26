@@ -75,6 +75,98 @@ def assinatura_geometria_segmento_livre(
     return tuple(assinatura)
 
 
+def _instalar_roundtrip_projeto_segmento_livre() -> None:
+    """Fecha o caminho legado usado por Carregar LEDs > Salvar selecionados.
+
+    O gerenciador de projetos chama ``super().salvar_leds_fixos()`` a partir da
+    própria classe. O salvamento-base histórico recria cada ROI somente com
+    id/centro/raio e, por isso, um segmento desenhado ponto a ponto pode chegar
+    ao JSON como círculo. Este patch fica exatamente nesse limite: deixa o fluxo
+    legado executar normalmente e, em seguida, reafirma no projeto a geometria
+    que estava visível no editor antes do salvamento.
+    """
+    import src.platform.led_project_manager as manager
+
+    cls = manager.LedProjectManagerMixin
+    if getattr(cls, "_odin_freeform_project_roundtrip", False):
+        return
+
+    original = cls._salvar_leds_no_projeto
+
+    def salvar_leds_no_projeto_segmento_livre(
+        self,
+        nome_projeto: str,
+        parent=None,
+        confirmar_substituicao: bool = True,
+    ) -> bool:
+        geometria_editor = [
+            copiar_mascara_absoluta_segmento_livre(led)
+            for led in (getattr(self, "leds_selecionados", ()) or ())
+        ]
+        salvo = original(
+            self,
+            nome_projeto,
+            parent=parent,
+            confirmar_substituicao=confirmar_substituicao,
+        )
+        if not salvo or not geometria_editor:
+            return bool(salvo)
+
+        # Não reescreve projetos que contêm apenas círculos; o objetivo deste
+        # guard é exclusivamente impedir a degradação de segmentos.
+        if not any(
+            normalizar_tipo_roi(getattr(led, "tipo_roi", None))
+            == TIPO_ROI_SEGMENTO
+            for led in geometria_editor
+        ):
+            return True
+
+        largura = int(getattr(self, "largura_original", 0) or 0)
+        altura = int(getattr(self, "altura_original", 0) or 0)
+        if largura > 0 and altura > 0:
+            geometria_editor = [
+                led.com_normalizacao(
+                    largura_base=largura,
+                    altura_base=altura,
+                )
+                for led in geometria_editor
+            ]
+
+        repository = getattr(self, "config_repository", None)
+        salvar = getattr(repository, "salvar_leds_fixos", None)
+        if not callable(salvar):
+            return True
+
+        try:
+            salvar(
+                geometria_editor,
+                largura_base=None,
+                altura_base=None,
+                projeto=nome_projeto,
+            )
+        except TypeError:
+            try:
+                salvar(geometria_editor, projeto=nome_projeto)
+            except TypeError:
+                salvar(geometria_editor)
+
+        # O estado em memória deve representar exatamente o que acabou de ser
+        # persistido, evitando que o círculo criado pelo fallback-base permaneça
+        # visível até a próxima leitura do repositório.
+        self.leds_fixos_configurados = [
+            copiar_mascara_absoluta_segmento_livre(led)
+            for led in geometria_editor
+        ]
+        self.leds_selecionados = [
+            copiar_mascara_absoluta_segmento_livre(led)
+            for led in geometria_editor
+        ]
+        return True
+
+    cls._salvar_leds_no_projeto = salvar_leds_no_projeto_segmento_livre
+    cls._odin_freeform_project_roundtrip = True
+
+
 def instalar_persistencia_segmento_livre() -> None:
     global _PATCH_SEGMENTO_LIVRE_PERSISTENCIA
     if _PATCH_SEGMENTO_LIVRE_PERSISTENCIA:
@@ -89,5 +181,6 @@ def instalar_persistencia_segmento_livre() -> None:
     fixed_guard.copiar_mascara_absoluta = copiar_mascara_absoluta_segmento_livre
     fixed_guard.assinatura_geometria = assinatura_geometria_segmento_livre
     persistence.copiar_led_geometria_completa = copiar_led_geometria_completa_segmento_livre
+    _instalar_roundtrip_projeto_segmento_livre()
     instalar_referencia_resolucao_mascaras_legadas()
     _PATCH_SEGMENTO_LIVRE_PERSISTENCIA = True
