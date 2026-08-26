@@ -49,13 +49,7 @@ def resolver_estado_operacional_f3(
     last_check_id: str = "",
     board_references_complete: bool = False,
 ) -> dict:
-    """Resolve um único estado operacional para a Produção Display F3.
-
-    A referência física exata vence um CHECK quando sua similaridade é
-    claramente maior. Caso contrário, um CHECK reconhecido vence a referência
-    de placa desligada, pois uma placa ligada continua estruturalmente parecida
-    com a foto da placa desligada.
-    """
+    """Resolve o estado legado; o perfil final recebe o classificador físico."""
 
     def matched(candidate: dict | None) -> bool:
         return bool(isinstance(candidate, dict) and candidate.get("matched"))
@@ -242,8 +236,6 @@ def _set_operational_reference_status(self, text: str, color: str) -> None:
 
 
 def _ignore_legacy_dual_status(self, *_args, **_kwargs) -> None:
-    # O runtime antigo ainda calcula os dois classificadores para compatibilidade,
-    # mas o operador recebe somente o estado operacional unificado.
     return None
 
 
@@ -339,12 +331,17 @@ def _install_operational_auto_gate() -> None:
             pass
 
         kind = str(state.get("kind") or "unknown")
+        allow_auto = bool(state.get("allow_auto"))
+
         if kind == "check":
+            # Este valor representa o que a câmera reconheceu fisicamente, não
+            # o CHECK que o sequenciador está esperando.
             self._display_f3_last_recognized_check_id = str(state.get("check_id") or "")
             self._display_f3_last_recognized_check_name = str(
                 state.get("check_name") or ""
             )
-            return original_process(self)
+            if allow_auto:
+                return original_process(self)
 
         if kind == "empty":
             self._display_f3_last_recognized_check_id = ""
@@ -359,15 +356,14 @@ def _install_operational_auto_gate() -> None:
             state.get("current_check_reference_configured")
         )
 
-        # Com as duas referências físicas configuradas, suporte vazio e placa
-        # desligada são estados autoritativos e nunca podem aprovar um CHECK.
-        # Quando o CHECK atual também possui foto, um estado desconhecido é
-        # bloqueado até a cena correta aparecer. Projetos antigos sem essas
-        # referências mantêm o comportamento legado.
-        should_block = kind in {"empty", "off"} or (
-            board_complete
-            and current_reference_configured
-            and kind == "unknown"
+        should_block = (
+            kind in {"empty", "off"}
+            or (kind == "check" and not allow_auto)
+            or (
+                board_complete
+                and current_reference_configured
+                and kind == "unknown"
+            )
         )
         if should_block:
             try:
@@ -385,9 +381,16 @@ def _install_operational_auto_gate() -> None:
                         "AUTO • placa desligada • aguardando acionamento",
                         "#FBBF24",
                     )
+                elif kind == "check" and not allow_auto:
+                    expected_name = str((context or {}).get("check_name") or "CHECK").upper()
+                    physical_name = str(state.get("check_name") or "DISPLAY").upper()
+                    self._display_auto_set_preview_status(
+                        f"AUTO • aguardando {expected_name} • físico em {physical_name}",
+                        "#FDE68A",
+                    )
                 else:
                     self._display_auto_set_preview_status(
-                        "AUTO • identificando estado visual do Display",
+                        "AUTO • identificando estado físico do Display",
                         "#FDE68A",
                     )
             except Exception:
