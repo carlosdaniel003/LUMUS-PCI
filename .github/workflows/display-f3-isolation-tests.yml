@@ -50,6 +50,7 @@ jobs:
             src/platform/display_reference_store.py \
             src/platform/display_reference_learning.py \
             src/platform/display_reference_learning_guard.py \
+            src/platform/segment_project_geometry_persistence.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_f3_architecture.py \
             tests/test_display_f3_phase2_architecture.py \
@@ -57,6 +58,7 @@ jobs:
             tests/test_display_project_repository.py \
             tests/test_display_check_repository.py \
             tests/test_display_mask_editor_f2_parity.py \
+            tests/test_roi_geometry_f2_f3_consistency.py \
             tests/test_display_check_zoom.py \
             tests/test_display_f3_visual_rotation.py \
             tests/test_display_check_visual_rotation.py \
@@ -71,6 +73,14 @@ jobs:
             tests/test_display_f3_strict_manual_transition_gate.py \
             tests/test_display_f3_result_feedback.py \
             tests/test_display_f3_editor_performance.py
+
+      - name: Run ROI geometry parity tests
+        run: |
+          python -m unittest \
+            tests.test_display_mask_editor_f2_parity \
+            tests.test_roi_geometry_f2_f3_consistency \
+            tests.test_freeform_segment_roi \
+            -v
 
       - name: Run F3 isolation and runtime tests
         run: |
