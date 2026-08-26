@@ -29,15 +29,18 @@ jobs:
       - name: Compile presence reference modules
         run: |
           python -m py_compile \
+            src/platform/display_project_config.py \
             src/platform/display_check_presence_reference.py \
             src/platform/display_visual_reference_status.py \
             src/platform/raspberry_pi3_production_app.py \
+            tests/test_display_project_config_scroll.py \
             tests/test_display_check_presence_reference.py \
             tests/test_display_visual_reference_status.py
 
       - name: Run presence reference tests
         run: |
           python -m unittest \
+            tests.test_display_project_config_scroll \
             tests.test_display_check_presence_reference \
             tests.test_display_visual_reference_status \
             -v
