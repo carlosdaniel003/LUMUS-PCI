@@ -5,6 +5,11 @@ import numpy as np
 
 import src.platform.display_f3_operational_status as operational_module
 import src.platform.display_visual_reference_status as visual_status_module
+from src.platform.display_visual_reference_status import (
+    DISPLAY_PROJECT_REFERENCE_BOARD_OFF,
+    DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT,
+    DISPLAY_PROJECT_REFERENCE_TYPES,
+)
 
 
 F3_CHECK_TRANSITION_STABLE_FRAMES = 4
@@ -12,6 +17,12 @@ F3_CHECK_TRANSITION_GLOBAL_SCORE_MARGIN = 0.05
 F3_CHECK_TRANSITION_REFERENCE_DELTA = 8.0
 F3_CHECK_TRANSITION_ERROR_MARGIN = 1.5
 F3_CHECK_TRANSITION_ERROR_RATIO = 0.82
+
+F3_PHYSICAL_STATE_STABLE_FRAMES = 3
+F3_PHYSICAL_REFERENCE_DELTA = 8.0
+F3_PHYSICAL_ERROR_MARGIN = 1.5
+F3_PHYSICAL_MIN_DIFFERENT_RATIO = 0.002
+F3_PHYSICAL_MIN_SCORE_MARGIN = 0.015
 
 
 def _as_color_image(image):
@@ -27,20 +38,26 @@ def _as_color_image(image):
     return result
 
 
+def _resize_like(image, target):
+    if image is None or target is None:
+        return None
+    target_height, target_width = target.shape[:2]
+    if image.shape[:2] == (target_height, target_width):
+        return image
+    return cv2.resize(
+        image,
+        (target_width, target_height),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
 def avaliar_preferencia_transicao_referencias_f3(
     matcher,
     current_small,
     last_metadata: dict | None,
     current_metadata: dict | None,
 ) -> dict:
-    """Compara somente as regiões que diferenciam dois CHECKS consecutivos.
-
-    A imagem inteira do Display muda pouco entre BLUE/USB/AUX. Por isso a
-    similaridade global pode dizer que USB parece válido enquanto o Display
-    ainda está em BLUE. Esta comparação cria uma máscara a partir dos pixels
-    que realmente mudam entre as duas referências e exige que o frame atual
-    esteja mais próximo da nova referência justamente nessas regiões.
-    """
+    """Compara somente as regiões que diferenciam dois CHECKS consecutivos."""
     if not isinstance(last_metadata, dict) or not isinstance(current_metadata, dict):
         return {"current_preferred": False, "available": False}
 
@@ -50,19 +67,8 @@ def avaliar_preferencia_transicao_referencias_f3(
     if last_reference is None or current_reference is None or observed is None:
         return {"current_preferred": False, "available": False}
 
-    target_height, target_width = current_reference.shape[:2]
-    if last_reference.shape[:2] != (target_height, target_width):
-        last_reference = cv2.resize(
-            last_reference,
-            (target_width, target_height),
-            interpolation=cv2.INTER_AREA,
-        )
-    if observed.shape[:2] != (target_height, target_width):
-        observed = cv2.resize(
-            observed,
-            (target_width, target_height),
-            interpolation=cv2.INTER_AREA,
-        )
+    last_reference = _resize_like(last_reference, current_reference)
+    observed = _resize_like(observed, current_reference)
 
     current_score = matcher._score(current_small, current_metadata)
     last_score = matcher._score(current_small, last_metadata)
@@ -138,7 +144,6 @@ def decidir_transicao_estavel_f3(
     pending_check_id: str = "",
     pending_frames: int = 0,
 ) -> dict:
-    """Exige vários frames consecutivos antes de trocar o status do CHECK."""
     check_id = str(current_check_id or "")
     if not check_id or not bool(preferred):
         return {
@@ -156,21 +161,262 @@ def decidir_transicao_estavel_f3(
     }
 
 
-def _hold_last_check_state(last_check_id: str, last_check_name: str, evidence=None) -> dict:
-    name = str(last_check_name or last_check_id or "CHECK").strip().upper()
-    return {
-        # `unknown` é intencional: o gate operacional já bloqueia o CHECK atual
-        # quando as referências estão configuradas, mas o texto continua mostrando
-        # ao operador o último estado físico realmente confirmado.
-        "kind": "unknown",
-        "text": f"DISPLAY EM {name}",
-        "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["check"],
+def _reference_candidates(matcher, project_name: str) -> list[dict]:
+    candidates: list[dict] = []
+    project_references = matcher.project_store.get_all(project_name)
+
+    empty_metadata = project_references.get(DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT)
+    if isinstance(empty_metadata, dict):
+        candidates.append(
+            {
+                "key": "empty",
+                "kind": "empty",
+                "name": "PLACA FORA DO SUPORTE",
+                "metadata": empty_metadata,
+            }
+        )
+
+    off_metadata = project_references.get(DISPLAY_PROJECT_REFERENCE_BOARD_OFF)
+    if isinstance(off_metadata, dict):
+        candidates.append(
+            {
+                "key": "off",
+                "kind": "off",
+                "name": "PLACA NO SUPORTE • DESLIGADA",
+                "metadata": off_metadata,
+            }
+        )
+
+    for check in matcher.repository.listar_checks(project_name):
+        check_id = str(check.get("id") or "")
+        if not check_id:
+            continue
+        metadata = matcher.check_store.get(project_name, check_id)
+        if not isinstance(metadata, dict):
+            continue
+        check_name = str(check.get("name") or check_id).strip().upper()
+        candidates.append(
+            {
+                "key": f"check:{check_id}",
+                "kind": "check",
+                "name": check_name,
+                "check_id": check_id,
+                "metadata": metadata,
+            }
+        )
+    return candidates
+
+
+def classificar_estado_fisico_referencias_f3(
+    matcher,
+    frame,
+    project_name: str,
+) -> dict:
+    """Classifica o que existe fisicamente na câmera, sem usar o CHECK esperado.
+
+    Todas as referências configuradas disputam em igualdade: suporte vazio,
+    placa desligada e cada estado do Display. A decisão usa comparações par a
+    par apenas nas regiões em que duas referências realmente diferem. Isso
+    impede que uma cena desligada seja chamada de H1 e que BLUE vire USB antes
+    da mudança física real.
+    """
+    current_small = visual_status_module._small_image(frame)
+    observed = _as_color_image(current_small)
+    candidates = _reference_candidates(matcher, project_name)
+    board_references = matcher.project_store.get_all(project_name)
+    board_complete = all(
+        kind in board_references for kind in DISPLAY_PROJECT_REFERENCE_TYPES
+    )
+
+    if observed is None:
+        return {
+            "kind": "unknown",
+            "text": "AGUARDANDO CÂMERA",
+            "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unknown"],
+            "allow_auto": False,
+            "board_references_complete": board_complete,
+            "configured_count": len(candidates),
+        }
+
+    prepared: list[dict] = []
+    for candidate in candidates:
+        metadata = candidate["metadata"]
+        reference = _as_color_image(matcher._reference_image(metadata))
+        if reference is None:
+            continue
+        reference = _resize_like(reference, observed)
+        score = matcher._score(current_small, metadata)
+        if score is None:
+            continue
+        item = dict(candidate)
+        item["reference"] = reference.astype(np.float32)
+        item["score"] = float(score)
+        item["threshold"] = float(matcher._threshold(metadata))
+        item["wins"] = 0
+        item["losses"] = 0
+        item["comparisons"] = 0
+        item["error_total"] = 0.0
+        prepared.append(item)
+
+    if not prepared:
+        return {
+            "kind": "unavailable",
+            "text": "REFERÊNCIAS VISUAIS NÃO CONFIGURADAS",
+            "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unavailable"],
+            "allow_auto": False,
+            "board_references_complete": board_complete,
+            "configured_count": 0,
+        }
+
+    observed_f = observed.astype(np.float32)
+    for index, left in enumerate(prepared):
+        for right in prepared[index + 1 :]:
+            delta = np.mean(np.abs(left["reference"] - right["reference"]), axis=2)
+            mask = delta >= F3_PHYSICAL_REFERENCE_DELTA
+            different_pixels = int(np.count_nonzero(mask))
+            minimum_pixels = max(
+                32,
+                int(delta.size * F3_PHYSICAL_MIN_DIFFERENT_RATIO),
+            )
+            if different_pixels < minimum_pixels:
+                continue
+
+            left_error_map = np.mean(
+                np.abs(observed_f - left["reference"]), axis=2
+            )
+            right_error_map = np.mean(
+                np.abs(observed_f - right["reference"]), axis=2
+            )
+            left_error = float(np.mean(left_error_map[mask]))
+            right_error = float(np.mean(right_error_map[mask]))
+
+            left["comparisons"] += 1
+            right["comparisons"] += 1
+            left["error_total"] += left_error
+            right["error_total"] += right_error
+
+            if left_error + F3_PHYSICAL_ERROR_MARGIN < right_error:
+                left["wins"] += 1
+                right["losses"] += 1
+            elif right_error + F3_PHYSICAL_ERROR_MARGIN < left_error:
+                right["wins"] += 1
+                left["losses"] += 1
+
+    eligible = [
+        item
+        for item in prepared
+        if float(item["score"]) >= float(item["threshold"])
+    ]
+    if not eligible:
+        best = max(prepared, key=lambda item: float(item["score"]))
+        return {
+            "kind": "unknown",
+            "text": "IDENTIFICANDO...",
+            "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unknown"],
+            "allow_auto": False,
+            "board_references_complete": board_complete,
+            "configured_count": len(prepared),
+            "best_score": float(best["score"]),
+        }
+
+    def ranking(item: dict):
+        comparisons = max(1, int(item["comparisons"]))
+        average_error = float(item["error_total"]) / comparisons
+        return (
+            int(item["wins"]) - int(item["losses"]),
+            int(item["wins"]),
+            -average_error,
+            float(item["score"]),
+        )
+
+    eligible.sort(key=ranking, reverse=True)
+    winner = eligible[0]
+    if len(eligible) >= 2:
+        second = eligible[1]
+        winner_net = int(winner["wins"]) - int(winner["losses"])
+        second_net = int(second["wins"]) - int(second["losses"])
+        score_margin = float(winner["score"]) - float(second["score"])
+        if winner_net == second_net and score_margin < F3_PHYSICAL_MIN_SCORE_MARGIN:
+            return {
+                "kind": "unknown",
+                "text": "IDENTIFICANDO...",
+                "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unknown"],
+                "allow_auto": False,
+                "board_references_complete": board_complete,
+                "configured_count": len(prepared),
+                "ambiguous": True,
+            }
+
+    kind = str(winner["kind"])
+    state = {
+        "kind": kind,
         "allow_auto": False,
-        "transition_hold": True,
-        "check_id": str(last_check_id or ""),
-        "check_name": name,
-        "transition_evidence": dict(evidence or {}),
+        "board_references_complete": board_complete,
+        "configured_count": len(prepared),
+        "physical_state_key": str(winner["key"]),
+        "score": float(winner["score"]),
+        "physical_wins": int(winner["wins"]),
+        "physical_losses": int(winner["losses"]),
     }
+    if kind == "empty":
+        state.update(
+            text="PLACA FORA DO SUPORTE",
+            color=operational_module.F3_OPERATIONAL_STATUS_COLORS["empty"],
+        )
+    elif kind == "off":
+        state.update(
+            text="PLACA NO SUPORTE • DESLIGADA",
+            color=operational_module.F3_OPERATIONAL_STATUS_COLORS["off"],
+        )
+    else:
+        check_name = str(winner.get("name") or "CHECK").strip().upper()
+        state.update(
+            text=f"DISPLAY EM {check_name}",
+            color=operational_module.F3_OPERATIONAL_STATUS_COLORS["check"],
+            check_id=str(winner.get("check_id") or ""),
+            check_name=check_name,
+        )
+    return state
+
+
+def _estado_fisico_estavel(self, raw_state: dict) -> dict:
+    kind = str(raw_state.get("kind") or "unknown")
+    if kind in {"unknown", "unavailable"}:
+        self._display_f3_physical_pending_key = ""
+        self._display_f3_physical_pending_frames = 0
+        return raw_state
+
+    key = str(raw_state.get("physical_state_key") or kind)
+    stable_key = str(getattr(self, "_display_f3_physical_stable_key", "") or "")
+    if key == stable_key:
+        self._display_f3_physical_pending_key = ""
+        self._display_f3_physical_pending_frames = 0
+        self._display_f3_physical_stable_state = dict(raw_state)
+        return raw_state
+
+    pending_key = str(getattr(self, "_display_f3_physical_pending_key", "") or "")
+    pending_frames = int(getattr(self, "_display_f3_physical_pending_frames", 0) or 0)
+    pending_frames = pending_frames + 1 if pending_key == key else 1
+    self._display_f3_physical_pending_key = key
+    self._display_f3_physical_pending_frames = pending_frames
+
+    if pending_frames < F3_PHYSICAL_STATE_STABLE_FRAMES:
+        return {
+            "kind": "unknown",
+            "text": "IDENTIFICANDO...",
+            "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unknown"],
+            "allow_auto": False,
+            "board_references_complete": bool(
+                raw_state.get("board_references_complete")
+            ),
+            "physical_transition_pending": True,
+        }
+
+    self._display_f3_physical_stable_key = key
+    self._display_f3_physical_stable_state = dict(raw_state)
+    self._display_f3_physical_pending_key = ""
+    self._display_f3_physical_pending_frames = 0
+    return raw_state
 
 
 def _install_transition_guard() -> None:
@@ -180,94 +426,45 @@ def _install_transition_guard() -> None:
     base_build = operational_module._build_operational_state
 
     def guarded_build(self, frame, project_name: str, context: dict | None):
-        base_state = base_build(self, frame, project_name, context)
-        kind = str(base_state.get("kind") or "unknown")
+        matcher = getattr(self, "_display_f3_operational_matcher", None)
+        repository = getattr(self, "display_project_repository", None)
+        if matcher is None or getattr(matcher, "repository", None) is not repository:
+            if repository is None:
+                return base_build(self, frame, project_name, context)
+            matcher = operational_module.DisplayVisualReferenceMatcher(repository)
+            self._display_f3_operational_matcher = matcher
 
-        if kind in {"empty", "off"}:
-            self._display_f3_transition_pending_check_id = ""
-            self._display_f3_transition_pending_frames = 0
-            return base_state
+        raw_state = classificar_estado_fisico_referencias_f3(
+            matcher,
+            frame,
+            project_name,
+        )
+        state = _estado_fisico_estavel(self, raw_state)
 
         current_check_id = str((context or {}).get("check_id") or "")
-        current_check_name = str(
-            (context or {}).get("check_name") or current_check_id
+        current_metadata = (
+            matcher.check_store.get(project_name, current_check_id)
+            if current_check_id
+            else None
         )
-        last_check_id = str(
-            getattr(self, "_display_f3_last_recognized_check_id", "") or ""
-        )
-        last_check_name = str(
-            getattr(self, "_display_f3_last_recognized_check_name", "")
-            or last_check_id
+        state["current_check_reference_configured"] = isinstance(
+            current_metadata, dict
         )
 
-        # Primeiro CHECK da placa: não há estado anterior a proteger.
-        if (
-            not current_check_id
-            or not last_check_id
-            or current_check_id == last_check_id
-        ):
-            self._display_f3_transition_pending_check_id = ""
-            self._display_f3_transition_pending_frames = 0
-            return base_state
-
-        matcher = getattr(self, "_display_f3_operational_matcher", None)
-        if matcher is None:
-            return base_state
-
-        last_metadata = matcher.check_store.get(project_name, last_check_id)
-        current_metadata = matcher.check_store.get(project_name, current_check_id)
-        if not isinstance(last_metadata, dict) or not isinstance(current_metadata, dict):
-            return base_state
-
-        current_small = visual_status_module._small_image(frame)
-        evidence = avaliar_preferencia_transicao_referencias_f3(
-            matcher,
-            current_small,
-            last_metadata,
-            current_metadata,
-        )
-        self._display_f3_transition_evidence = dict(evidence)
-
-        transition = decidir_transicao_estavel_f3(
-            current_check_id=current_check_id,
-            preferred=bool(evidence.get("current_preferred")),
-            pending_check_id=str(
-                getattr(self, "_display_f3_transition_pending_check_id", "") or ""
-            ),
-            pending_frames=int(
-                getattr(self, "_display_f3_transition_pending_frames", 0) or 0
-            ),
-        )
-        self._display_f3_transition_pending_check_id = str(
-            transition["pending_check_id"]
-        )
-        self._display_f3_transition_pending_frames = int(
-            transition["pending_frames"]
-        )
-
-        if not bool(transition["promote"]):
-            return _hold_last_check_state(
-                last_check_id,
-                last_check_name,
-                evidence,
+        if str(state.get("kind") or "") == "check":
+            physical_check_id = str(state.get("check_id") or "")
+            # O status continua mostrando o estado físico real mesmo que o
+            # sequenciador esteja esperando outro CHECK. O automático só é
+            # liberado quando ambos forem exatamente o mesmo estado.
+            state["allow_auto"] = bool(
+                current_check_id and physical_check_id == current_check_id
             )
+            state["expected_check_id"] = current_check_id
+            state["physical_matches_expected_check"] = bool(state["allow_auto"])
+        else:
+            state["allow_auto"] = False
 
-        self._display_f3_transition_pending_check_id = ""
-        self._display_f3_transition_pending_frames = 0
-        return {
-            "kind": "check",
-            "text": f"DISPLAY EM {current_check_name.strip().upper()}",
-            "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["check"],
-            "allow_auto": True,
-            "check_id": current_check_id,
-            "check_name": current_check_name.strip().upper(),
-            "score": evidence.get("current_score"),
-            "current_check_reference_configured": True,
-            "board_references_complete": bool(
-                base_state.get("board_references_complete", True)
-            ),
-            "transition_confirmed": True,
-        }
+        return state
 
     operational_module._build_operational_state = guarded_build
     operational_module._display_f3_check_transition_guard_installed = True
@@ -277,7 +474,7 @@ _DISPLAY_F3_CHECK_TRANSITION_GUARD_INSTALLED = False
 
 
 def instalar_guard_transicao_check_display_f3() -> None:
-    """Impede BLUE→USB (e demais passos) antes da mudança física real."""
+    """Faz o status/gate F3 obedecer somente ao estado físico da câmera."""
     global _DISPLAY_F3_CHECK_TRANSITION_GUARD_INSTALLED
     if _DISPLAY_F3_CHECK_TRANSITION_GUARD_INSTALLED:
         return
