@@ -33,6 +33,9 @@ from src.platform.display_awake_runtime import (
 from src.platform.display_check_presence_reference import (
     instalar_referencia_presenca_check_display,
 )
+from src.platform.display_f3_operational_status import (
+    instalar_status_operacional_display_f3,
+)
 from src.platform.display_f3_status_layout_fix import (
     instalar_layout_status_f3_estavel,
 )
@@ -201,6 +204,7 @@ class RaspberryPi3ProductionApp(
         instalar_referencia_presenca_check_display()
         instalar_status_referencias_visuais_display()
         instalar_layout_status_f3_estavel()
+        instalar_status_operacional_display_f3()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
