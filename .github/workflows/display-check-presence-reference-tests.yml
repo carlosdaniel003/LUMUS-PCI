@@ -32,6 +32,7 @@ jobs:
             src/platform/display_project_config.py \
             src/platform/display_check_presence_reference.py \
             src/platform/display_visual_reference_status.py \
+            src/platform/display_reference_roi.py \
             src/platform/display_f3_status_layout_fix.py \
             src/platform/display_f3_operational_status.py \
             src/platform/display_f3_check_transition_guard.py \
@@ -39,6 +40,7 @@ jobs:
             tests/test_display_project_config_scroll.py \
             tests/test_display_check_presence_reference.py \
             tests/test_display_visual_reference_status.py \
+            tests/test_display_reference_roi.py \
             tests/test_display_f3_status_layout_fix.py \
             tests/test_display_f3_operational_status.py \
             tests/test_display_f3_check_transition_guard.py
@@ -65,6 +67,12 @@ jobs:
         run: |
           python -m unittest \
             tests.test_display_f3_check_transition_guard \
+            -v
+
+      - name: Run F3 reference ROI tests
+        run: |
+          python -m unittest \
+            tests.test_display_reference_roi \
             -v
 
       - name: Run presence reference tests
