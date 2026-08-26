@@ -6,15 +6,52 @@ import unittest
 import numpy as np
 
 import src.platform.display_f3_check_transition_guard as transition_module
+import src.platform.display_f3_operational_status as operational_module
 from src.platform.display_f3_check_transition_guard import (
     F3_CHECK_TRANSITION_STABLE_FRAMES,
+    F3_PHYSICAL_STATE_STABLE_FRAMES,
+    _estado_fisico_estavel,
     avaliar_preferencia_transicao_referencias_f3,
+    classificar_estado_fisico_referencias_f3,
     decidir_transicao_estavel_f3,
+)
+from src.platform.display_visual_reference_status import (
+    DISPLAY_PROJECT_REFERENCE_BOARD_OFF,
+    DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT,
 )
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 
 
+class _FakeProjectStore:
+    def __init__(self, references):
+        self.references = dict(references)
+
+    def get_all(self, _project_name):
+        return dict(self.references)
+
+
+class _FakeCheckStore:
+    def __init__(self, references):
+        self.references = dict(references)
+
+    def get(self, _project_name, check_id):
+        return self.references.get(check_id)
+
+
+class _FakeRepository:
+    def __init__(self, checks):
+        self.checks = list(checks)
+
+    def listar_checks(self, _project_name):
+        return list(self.checks)
+
+
 class _FakeMatcher:
+    def __init__(self, *, project_references=None, check_references=None, checks=None):
+        self.project_store = _FakeProjectStore(project_references or {})
+        self.check_store = _FakeCheckStore(check_references or {})
+        self.repository = _FakeRepository(checks or [])
+
     @staticmethod
     def _reference_image(metadata):
         return metadata.get("image")
@@ -28,14 +65,100 @@ class _FakeMatcher:
         return float(metadata.get("threshold", 0.72))
 
 
+class _StabilityHarness:
+    pass
+
+
 class DisplayF3CheckTransitionGuardTests(unittest.TestCase):
     @staticmethod
     def _references():
-        last = np.full((80, 120, 3), 35, dtype=np.uint8)
-        current = last.copy()
-        last[20:60, 18:48] = 220
-        current[20:60, 72:102] = 220
-        return last, current
+        blue = np.full((80, 120, 3), 35, dtype=np.uint8)
+        usb = blue.copy()
+        blue[20:60, 18:48] = 220
+        usb[20:60, 72:102] = 220
+        return blue, usb
+
+    @staticmethod
+    def _physical_references():
+        empty = np.full((80, 120, 3), 15, dtype=np.uint8)
+        off = np.full((80, 120, 3), 55, dtype=np.uint8)
+        h1 = off.copy()
+        blue = off.copy()
+        usb = off.copy()
+        h1[24:56, 42:78] = 210
+        blue[20:60, 18:48] = 220
+        usb[20:60, 72:102] = 220
+        return empty, off, h1, blue, usb
+
+    @staticmethod
+    def _metadata(image, score):
+        return {"image": image, "score": score, "threshold": 0.72}
+
+    def _physical_matcher(self):
+        empty, off, h1, blue, usb = self._physical_references()
+        matcher = _FakeMatcher(
+            project_references={
+                DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT: self._metadata(empty, 0.90),
+                DISPLAY_PROJECT_REFERENCE_BOARD_OFF: self._metadata(off, 0.90),
+            },
+            check_references={
+                "H1": self._metadata(h1, 0.96),
+                "BLUE": self._metadata(blue, 0.96),
+                "USB": self._metadata(usb, 0.96),
+            },
+            checks=[
+                {"id": "H1", "name": "H1"},
+                {"id": "BLUE", "name": "BLUE"},
+                {"id": "USB", "name": "USB"},
+            ],
+        )
+        return matcher, (empty, off, h1, blue, usb)
+
+    def test_placa_desligada_vence_h1_mesmo_h1_tendo_score_global_maior(self):
+        matcher, (_, off, _, _, _) = self._physical_matcher()
+        state = classificar_estado_fisico_referencias_f3(matcher, off, "PROJETO")
+        self.assertEqual("off", state["kind"])
+        self.assertEqual("PLACA NO SUPORTE • DESLIGADA", state["text"])
+        self.assertFalse(state["allow_auto"])
+
+    def test_h1_e_identificado_pelo_fisico_sem_depender_do_check_esperado(self):
+        matcher, (_, _, h1, _, _) = self._physical_matcher()
+        state = classificar_estado_fisico_referencias_f3(matcher, h1, "PROJETO")
+        self.assertEqual("check", state["kind"])
+        self.assertEqual("H1", state["check_id"])
+        self.assertEqual("DISPLAY EM H1", state["text"])
+
+    def test_blue_permanece_estado_fisico_mesmo_se_fluxo_ja_estiver_em_usb(self):
+        matcher, (_, _, _, blue, _) = self._physical_matcher()
+        state = classificar_estado_fisico_referencias_f3(matcher, blue, "PROJETO")
+        self.assertEqual("check", state["kind"])
+        self.assertEqual("BLUE", state["check_id"])
+        self.assertEqual("DISPLAY EM BLUE", state["text"])
+
+    def test_usb_so_aparece_quando_imagem_fisica_e_usb(self):
+        matcher, (_, _, _, _, usb) = self._physical_matcher()
+        state = classificar_estado_fisico_referencias_f3(matcher, usb, "PROJETO")
+        self.assertEqual("check", state["kind"])
+        self.assertEqual("USB", state["check_id"])
+        self.assertEqual("DISPLAY EM USB", state["text"])
+
+    def test_status_fisico_exige_estabilidade_e_nao_exibe_estado_antigo_na_transicao(self):
+        harness = _StabilityHarness()
+        raw = {
+            "kind": "off",
+            "text": "PLACA NO SUPORTE • DESLIGADA",
+            "color": "#FBBF24",
+            "allow_auto": False,
+            "physical_state_key": "off",
+            "board_references_complete": True,
+        }
+        for index in range(1, F3_PHYSICAL_STATE_STABLE_FRAMES + 1):
+            state = _estado_fisico_estavel(harness, raw)
+            if index < F3_PHYSICAL_STATE_STABLE_FRAMES:
+                self.assertEqual("unknown", state["kind"])
+                self.assertEqual("IDENTIFICANDO...", state["text"])
+            else:
+                self.assertEqual("off", state["kind"])
 
     def test_blue_permanece_quando_frame_ainda_e_blue_mesmo_usb_passando_threshold(self):
         blue, usb = self._references()
@@ -99,11 +222,17 @@ class DisplayF3CheckTransitionGuardTests(unittest.TestCase):
         self.assertEqual("", reset["pending_check_id"])
         self.assertEqual(0, reset["pending_frames"])
 
-    def test_guard_mantem_ultimo_check_enquanto_proximo_nao_foi_confirmado(self):
+    def test_guard_nao_usa_check_atual_para_escolher_estado_fisico(self):
         source = inspect.getsource(transition_module._install_transition_guard)
-        self.assertIn("_hold_last_check_state", source)
-        self.assertIn("current_preferred", source)
-        self.assertIn("pending_frames", source)
+        classifier_call = source.index("classificar_estado_fisico_referencias_f3")
+        expected_check = source.index("current_check_id =")
+        self.assertLess(classifier_call, expected_check)
+        self.assertIn("physical_check_id == current_check_id", source)
+
+    def test_gate_bloqueia_check_fisico_diferente_do_check_esperado(self):
+        source = inspect.getsource(operational_module._install_operational_auto_gate)
+        self.assertIn('kind == "check" and not allow_auto', source)
+        self.assertIn("estado físico", source)
 
     def test_perfil_final_instala_guard_depois_do_status_operacional(self):
         source = inspect.getsource(RaspberryPi3ProductionApp.__init__)
