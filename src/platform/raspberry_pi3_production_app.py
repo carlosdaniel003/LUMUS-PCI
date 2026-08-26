@@ -45,6 +45,9 @@ from src.platform.display_f3_status_layout_fix import (
 from src.platform.display_production_f3 import (
     DisplayProductionF3Mixin,
 )
+from src.platform.display_reference_roi import (
+    instalar_roi_referencias_display_f3,
+)
 from src.platform.display_theme import (
     DISPLAY_INK,
     DISPLAY_YELLOW,
@@ -209,6 +212,7 @@ class RaspberryPi3ProductionApp(
         instalar_layout_status_f3_estavel()
         instalar_status_operacional_display_f3()
         instalar_guard_transicao_check_display_f3()
+        instalar_roi_referencias_display_f3()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
