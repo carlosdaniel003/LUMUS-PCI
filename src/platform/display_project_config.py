@@ -37,6 +37,8 @@ class DisplayProjectConfigWindow:
         self.on_close = on_close
         self.mask_editor: DisplayMaskEditorWindow | None = None
         self.check_manager: DisplayCheckManagerWindow | None = None
+        self._project_scroll_canvas: tk.Canvas | None = None
+        self._project_scroll_content = None
 
         self.window = tk.Toplevel(root)
         self.window.title("ODIN • Projeto Display")
@@ -125,15 +127,58 @@ class DisplayProjectConfigWindow:
         self._button(project_actions, "Renomear", self.rename_selected).pack(side=tk.LEFT, padx=4)
         self._button(project_actions, "Remover", self.remove_selected, danger=True).pack(side=tk.LEFT, padx=4)
 
-        right = tk.Frame(
+        right_shell = tk.Frame(
             body,
             bg=self.PANEL,
             highlightbackground=self.BORDER,
             highlightthickness=1,
             width=450,
         )
-        right.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(12, 0))
-        right.pack_propagate(False)
+        right_shell.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(12, 0))
+        right_shell.pack_propagate(False)
+
+        right_scrollbar = tk.Scrollbar(right_shell, orient=tk.VERTICAL)
+        right_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        right_canvas = tk.Canvas(
+            right_shell,
+            bg=self.PANEL,
+            bd=0,
+            highlightthickness=0,
+            yscrollcommand=right_scrollbar.set,
+        )
+        right_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right_scrollbar.configure(command=right_canvas.yview)
+
+        right = tk.Frame(right_canvas, bg=self.PANEL)
+        right_window = right_canvas.create_window(
+            (0, 0),
+            window=right,
+            anchor="nw",
+        )
+        self._project_scroll_canvas = right_canvas
+        self._project_scroll_content = right
+
+        def update_scroll_region(_event=None) -> None:
+            try:
+                right_canvas.configure(scrollregion=right_canvas.bbox("all"))
+            except Exception:
+                pass
+
+        def fit_scroll_width(event) -> None:
+            try:
+                right_canvas.itemconfigure(
+                    right_window,
+                    width=max(1, int(event.width)),
+                )
+            except Exception:
+                pass
+
+        right.bind("<Configure>", update_scroll_region, add="+")
+        right_canvas.bind("<Configure>", fit_scroll_width, add="+")
+        self.window.bind("<MouseWheel>", self._scroll_project_content, add="+")
+        self.window.bind("<Button-4>", self._scroll_project_content, add="+")
+        self.window.bind("<Button-5>", self._scroll_project_content, add="+")
 
         self.project_title = tk.Label(
             right,
@@ -153,7 +198,7 @@ class DisplayProjectConfigWindow:
             bg=self.PANEL,
             anchor="w",
             justify=tk.LEFT,
-            wraplength=410,
+            wraplength=390,
         )
         self.project_state.pack(fill=tk.X, padx=16, pady=(0, 12))
 
@@ -270,6 +315,34 @@ class DisplayProjectConfigWindow:
         self.refresh()
         self.window.lift()
         self.window.focus_force()
+
+    def _widget_inside_project_scroll(self, widget) -> bool:
+        target = self._project_scroll_content
+        current = widget
+        while current is not None:
+            if current is target or current is self._project_scroll_canvas:
+                return True
+            current = getattr(current, "master", None)
+        return False
+
+    def _scroll_project_content(self, event) -> str | None:
+        canvas = self._project_scroll_canvas
+        if canvas is None or not self._widget_inside_project_scroll(getattr(event, "widget", None)):
+            return None
+        try:
+            if getattr(event, "num", None) == 4:
+                units = -3
+            elif getattr(event, "num", None) == 5:
+                units = 3
+            else:
+                delta = int(getattr(event, "delta", 0) or 0)
+                if delta == 0:
+                    return None
+                units = -max(1, abs(delta) // 120) if delta > 0 else max(1, abs(delta) // 120)
+            canvas.yview_scroll(int(units), "units")
+            return "break"
+        except Exception:
+            return None
 
     def _button(self, parent, text, command, primary: bool = False, danger: bool = False):
         bg = "#0E7490" if primary else "#1E293B"
