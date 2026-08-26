@@ -34,12 +34,14 @@ jobs:
             src/platform/display_visual_reference_status.py \
             src/platform/display_f3_status_layout_fix.py \
             src/platform/display_f3_operational_status.py \
+            src/platform/display_f3_check_transition_guard.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_project_config_scroll.py \
             tests/test_display_check_presence_reference.py \
             tests/test_display_visual_reference_status.py \
             tests/test_display_f3_status_layout_fix.py \
-            tests/test_display_f3_operational_status.py
+            tests/test_display_f3_operational_status.py \
+            tests/test_display_f3_check_transition_guard.py
 
       - name: Run Project Display scroll tests
         run: |
@@ -57,6 +59,12 @@ jobs:
         run: |
           python -m unittest \
             tests.test_display_f3_operational_status \
+            -v
+
+      - name: Run F3 check transition guard tests
+        run: |
+          python -m unittest \
+            tests.test_display_f3_check_transition_guard \
             -v
 
       - name: Run presence reference tests
