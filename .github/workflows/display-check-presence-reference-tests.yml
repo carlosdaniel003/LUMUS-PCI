@@ -37,10 +37,15 @@ jobs:
             tests/test_display_check_presence_reference.py \
             tests/test_display_visual_reference_status.py
 
-      - name: Run presence reference tests
+      - name: Run Project Display scroll tests
         run: |
           python -m unittest \
             tests.test_display_project_config_scroll \
+            -v
+
+      - name: Run presence reference tests
+        run: |
+          python -m unittest \
             tests.test_display_check_presence_reference \
             tests.test_display_visual_reference_status \
             -v
