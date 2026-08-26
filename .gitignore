@@ -34,6 +34,10 @@ data/config/f2_board_presence/
 data/config/reference_on.png
 data/config/reference_off.png
 data/config/reference_low_light.png
+data/config/odin_display_check_presence.json
+data/config/display_check_presence/
+data/config/odin_display_project_presence.json
+data/config/display_project_presence/
 
 # Amostras/imagens locais de LED
 data/config/roi_samples/
