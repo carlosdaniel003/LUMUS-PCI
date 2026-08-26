@@ -55,6 +55,9 @@ from src.platform.fixed_mask_geometry_guard import (
     FixedMaskGeometryGuardMixin,
     instalar_repositorio_mascaras_absolutas,
 )
+from src.platform.freeform_live_camera_geometry import (
+    FreeformLiveCameraGeometryMixin,
+)
 from src.platform.freeform_segment_persistence import (
     instalar_persistencia_segmento_livre,
 )
@@ -157,6 +160,7 @@ class RaspberryPi3ProductionApp(
     LedProjectPreviewMixin,
     ProjectReferenceSetsMixin,
     ReferenceCaptureMixin,
+    FreeformLiveCameraGeometryMixin,
     FreeformSegmentDrawingMixin,
     FullscreenLedSelectionMixin,
     ProjectMaskGeometryAnchorMixin,
