@@ -3,6 +3,9 @@ from __future__ import annotations
 import unittest
 
 from src.models.led_selection import LedSelection
+from src.platform.freeform_live_camera_geometry import (
+    FreeformLiveCameraGeometryMixin,
+)
 from src.platform.freeform_segment_persistence import (
     copiar_mascara_absoluta_segmento_livre,
     instalar_persistencia_segmento_livre,
@@ -91,10 +94,95 @@ class _ProjectManagerHarness(
     pass
 
 
+class _LiveViewFake:
+    def __init__(self) -> None:
+        self.drawn: list[list[dict]] = []
+
+    def desenhar_canvas(self, leds, _resultados, *args, **kwargs):
+        self.drawn.append([led.to_dict() for led in (leds or ())])
+        return True
+
+
+class _LegacyLiveCameraRefreshBase:
+    """Reproduz a degradação real do refresh antigo: id/centro/raio apenas."""
+
+    def atualizar_frame_camera(self):
+        self.leds_selecionados = [
+            LedSelection(
+                id=led.id,
+                centro_x=led.centro_x,
+                centro_y=led.centro_y,
+                raio=led.raio,
+            )
+            for led in self.leds_manuais_camera
+        ]
+        self.view.desenhar_canvas(self.leds_selecionados, [])
+        # As previews auxiliares são geradas depois do primeiro desenho do frame.
+        self.preview_auxiliar = [led.to_dict() for led in self.leds_selecionados]
+        return "legacy-refresh"
+
+
+class _LiveCameraGeometryHarness(
+    FreeformLiveCameraGeometryMixin,
+    _LegacyLiveCameraRefreshBase,
+):
+    pass
+
+
 class FreeformProjectRoundTripTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         instalar_persistencia_segmento_livre()
+
+    def test_refresh_camera_nunca_expoe_segmento_livre_como_circulo(self):
+        original = criar_segmento_livre_por_pontos(
+            [(40, 30), (130, 30), (130, 75), (40, 75)],
+            "SEG_001",
+        )
+        pontos_originais = list(original.pontos_segmento_livre or ())
+
+        app = object.__new__(_LiveCameraGeometryHarness)
+        app.camera_ativa = True
+        app.camera_em_pausa_analise = False
+        app.selecao_manual_camera_ativa = True
+        app.modo_atual = "selecionar_leds_camera"
+        app.leds_manuais_camera = [
+            copiar_mascara_absoluta_segmento_livre(original)
+        ]
+        app.leds_selecionados = []
+        app.view = _LiveViewFake()
+        app.preview_auxiliar = []
+
+        retorno = app.atualizar_frame_camera()
+
+        self.assertEqual("legacy-refresh", retorno)
+        self.assertEqual(1, len(app.view.drawn))
+        self.assertEqual("segmento", app.view.drawn[0][0].get("tipo_roi"))
+        self.assertEqual(
+            [[float(x), float(y)] for x, y in pontos_originais],
+            app.view.drawn[0][0].get("pontos_segmento_livre"),
+        )
+        self.assertEqual("segmento", app.preview_auxiliar[0].get("tipo_roi"))
+        self.assertTrue(app.leds_selecionados[0].eh_segmento_livre)
+        self.assertTrue(app.leds_manuais_camera[0].eh_segmento_livre)
+        self.assertEqual(
+            pontos_originais,
+            list(app.leds_selecionados[0].pontos_segmento_livre or ()),
+        )
+
+    def test_refresh_sem_selecao_manual_permanece_no_fluxo_legado(self):
+        app = object.__new__(_LiveCameraGeometryHarness)
+        app.camera_ativa = True
+        app.camera_em_pausa_analise = False
+        app.selecao_manual_camera_ativa = False
+        app.modo_atual = "tela_ao_vivo"
+        app.leds_manuais_camera = []
+        app.leds_selecionados = []
+        app.view = _LiveViewFake()
+        app.preview_auxiliar = []
+
+        self.assertEqual("legacy-refresh", app.atualizar_frame_camera())
+        self.assertEqual([[]], app.view.drawn)
 
     def test_salvar_e_reabrir_projeto_preserva_segmento_ponto_a_ponto(self):
         original = criar_segmento_livre_por_pontos(
