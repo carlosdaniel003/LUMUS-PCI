@@ -30,7 +30,8 @@ def _id(mask: dict) -> str:
 
 
 def _area(points) -> float:
-    pts = [(float(p[0]), float(p[1])) for p in points or []]
+    source = () if points is None else points
+    pts = [(float(p[0]), float(p[1])) for p in source]
     return abs(
         sum(
             x1 * y2 - x2 * y1
@@ -81,14 +82,15 @@ def criar_poligono_display_por_pontos(
     visual da ferramenta ``Segmento por pontos`` do Selecionar LEDs.
     """
     vertices = []
-    for ponto in pontos or ():
-        if not isinstance(ponto, (list, tuple)) or len(ponto) < 2:
-            continue
+    source = () if pontos is None else pontos
+    for ponto in source:
         try:
+            if len(ponto) < 2:
+                continue
             vertices.append(
                 [int(round(float(ponto[0]))), int(round(float(ponto[1])))]
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, IndexError):
             continue
     if len(vertices) < 3 or _area(vertices) < 4:
         raise ValueError("A máscara por pontos precisa de pelo menos 3 vértices válidos.")
