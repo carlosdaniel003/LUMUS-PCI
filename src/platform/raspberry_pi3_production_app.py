@@ -30,6 +30,9 @@ from src.platform.display_auto_check_runtime import (
 from src.platform.display_awake_runtime import (
     LinuxDisplayAwakeMixin,
 )
+from src.platform.display_check_presence_reference import (
+    instalar_referencia_presenca_check_display,
+)
 from src.platform.display_production_f3 import (
     DisplayProductionF3Mixin,
 )
@@ -189,6 +192,7 @@ class RaspberryPi3ProductionApp(
         instalar_preview_projeto_led_store()
         instalar_repositorio_mascaras_absolutas()
         instalar_preservacao_segmentos_resolution_sync()
+        instalar_referencia_presenca_check_display()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
