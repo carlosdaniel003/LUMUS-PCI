@@ -50,6 +50,7 @@ jobs:
             src/platform/display_reference_store.py \
             src/platform/display_reference_learning.py \
             src/platform/display_reference_learning_guard.py \
+            src/platform/freeform_segment_persistence.py \
             src/platform/segment_project_geometry_persistence.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_f3_architecture.py \
@@ -59,6 +60,7 @@ jobs:
             tests/test_display_check_repository.py \
             tests/test_display_mask_editor_f2_parity.py \
             tests/test_roi_geometry_f2_f3_consistency.py \
+            tests/test_freeform_project_roundtrip.py \
             tests/test_display_check_zoom.py \
             tests/test_display_f3_visual_rotation.py \
             tests/test_display_check_visual_rotation.py \
@@ -80,6 +82,7 @@ jobs:
             tests.test_display_mask_editor_f2_parity \
             tests.test_roi_geometry_f2_f3_consistency \
             tests.test_freeform_segment_roi \
+            tests.test_freeform_project_roundtrip \
             -v
 
       - name: Run F3 isolation and runtime tests
