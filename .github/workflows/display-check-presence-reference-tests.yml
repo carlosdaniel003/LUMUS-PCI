@@ -36,6 +36,8 @@ jobs:
             src/platform/display_f3_status_layout_fix.py \
             src/platform/display_f3_operational_status.py \
             src/platform/display_f3_check_transition_guard.py \
+            src/platform/display_f3_physical_state_fix.py \
+            src/platform/display_live_roi_overlay.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_project_config_scroll.py \
             tests/test_display_check_presence_reference.py \
@@ -43,7 +45,8 @@ jobs:
             tests/test_display_reference_roi.py \
             tests/test_display_f3_status_layout_fix.py \
             tests/test_display_f3_operational_status.py \
-            tests/test_display_f3_check_transition_guard.py
+            tests/test_display_f3_check_transition_guard.py \
+            tests/test_display_f3_physical_state_fix.py
 
       - name: Run Project Display scroll tests
         run: |
@@ -67,6 +70,12 @@ jobs:
         run: |
           python -m unittest \
             tests.test_display_f3_check_transition_guard \
+            -v
+
+      - name: Run F3 physical state and persistent ROI tests
+        run: |
+          python -m unittest \
+            tests.test_display_f3_physical_state_fix \
             -v
 
       - name: Run F3 reference ROI tests
