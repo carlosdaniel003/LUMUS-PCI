@@ -1,11 +1,33 @@
 from __future__ import annotations
 
+import src.platform.display_f3_check_transition_guard as transition_guard_module
 import src.platform.display_f3_operational_status as operational_module
 from src.platform.display_auto_check_policy import DISPLAY_AUTO_MIN_CONFIDENCE
+from src.platform.display_auto_check_runtime import DisplayAutomaticCheckF3Mixin
 from src.platform.display_project_repository import (
     DISPLAY_CHECK_STATE_OFF,
     DISPLAY_CHECK_STATE_ON,
 )
+
+
+DISPLAY_F3_FAST_OK_STABLE_FRAMES = 1
+DISPLAY_F3_FAST_CHECK_TRANSITION_FRAMES = 2
+
+
+def _aplicar_perfil_aprovacao_rapida_display_f3() -> None:
+    """Reduz somente a latência positiva dos CHECKS do Display F3.
+
+    H1, BLUE, USB e AUX passam a precisar de uma única leitura óptica OK para
+    confirmar o CHECK depois que o estado visual já foi reconhecido. A troca
+    entre referências de CHECK continua com debounce, porém cai de quatro para
+    dois frames consecutivos. NG e os gates de EMPTY/OFF permanecem intactos.
+    """
+    DisplayAutomaticCheckF3Mixin.DISPLAY_AUTO_OK_STABLE_FRAMES = (
+        DISPLAY_F3_FAST_OK_STABLE_FRAMES
+    )
+    transition_guard_module.F3_CHECK_TRANSITION_STABLE_FRAMES = (
+        DISPLAY_F3_FAST_CHECK_TRANSITION_FRAMES
+    )
 
 
 def _analise_optica_corresponde_ao_contexto_f3(
@@ -142,6 +164,8 @@ def reconciliar_estado_operacional_com_evidencia_optica_f3(
 
 def instalar_reconciliacao_optica_estado_fisico_display_f3() -> None:
     """Instala a reconciliação somente no estado operacional do Display F3."""
+    _aplicar_perfil_aprovacao_rapida_display_f3()
+
     if bool(
         getattr(
             operational_module,
