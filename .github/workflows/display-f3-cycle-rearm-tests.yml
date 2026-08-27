@@ -26,16 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install opencv-python-headless numpy
 
-      - name: Compile F3 cycle rearm modules
+      - name: Compile F3 physical cycle modules
         run: |
           python -m py_compile \
             src/platform/display_f3_live_runtime_fix.py \
             src/platform/display_f3_cycle_rearm_release_fix.py \
+            src/platform/display_f3_optical_power_reconciliation.py \
             src/platform/display_manual_transition_guard.py \
-            tests/test_display_f3_cycle_rearm_release_fix.py
+            tests/test_display_f3_cycle_rearm_release_fix.py \
+            tests/test_display_f3_optical_power_reconciliation.py
 
-      - name: Run F3 cycle rearm tests
+      - name: Run F3 cycle and optical power tests
         run: |
           python -m unittest \
             tests.test_display_f3_cycle_rearm_release_fix \
+            tests.test_display_f3_optical_power_reconciliation \
             -v
