@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import src.platform.display_f3_operational_status as operational_module
-
+from src.platform.display_auto_check_policy import DISPLAY_AUTO_MIN_CONFIDENCE
+from src.platform.display_project_repository import (
+    DISPLAY_CHECK_STATE_OFF,
+    DISPLAY_CHECK_STATE_ON,
+)
 
 
 def _analise_optica_corresponde_ao_contexto_f3(
@@ -19,6 +23,65 @@ def _analise_optica_corresponde_ao_contexto_f3(
     )
 
 
+def _confidence(item: dict) -> float:
+    try:
+        return float(item.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _analise_tem_evidencia_optica_de_display_ligado_f3(
+    analysis: dict | None,
+) -> bool:
+    """Detecta energia pelas máscaras sem reutilizar o gate manual estrito.
+
+    O gate de transição manual do F3 foi endurecido para aceitar somente um CHECK
+    integralmente conforme. Isso é correto para BLUE/USB/AUX, mas é rígido demais
+    para responder à pergunta física mais simples: "o display está ligado?".
+
+    Para essa pergunta usamos somente a classificação óptica das máscaras:
+    - precisa existir ao menos uma máscara esperada ON reconhecida como ON;
+    - a leitura precisa ter a confiança mínima já aceita pelo classificador F3;
+    - se o CHECK possuir máscaras esperadas OFF, ao menos uma delas também deve
+      parecer OFF, reduzindo a chance de brilho global/reflexo ser tomado por energia.
+    """
+    if not isinstance(analysis, dict) or not bool(analysis.get("ready")):
+        return False
+
+    results = [
+        item
+        for item in (analysis.get("mask_results") or [])
+        if isinstance(item, dict)
+        and _confidence(item) >= DISPLAY_AUTO_MIN_CONFIDENCE
+    ]
+    if not results:
+        return False
+
+    expected_on = [
+        item for item in results if str(item.get("expected") or "") == DISPLAY_CHECK_STATE_ON
+    ]
+    if not expected_on:
+        return False
+
+    on_evidence = any(
+        str(item.get("classified") or "") == DISPLAY_CHECK_STATE_ON
+        for item in expected_on
+    )
+    if not on_evidence:
+        return False
+
+    expected_off = [
+        item for item in results if str(item.get("expected") or "") == DISPLAY_CHECK_STATE_OFF
+    ]
+    if expected_off and not any(
+        str(item.get("classified") or "") == DISPLAY_CHECK_STATE_OFF
+        for item in expected_off
+    ):
+        return False
+
+    return True
+
+
 def _tem_evidencia_optica_de_display_ligado_f3(
     app,
     context: dict | None,
@@ -26,15 +89,7 @@ def _tem_evidencia_optica_de_display_ligado_f3(
     analysis = getattr(app, "_display_auto_last_analysis", None)
     if not _analise_optica_corresponde_ao_contexto_f3(analysis, context):
         return False
-
-    detector = getattr(app, "_display_auto_has_manual_entry_evidence", None)
-    if not callable(detector):
-        return False
-
-    try:
-        return bool(detector(analysis))
-    except Exception:
-        return False
+    return _analise_tem_evidencia_optica_de_display_ligado_f3(analysis)
 
 
 def reconciliar_estado_operacional_com_evidencia_optica_f3(
