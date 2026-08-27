@@ -6,9 +6,13 @@ import unittest
 import numpy as np
 
 from src.platform.display_f3_live_runtime_fix import (
+    F3_EMPTY_STABLE_FRAMES,
     F3_TRANSIENT_HOLD_FRAMES,
+    aplicar_gate_rearme_ciclo_f3,
+    armar_rearme_por_suporte_vazio_f3,
     atualizar_classificacao_overlay_f3,
     estabilizar_estado_fisico_rapido_f3,
+    promover_suporte_vazio_rapido_f3,
 )
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 
@@ -63,6 +67,42 @@ class _OverlayApp:
         raise AssertionError("classificação de overlay não pode registrar CHECK")
 
 
+class _Store:
+    def __init__(self, values):
+        self.values = values
+
+    def get_all(self, project_name):
+        return dict(self.values.get(project_name, {}))
+
+    def get(self, project_name, key):
+        return self.values.get(project_name, {}).get(key)
+
+
+class _ReferenceRepository:
+    @staticmethod
+    def listar_checks(_project_name):
+        return []
+
+
+class _Matcher:
+    def __init__(self, board_refs):
+        self.repository = _ReferenceRepository()
+        self.project_store = _Store({"DISPLAY_TESTE": board_refs})
+        self.check_store = _Store({"DISPLAY_TESTE": {}})
+
+    @staticmethod
+    def _reference_image(metadata):
+        return metadata.get("image")
+
+    @staticmethod
+    def _score(_current, metadata):
+        return float(metadata.get("score", 0.0))
+
+    @staticmethod
+    def _threshold(metadata):
+        return float(metadata.get("threshold", 0.72))
+
+
 class DisplayF3LiveRuntimeFixTests(unittest.TestCase):
     @staticmethod
     def _check_state(check_id: str, name: str) -> dict:
@@ -72,6 +112,16 @@ class DisplayF3LiveRuntimeFixTests(unittest.TestCase):
             "check_id": check_id,
             "check_name": name,
             "physical_state_key": f"check:{check_id}",
+            "allow_auto": False,
+            "board_references_complete": True,
+        }
+
+    @staticmethod
+    def _empty_state() -> dict:
+        return {
+            "kind": "empty",
+            "text": "PLACA FORA DO SUPORTE",
+            "physical_state_key": "empty",
             "allow_auto": False,
             "board_references_complete": True,
         }
@@ -132,20 +182,79 @@ class DisplayF3LiveRuntimeFixTests(unittest.TestCase):
             app,
             self._check_state("CHECK_BLUE", "BLUE"),
         )
-        empty = estabilizar_estado_fisico_rapido_f3(
-            app,
-            {
-                "kind": "empty",
-                "text": "PLACA FORA DO SUPORTE",
-                "physical_state_key": "empty",
-                "allow_auto": False,
-                "board_references_complete": True,
-            },
-        )
+        empty = estabilizar_estado_fisico_rapido_f3(app, self._empty_state())
 
         self.assertNotEqual("CHECK_BLUE", str(empty.get("check_id") or ""))
         self.assertEqual(0, app._display_f3_transient_hold_frames)
         self.assertIsNone(app._display_f3_transient_hold_state)
+
+    def test_suporte_vazio_confirma_em_dois_frames(self):
+        app = _PhysicalApp()
+        first = estabilizar_estado_fisico_rapido_f3(app, self._empty_state())
+        second = estabilizar_estado_fisico_rapido_f3(app, self._empty_state())
+
+        self.assertEqual(2, F3_EMPTY_STABLE_FRAMES)
+        self.assertEqual("unknown", first["kind"])
+        self.assertEqual("empty", second["kind"])
+        self.assertEqual("empty", app._display_f3_physical_stable_key)
+
+    def test_empty_pode_vencer_off_sem_disputar_com_todos_os_checks(self):
+        empty_image = np.zeros((80, 120, 3), dtype=np.uint8)
+        off_image = empty_image.copy()
+        off_image[10:70, 10:110] = 90
+        observed = empty_image.copy()
+        matcher = _Matcher(
+            {
+                "empty_support": {
+                    "image": empty_image,
+                    "score": 0.95,
+                    "threshold": 0.72,
+                },
+                "board_off": {
+                    "image": off_image,
+                    "score": 0.80,
+                    "threshold": 0.72,
+                },
+            }
+        )
+        fallback = {
+            "kind": "unknown",
+            "text": "IDENTIFICANDO...",
+            "allow_auto": False,
+        }
+
+        promoted = promover_suporte_vazio_rapido_f3(
+            matcher,
+            observed,
+            "DISPLAY_TESTE",
+            fallback,
+        )
+
+        self.assertEqual("empty", promoted["kind"])
+        self.assertEqual("PLACA FORA DO SUPORTE", promoted["text"])
+        self.assertTrue(promoted["fast_empty"])
+
+    def test_ciclo_terminal_fica_bloqueado_ate_passar_por_empty(self):
+        app = _PhysicalApp()
+        armar_rearme_por_suporte_vazio_f3(app)
+
+        same_board = self._check_state("CHECK_H1", "H1")
+        same_board["allow_auto"] = True
+        blocked = aplicar_gate_rearme_ciclo_f3(app, same_board)
+
+        self.assertTrue(app._display_f3_waiting_empty_rearm)
+        self.assertFalse(blocked["allow_auto"])
+        self.assertTrue(blocked["cycle_rearm_waiting"])
+
+        empty = aplicar_gate_rearme_ciclo_f3(app, self._empty_state())
+        self.assertEqual("empty", empty["kind"])
+        self.assertTrue(empty["cycle_rearmed"])
+        self.assertFalse(app._display_f3_waiting_empty_rearm)
+
+        new_board = self._check_state("CHECK_H1", "H1")
+        new_board["allow_auto"] = True
+        released = aplicar_gate_rearme_ciclo_f3(app, new_board)
+        self.assertTrue(released["allow_auto"])
 
     def test_classificacao_overlay_roda_sem_registrar_ou_alterar_debounce(self):
         repository = object()
