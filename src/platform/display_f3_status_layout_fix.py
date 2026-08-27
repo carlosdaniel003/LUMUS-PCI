@@ -288,3 +288,9 @@ def instalar_layout_status_f3_estavel() -> None:
     visual_status_module._format_display_status = format_display_status_f3
     visual_status_module._format_board_status = format_board_status_f3
     _install_status_on_preview_right()
+
+
+# O app importa este módulo somente depois de display_f3_live_runtime_fix estar
+# completamente carregado. Isso evita ciclo de import e instala o gate físico
+# terminal no momento seguro do bootstrap do F3.
+import src.platform.display_f3_cycle_rearm_release_fix  # noqa: E402,F401
