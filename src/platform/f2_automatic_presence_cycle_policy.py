@@ -8,7 +8,10 @@ from src.platform.f2_board_presence_references import (
 )
 
 
-F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED = 2
+F2_AUTO_NEW_BOARD_PRESENT_FRAMES_REQUIRED = 2
+# Compatibilidade com extensões/testes anteriores. O nome antigo dizia "OFF",
+# mas o rearme atual depende apenas da nova placa PRESENTE após o vazio confirmado.
+F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED = F2_AUTO_NEW_BOARD_PRESENT_FRAMES_REQUIRED
 
 
 class F2AutomaticPresenceCyclePolicyMixin:
@@ -17,8 +20,9 @@ class F2AutomaticPresenceCyclePolicyMixin:
     A primeira análise automática continua sendo disparada pela evidência já
     validada no F2: pelo menos um LED ACESO. Depois de uma inspeção bem-sucedida,
     porém, a placa fica travada e não pode disparar novamente. O rearme exige a
-    sequência física SUPORTE VAZIO -> NOVA PLACA PRESENTE E APAGADA. Só depois
-    disso um novo LED ACESO pode iniciar outra análise automática.
+    sequência física SUPORTE VAZIO -> NOVA PLACA PRESENTE. A nova placa pode já
+    entrar ligada; não é necessário capturar um estado APAGADO antes do próximo
+    disparo automático.
 
     Enter/GPIO continuam independentes: uma ação manual sempre pode solicitar
     uma análise, mesmo quando o ciclo automático está travado.
@@ -29,29 +33,24 @@ class F2AutomaticPresenceCyclePolicyMixin:
         self._f2_auto_cycle_locked = False
         self._f2_auto_waiting_new_board_off = False
         self._f2_auto_new_board_off_frames = 0
+        self._f2_auto_last_inspection_result = None
         return result
 
     @staticmethod
     def _f2_auto_all_leds_off(states: dict[str, str] | None) -> bool:
+        """Compatibilidade: o estado OFF deixou de ser requisito de rearme."""
         current = dict(states or {})
         return bool(current) and all(
             str(status).strip().upper() == STATUS_APAGADO
             for status in current.values()
         )
 
-    def _f2_auto_observe_new_board_off(
-        self,
-        states: dict[str, str],
-        presence: str,
-    ) -> bool:
+    def _f2_auto_observe_new_board_present(self, presence: str) -> bool:
+        """Rearma após vazio confirmado e nova placa PRESENTE por frames estáveis."""
         if not bool(getattr(self, "_f2_auto_waiting_new_board_off", False)):
             return False
 
-        new_board_is_off = (
-            presence == F2_BOARD_PRESENCE_PRESENT
-            and self._f2_auto_all_leds_off(states)
-        )
-        if not new_board_is_off:
+        if presence != F2_BOARD_PRESENCE_PRESENT:
             self._f2_auto_new_board_off_frames = 0
             return False
 
@@ -60,17 +59,27 @@ class F2AutomaticPresenceCyclePolicyMixin:
         ) + 1
         if (
             self._f2_auto_new_board_off_frames
-            < F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED
+            < F2_AUTO_NEW_BOARD_PRESENT_FRAMES_REQUIRED
         ):
             return False
 
         # Este é o ÚNICO ponto de rearme do ciclo automático: a placa anterior
-        # já saiu, o suporte vazio já foi confirmado e agora uma nova placa foi
-        # vista PRESENTE e APAGADA de forma estável.
+        # já saiu, o suporte vazio já foi confirmado e agora outra placa foi
+        # vista PRESENTE de forma estável. Não exigir LEDs apagados evita perder
+        # o ciclo quando o operador liga a nova placa antes do próximo frame.
         self._f2_auto_cycle_locked = False
         self._f2_auto_waiting_new_board_off = False
         self._f2_auto_new_board_off_frames = 0
         return True
+
+    def _f2_auto_observe_new_board_off(
+        self,
+        states: dict[str, str],
+        presence: str,
+    ) -> bool:
+        """Alias legado; o rearme não exige mais que a nova placa esteja OFF."""
+        _ = states
+        return self._f2_auto_observe_new_board_present(presence)
 
     def _f2_auto_mark_cycle_inspected(self) -> None:
         """Trava o automático imediatamente para a placa corrente."""
@@ -102,11 +111,22 @@ class F2AutomaticPresenceCyclePolicyMixin:
             reset()
 
     def disparar_inspecao_operacao(self) -> None:
-        """Mantém Enter livre, mas registra a placa como já analisada."""
+        """Mantém Enter livre, mas registra placa e último resultado analisado."""
         total_before = int(getattr(self, "operacao_total", 0) or 0)
+        ok_before = int(getattr(self, "operacao_ok", 0) or 0)
+        ng_before = int(getattr(self, "operacao_ng", 0) or 0)
+
         result = super().disparar_inspecao_operacao()
         successful = int(getattr(self, "operacao_total", 0) or 0) > total_before
         if self._f2_auto_enabled() and successful:
+            ok_after = int(getattr(self, "operacao_ok", 0) or 0)
+            ng_after = int(getattr(self, "operacao_ng", 0) or 0)
+            if ok_after > ok_before:
+                self._f2_auto_last_inspection_result = "OK"
+            elif ng_after > ng_before:
+                self._f2_auto_last_inspection_result = "NG"
+            else:
+                self._f2_auto_last_inspection_result = None
             self._f2_auto_mark_cycle_inspected()
         return result
 
@@ -144,13 +164,13 @@ class F2AutomaticPresenceCyclePolicyMixin:
                 and removed
                 and presence == F2_BOARD_PRESENCE_EMPTY
             ):
-                # O vazio confirma que a placa anterior saiu, mas ainda não
-                # arma o gatilho. Primeiro precisamos ver a próxima placa
-                # presente e completamente apagada.
+                # O vazio confirmado é a fronteira física entre duas placas.
+                # A partir daqui o resultado anterior não pertence mais à cena.
+                self._f2_auto_last_inspection_result = None
                 self._f2_auto_waiting_new_board_off = True
                 self._f2_auto_new_board_off_frames = 0
 
-            self._f2_auto_observe_new_board_off(states, presence)
+            self._f2_auto_observe_new_board_present(presence)
 
         self._f2_auto_publish_states(states, presence)
 

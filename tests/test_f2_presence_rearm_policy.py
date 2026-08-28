@@ -13,6 +13,7 @@ from src.platform.f2_automatic_cycle_guard import (
 )
 from src.platform.f2_automatic_presence_cycle_policy import (
     F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED,
+    F2_AUTO_NEW_BOARD_PRESENT_FRAMES_REQUIRED,
     F2AutomaticPresenceCyclePolicyMixin,
 )
 from src.platform.f2_board_presence_references import (
@@ -41,6 +42,10 @@ class _AutomaticBase:
         )
         if self.increment_operation_total:
             self.operacao_total += 1
+            if self.next_result_ok:
+                self.operacao_ok += 1
+            else:
+                self.operacao_ng += 1
 
 
 class _AutomaticHarness(
@@ -54,6 +59,9 @@ class _AutomaticHarness(
         self.operacao_leds_preview = ()
         self.operacao_processando = False
         self.operacao_total = 0
+        self.operacao_ok = 0
+        self.operacao_ng = 0
+        self.next_result_ok = True
         self.increment_operation_total = True
         self.lock_seen_during_dispatch = False
         self._operacao_resultado_after_id = None
@@ -67,6 +75,7 @@ class _AutomaticHarness(
         self._f2_auto_cycle_locked = False
         self._f2_auto_waiting_new_board_off = False
         self._f2_auto_new_board_off_frames = 0
+        self._f2_auto_last_inspection_result = None
         self._f2_board_presence_refs = None
 
     def _f2_auto_enabled(self) -> bool:
@@ -127,13 +136,14 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         self.assertTrue(app._f2_auto_cycle_locked)
         self.assertEqual(1, app.operacao_total)
 
-    def test_disparo_real_marca_placa_como_ja_analisada(self):
+    def test_disparo_real_marca_placa_como_ja_analisada_e_guarda_resultado(self):
         app = _AutomaticHarness()
         app.operacao_engine.status = "ACESO"
 
         self.assertFalse(app._f2_auto_analyze_current_frame())
         self.assertTrue(app._f2_auto_analyze_current_frame())
         self.assertEqual(1, app.operacao_total)
+        self.assertEqual("OK", app._f2_auto_last_inspection_result)
         self.assertTrue(app._f2_auto_cycle.waiting_removal)
         self.assertTrue(app._f2_auto_cycle_locked)
 
@@ -142,6 +152,21 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         for _ in range(100):
             self.assertFalse(app._f2_auto_analyze_current_frame())
         self.assertEqual(1, app.operacao_total)
+        self.assertEqual("OK", app._f2_auto_last_inspection_result)
+        self.assertTrue(app._f2_auto_cycle_locked)
+
+    def test_resultado_ng_tambem_fica_associado_a_placa_travada(self):
+        app = _AutomaticHarness()
+        app.next_result_ok = False
+        app.operacao_engine.status = "ACESO"
+
+        self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertTrue(app._f2_auto_analyze_current_frame())
+
+        self.assertEqual(1, app.operacao_total)
+        self.assertEqual(0, app.operacao_ok)
+        self.assertEqual(1, app.operacao_ng)
+        self.assertEqual("NG", app._f2_auto_last_inspection_result)
         self.assertTrue(app._f2_auto_cycle_locked)
 
     def test_trava_independente_resiste_perda_do_waiting_removal(self):
@@ -181,7 +206,7 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         self.assertEqual(1, app.operacao_total)
         self.assertTrue(app._f2_auto_cycle_locked)
 
-    def test_fluxo_completo_exige_vazio_e_nova_placa_apagada(self):
+    def test_fluxo_completo_rearma_apos_vazio_e_nova_placa_mesmo_ja_ligada(self):
         app = _AutomaticHarness()
 
         # Placa 1 colocada e ligada: dois frames estáveis com LED ACESO.
@@ -217,18 +242,18 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         self.assertTrue(app._f2_auto_cycle.waiting_removal)
         self.assertTrue(app._f2_auto_cycle_locked)
 
-        # SUPORTE VAZIO confirma que a placa anterior saiu, porém ainda NÃO
-        # libera o próximo gatilho automático.
+        # SUPORTE VAZIO confirma que a placa anterior saiu, porém ainda aguarda
+        # a presença estável da próxima placa antes de liberar o gatilho.
         app._presence = F2_BOARD_PRESENCE_EMPTY
         for _ in range(F2_AUTO_REFERENCE_EMPTY_FRAMES_REQUIRED):
             self.assertFalse(app._f2_auto_analyze_current_frame())
         self.assertFalse(app._f2_auto_cycle.waiting_removal)
         self.assertTrue(app._f2_auto_waiting_new_board_off)
         self.assertTrue(app._f2_auto_cycle_locked)
+        self.assertIsNone(app._f2_auto_last_inspection_result)
         self.assertEqual(1, app.operacao_total)
 
-        # Mesmo que alguma ROI do suporte vazio pareça acesa, o automático
-        # continua bloqueado enquanto não entrar uma nova placa apagada.
+        # Mesmo uma ROI do suporte vazio parecendo acesa não rearma sem placa.
         app.operacao_engine.status = "ACESO"
         for _ in range(10):
             self.assertFalse(app._f2_auto_analyze_current_frame())
@@ -236,18 +261,10 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         self.assertTrue(app._f2_auto_waiting_new_board_off)
         self.assertTrue(app._f2_auto_cycle_locked)
 
-        # Se a nova placa entrar já ligada, também não libera: o processo
-        # físico esperado é nova placa presente e apagada antes de ligar.
+        # A nova placa pode entrar já ligada. Dois frames PRESENTE confirmam a
+        # troca; o segundo já conta como primeiro frame ACESO do novo disparo.
         app._presence = F2_BOARD_PRESENCE_PRESENT
-        for _ in range(10):
-            self.assertFalse(app._f2_auto_analyze_current_frame())
-        self.assertEqual(1, app.operacao_total)
-        self.assertTrue(app._f2_auto_waiting_new_board_off)
-        self.assertTrue(app._f2_auto_cycle_locked)
-
-        # Nova placa presente e apagada libera o ciclo após confirmação.
-        app.operacao_engine.status = "APAGADO"
-        for _ in range(F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED - 1):
+        for _ in range(F2_AUTO_NEW_BOARD_PRESENT_FRAMES_REQUIRED - 1):
             self.assertFalse(app._f2_auto_analyze_current_frame())
             self.assertTrue(app._f2_auto_waiting_new_board_off)
             self.assertTrue(app._f2_auto_cycle_locked)
@@ -256,13 +273,50 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         self.assertFalse(app._f2_auto_cycle_locked)
         self.assertEqual(1, app.operacao_total)
 
-        # Só agora, quando a nova placa liga, nasce a segunda automática.
-        app.operacao_engine.status = "ACESO"
-        self.assertFalse(app._f2_auto_analyze_current_frame())
+        # O próximo frame ACESO completa a estabilidade e dispara a placa 2.
         self.assertTrue(app._f2_auto_analyze_current_frame())
         self.assertEqual(2, app.operacao_total)
         self.assertTrue(app._f2_auto_cycle.waiting_removal)
         self.assertTrue(app._f2_auto_cycle_locked)
+
+    def test_varias_trocas_com_nova_placa_ja_ligada_nao_prendem_automatico(self):
+        app = _AutomaticHarness()
+        app._presence = F2_BOARD_PRESENCE_PRESENT
+        app.operacao_engine.status = "ACESO"
+
+        self.assertFalse(app._f2_auto_analyze_current_frame())
+        self.assertTrue(app._f2_auto_analyze_current_frame())
+        self.assertEqual(1, app.operacao_total)
+
+        for expected_total in range(2, 9):
+            # Retirada real da placa anterior.
+            app._presence = F2_BOARD_PRESENCE_EMPTY
+            app.operacao_engine.status = "APAGADO"
+            for _ in range(F2_AUTO_REFERENCE_EMPTY_FRAMES_REQUIRED):
+                self.assertFalse(app._f2_auto_analyze_current_frame())
+            self.assertTrue(app._f2_auto_waiting_new_board_off)
+            self.assertTrue(app._f2_auto_cycle_locked)
+
+            # Operador coloca a próxima placa e já a liga antes do ODIN capturar
+            # qualquer frame APAGADO.
+            app._presence = F2_BOARD_PRESENCE_PRESENT
+            app.operacao_engine.status = "ACESO"
+            app.next_result_ok = expected_total % 2 == 1
+            for _ in range(F2_AUTO_NEW_BOARD_PRESENT_FRAMES_REQUIRED):
+                self.assertFalse(app._f2_auto_analyze_current_frame())
+
+            self.assertFalse(app._f2_auto_waiting_new_board_off)
+            self.assertFalse(app._f2_auto_cycle_locked)
+            self.assertTrue(app._f2_auto_analyze_current_frame())
+            self.assertEqual(expected_total, app.operacao_total)
+            self.assertTrue(app._f2_auto_cycle_locked)
+            self.assertEqual(
+                "OK" if app.next_result_ok else "NG",
+                app._f2_auto_last_inspection_result,
+            )
+
+        self.assertEqual(8, app.operacao_total)
+        self.assertEqual(F2_AUTO_NEW_BOARD_OFF_FRAMES_REQUIRED, F2_AUTO_NEW_BOARD_PRESENT_FRAMES_REQUIRED)
 
     def test_enter_manual_continua_analisando_mesmo_com_ciclo_travado(self):
         app = object.__new__(_ManualHarness)
@@ -275,6 +329,7 @@ class F2PresenceRearmPolicyTests(unittest.TestCase):
         app._f2_board_presence_refs = None
         app._f2_auto_waiting_new_board_off = False
         app._f2_auto_new_board_off_frames = 0
+        app._f2_auto_last_inspection_result = "OK"
         app.camera_frame_atual = None
         app.operacao_leds_preview = ()
 

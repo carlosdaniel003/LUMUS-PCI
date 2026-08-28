@@ -18,13 +18,42 @@ from src.platform.f2_board_presence_references import (
     F2_BOARD_PRESENCE_UNKNOWN,
 )
 from src.platform.f2_board_status_display import (
+    F2_BOARD_STATUS_ANALYZED_NG,
+    F2_BOARD_STATUS_ANALYZED_OK,
     F2_BOARD_STATUS_EMPTY,
     F2_BOARD_STATUS_OFF,
     F2_BOARD_STATUS_ON,
     F2_BOARD_STATUS_UNKNOWN,
     F2BoardStatusDisplayMixin,
+    status_resultado_placa_analisada_f2,
     status_visual_placa_f2,
 )
+from src.platform.segment_display_operation_window import F2_BOARD_STATUS_UI
+
+
+class _StatusWindow:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def set_board_presence_status(self, status, enabled=True) -> None:
+        self.calls.append((status, bool(enabled)))
+
+
+class _StatusBase:
+    def _f2_auto_publish_states(self, states, presence) -> None:
+        self.base_states = dict(states or {})
+        self.base_presence = presence
+
+
+class _StatusHarness(F2BoardStatusDisplayMixin, _StatusBase):
+    def __init__(self) -> None:
+        self.operacao_window = _StatusWindow()
+        self._f2_auto_cycle_locked = False
+        self._f2_auto_waiting_new_board_off = False
+        self._f2_auto_last_inspection_result = None
+
+    def _f2_auto_enabled(self) -> bool:
+        return True
 
 
 class F2BoardPresenceCycleTests(unittest.TestCase):
@@ -100,7 +129,7 @@ class F2BoardPresenceCycleTests(unittest.TestCase):
             F2AutomaticPresenceCyclePolicyMixin._f2_auto_analyze_current_frame
         )
         self.assertIn("_f2_auto_observe_removal", source)
-        self.assertIn("_f2_auto_observe_new_board_off", source)
+        self.assertIn("_f2_auto_observe_new_board_present", source)
         self.assertIn("_f2_auto_waiting_new_board_off", source)
         self.assertIn("self._f2_auto_can_trigger()", source)
         self.assertIn("can_trigger=can_trigger", source)
@@ -145,6 +174,73 @@ class F2BoardPresenceCycleTests(unittest.TestCase):
             {"LED_001": "ACESO"},
         )
         self.assertEqual(F2_BOARD_STATUS_UNKNOWN, status)
+
+    def test_status_resultado_traduz_ok_e_ng(self):
+        self.assertEqual(
+            F2_BOARD_STATUS_ANALYZED_OK,
+            status_resultado_placa_analisada_f2("OK"),
+        )
+        self.assertEqual(
+            F2_BOARD_STATUS_ANALYZED_NG,
+            status_resultado_placa_analisada_f2("ng"),
+        )
+        self.assertIsNone(status_resultado_placa_analisada_f2(None))
+
+    def test_placa_travada_publica_status_ja_analisada_com_resultado_ok(self):
+        app = _StatusHarness()
+        app._f2_auto_cycle_locked = True
+        app._f2_auto_last_inspection_result = "OK"
+
+        app._f2_auto_publish_states(
+            {"LED_001": "ACESO"},
+            F2_BOARD_PRESENCE_PRESENT,
+        )
+
+        self.assertEqual(
+            (F2_BOARD_STATUS_ANALYZED_OK, True),
+            app.operacao_window.calls[-1],
+        )
+
+    def test_placa_travada_publica_status_ja_analisada_com_resultado_ng(self):
+        app = _StatusHarness()
+        app._f2_auto_cycle_locked = True
+        app._f2_auto_last_inspection_result = "NG"
+
+        app._f2_auto_publish_states(
+            {"LED_001": "ACESO"},
+            F2_BOARD_PRESENCE_PRESENT,
+        )
+
+        self.assertEqual(
+            (F2_BOARD_STATUS_ANALYZED_NG, True),
+            app.operacao_window.calls[-1],
+        )
+
+    def test_resultado_anterior_nao_vaza_para_nova_placa_apos_vazio(self):
+        app = _StatusHarness()
+        app._f2_auto_cycle_locked = True
+        app._f2_auto_waiting_new_board_off = True
+        app._f2_auto_last_inspection_result = "OK"
+
+        app._f2_auto_publish_states(
+            {"LED_001": "ACESO"},
+            F2_BOARD_PRESENCE_PRESENT,
+        )
+
+        self.assertEqual(
+            (F2_BOARD_STATUS_ON, True),
+            app.operacao_window.calls[-1],
+        )
+
+    def test_tela_f2_tem_textos_explicitos_para_placa_ja_analisada(self):
+        self.assertEqual(
+            "JÁ ANALISADA — RESULTADO: OK",
+            F2_BOARD_STATUS_UI[F2_BOARD_STATUS_ANALYZED_OK][0],
+        )
+        self.assertEqual(
+            "JÁ ANALISADA — RESULTADO: NG",
+            F2_BOARD_STATUS_UI[F2_BOARD_STATUS_ANALYZED_NG][0],
+        )
 
     def test_status_display_intercepts_only_publicacao_f2(self):
         source = inspect.getsource(F2BoardStatusDisplayMixin._f2_auto_publish_states)

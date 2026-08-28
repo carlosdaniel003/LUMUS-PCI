@@ -32,6 +32,8 @@ F2_BOARD_STATUS_UI = {
     "empty_support": ("PLACA AUSENTE", "#94A3B8"),
     "unknown": ("IDENTIFICANDO...", "#CBD5E1"),
     "unavailable": ("REFERÊNCIAS DE PRESENÇA NÃO CONFIGURADAS", "#FBBF24"),
+    "analyzed_ok": ("JÁ ANALISADA — RESULTADO: OK", "#86EFAC"),
+    "analyzed_ng": ("JÁ ANALISADA — RESULTADO: NG", "#FCA5A5"),
 }
 
 
