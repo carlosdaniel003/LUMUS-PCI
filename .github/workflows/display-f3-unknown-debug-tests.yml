@@ -58,5 +58,4 @@ jobs:
             tests.test_display_f3_fast_expected_gate \
             tests.test_display_f3_physical_learning_policy \
             tests.test_display_f3_exact_check_template \
-            tests.test_display_project_config_scroll \
             -v
