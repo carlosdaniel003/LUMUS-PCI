@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Layout desktop consistente para as janelas exclusivas do Display F3.
 
-A camada é intencionalmente aplicada por monkey-patch no bootstrap F3 para não
-alterar telas compartilhadas do F2. O objetivo é usar a área disponível sem
-simplesmente esticar a antiga composição de 820 px.
+A camada é aplicada somente no bootstrap F3. Ela evita que diferentes extensões
+Tk disputem a geometria da mesma Toplevel durante a montagem e mantém um único
+pedido de maximização depois que os widgets já foram criados.
 """
 
 from src.platform.display_check_editor import (
@@ -22,11 +22,11 @@ F3_DESKTOP_MIN_HEIGHT = 620
 F3_PROJECT_NAV_WIDTH = 300
 F3_CHECK_NAV_WIDTH = 380
 F3_WORKSPACE_MAX_WIDTH = 1180
-F3_EDITOR_REDRAW_DELAY_MS = 70
+F3_EDITOR_REDRAW_DELAY_MS = 90
 
 
 def maximizar_janela_workspace_f3(window) -> str:
-    """Maximiza preservando barra de título; funciona em Windows, X11 e fallback Tk."""
+    """Maximiza com barra de título sem forçar um flush síncrono do Tk."""
     try:
         window.resizable(True, True)
     except Exception:
@@ -35,11 +35,9 @@ def maximizar_janela_workspace_f3(window) -> str:
         window.minsize(F3_DESKTOP_MIN_WIDTH, F3_DESKTOP_MIN_HEIGHT)
     except Exception:
         pass
-    try:
-        window.update_idletasks()
-    except Exception:
-        pass
 
+    # update_idletasks() não é usado aqui. Em uma janela ainda sendo montada ele
+    # reentra no layout/paint do Tk e pode expor frames parcialmente renderizados.
     try:
         window.state("zoomed")
         return "state_zoomed"
@@ -59,18 +57,43 @@ def maximizar_janela_workspace_f3(window) -> str:
         return "unavailable"
 
 
-def _reaplicar_maximizacao(owner) -> None:
+def _maximizar_agendado(owner) -> None:
+    owner._display_f3_workspace_maximize_after_id = None
     window = getattr(owner, "window", None)
     if window is None:
         return
+    try:
+        if not bool(window.winfo_exists()):
+            return
+    except Exception:
+        pass
     try:
         owner._display_f3_workspace_window_mode = maximizar_janela_workspace_f3(window)
     except Exception:
         pass
 
 
+def agendar_maximizacao_workspace_f3(owner) -> None:
+    """Mantém apenas um pedido de maximização pendente por Toplevel."""
+    window = getattr(owner, "window", None)
+    if window is None:
+        return
+    previous = getattr(owner, "_display_f3_workspace_maximize_after_id", None)
+    if previous is not None:
+        try:
+            window.after_cancel(previous)
+        except Exception:
+            pass
+    try:
+        owner._display_f3_workspace_maximize_after_id = window.after_idle(
+            lambda current=owner: _maximizar_agendado(current)
+        )
+    except Exception:
+        owner._display_f3_workspace_maximize_after_id = None
+
+
 def _centralizar_conteudo_canvas(canvas, max_width: int = F3_WORKSPACE_MAX_WIDTH) -> None:
-    """Mantém o workspace legível em 1920 px sem criar faixas de 1500 px."""
+    """Mantém o workspace legível em 1920 px sem faixas excessivamente largas."""
     if canvas is None:
         return
     try:
@@ -91,6 +114,8 @@ def _centralizar_conteudo_canvas(canvas, max_width: int = F3_WORKSPACE_MAX_WIDTH
         except Exception:
             pass
 
+    # Substitui a antiga regra de largura total do canvas. Não somamos os dois
+    # callbacks porque eles escreveriam larguras diferentes no mesmo item.
     try:
         canvas.bind("<Configure>", fit)
     except Exception:
@@ -98,7 +123,7 @@ def _centralizar_conteudo_canvas(canvas, max_width: int = F3_WORKSPACE_MAX_WIDTH
 
 
 def aplicar_workspace_projeto_display_f3(owner) -> None:
-    """Sidebar estreita + workspace central, sem o grande vazio preto da versão esticada."""
+    """Sidebar estreita + workspace central para o Projeto Display."""
     project_list = getattr(owner, "project_list", None)
     project_state = getattr(owner, "project_state", None)
     if project_list is None or project_state is None:
@@ -129,18 +154,25 @@ def aplicar_workspace_projeto_display_f3(owner) -> None:
     try:
         project_list.configure(
             bg="#07111F",
+            fg="#E2E8F0",
             font=("Segoe UI", 10, "bold"),
             selectbackground="#164E63",
+            selectforeground="#FFFFFF",
         )
     except Exception:
         pass
 
     if right_shell is not None:
         try:
+            right_shell.configure(bg="#07111F")
             right_shell.pack_configure(side="right", fill="both", expand=True, padx=0)
             right_shell.pack_propagate(True)
         except Exception:
             pass
+    try:
+        right_canvas.configure(bg="#07111F", highlightthickness=0)
+    except Exception:
+        pass
 
     _centralizar_conteudo_canvas(right_canvas)
 
@@ -152,7 +184,7 @@ def aplicar_workspace_projeto_display_f3(owner) -> None:
 
 
 def aplicar_workspace_checks_display_f3(owner) -> None:
-    """Lista de sequência como navegação e detalhe do CHECK usando o restante da tela."""
+    """Lista da sequência como navegação e detalhe usando o restante da tela."""
     check_list = getattr(owner, "check_list", None)
     check_title = getattr(owner, "check_title", None)
     if check_list is None or check_title is None:
@@ -196,14 +228,21 @@ def aplicar_workspace_checks_display_f3(owner) -> None:
             pass
 
     try:
-        check_list.configure(bg="#07111F", selectbackground="#164E63")
+        check_list.configure(
+            bg="#07111F",
+            fg="#E2E8F0",
+            selectbackground="#164E63",
+            selectforeground="#FFFFFF",
+        )
         check_title.configure(font=("Segoe UI", 18, "bold"))
     except Exception:
         pass
 
 
 def _instalar_redraw_configuracao_debounced(cls) -> None:
-    """Evita tempestade de redraw durante maximização/redimensionamento do canvas."""
+    """Evita tempestade de redraw durante maximização/redimensionamento."""
+    if bool(getattr(cls, "_display_f3_workspace_resize_debounce", False)):
+        return
     original_init = cls.__init__
 
     def init(self, *args, **kwargs):
@@ -228,12 +267,14 @@ def _instalar_redraw_configuracao_debounced(cls) -> None:
             except Exception:
                 owner._display_f3_resize_redraw_after_id = None
 
+        # Substitui o redraw imediato registrado pelo editor base.
         try:
             canvas.bind("<Configure>", schedule)
         except Exception:
             pass
 
     cls.__init__ = init
+    cls._display_f3_workspace_resize_debounce = True
 
 
 def _finish_resize_redraw(owner) -> None:
@@ -244,47 +285,79 @@ def _finish_resize_redraw(owner) -> None:
         pass
 
 
+def _instalar_subclasses_finais() -> None:
+    """Extensões de presença alteram geometria depois do init base; finaliza uma vez."""
+    try:
+        import src.platform.display_visual_reference_status as visual_module
+
+        cls = visual_module.DisplayProjectConfigPresenceWindow
+        if not bool(getattr(cls, "_display_f3_workspace_final_presence", False)):
+            original_init = cls.__init__
+
+            def project_presence_init(self, *args, **kwargs):
+                original_init(self, *args, **kwargs)
+                aplicar_workspace_projeto_display_f3(self)
+                agendar_maximizacao_workspace_f3(self)
+
+            cls.__init__ = project_presence_init
+            cls._display_f3_workspace_final_presence = True
+    except Exception:
+        pass
+
+    try:
+        import src.platform.display_check_presence_reference as check_presence_module
+
+        cls = check_presence_module.DisplayCheckManagerPresenceWindow
+        if not bool(getattr(cls, "_display_f3_workspace_final_presence", False)):
+            original_init = cls.__init__
+
+            def check_presence_init(self, *args, **kwargs):
+                original_init(self, *args, **kwargs)
+                aplicar_workspace_checks_display_f3(self)
+                agendar_maximizacao_workspace_f3(self)
+
+            cls.__init__ = check_presence_init
+            cls._display_f3_workspace_final_presence = True
+    except Exception:
+        pass
+
+
 _INSTALLED = False
 
 
 def instalar_workspace_telas_display_f3() -> None:
-    """Aplica fullscreen responsivo a todas as telas de configuração do F3."""
+    """Aplica workspace responsivo a todas as telas de configuração do F3."""
     global _INSTALLED
     if _INSTALLED:
         return
 
-    # Projeto Display: corrige a antiga expansão 310/450 que gerava um vazio enorme.
+    # Base do Projeto Display. Subclasses finais são maximizadas apenas depois de
+    # instalar painéis adicionais para não alternar 820px -> zoom -> 820px -> zoom.
     original_project_init = DisplayProjectConfigWindow.__init__
 
     def project_init(self, *args, **kwargs):
         original_project_init(self, *args, **kwargs)
         aplicar_workspace_projeto_display_f3(self)
-        _reaplicar_maximizacao(self)
-        try:
-            self.window.after_idle(lambda owner=self: _reaplicar_maximizacao(owner))
-        except Exception:
-            pass
+        if type(self) is DisplayProjectConfigWindow:
+            agendar_maximizacao_workspace_f3(self)
 
     DisplayProjectConfigWindow.__init__ = project_init
 
-    # Gerenciar CHECKS.
+    # Base do Gerenciar CHECKS; mesma regra para a extensão de presença.
     original_manager_init = DisplayCheckManagerWindow.__init__
 
     def manager_init(self, *args, **kwargs):
         original_manager_init(self, *args, **kwargs)
         aplicar_workspace_checks_display_f3(self)
-        _reaplicar_maximizacao(self)
-        try:
-            self.window.after_idle(lambda owner=self: _reaplicar_maximizacao(owner))
-        except Exception:
-            pass
+        if type(self) is DisplayCheckManagerWindow:
+            agendar_maximizacao_workspace_f3(self)
 
     DisplayCheckManagerWindow.__init__ = manager_init
 
-    # Editores visuais: maximização nativa com barra de título, sem fullscreen
-    # borderless; o canvas continua usando toda a área restante.
+    # O editor pede maximização durante __init__. Apenas agendamos para after_idle,
+    # quando a camada de debounce do canvas já estará instalada.
     def maximize_editor(self):
-        self._display_f3_workspace_window_mode = maximizar_janela_workspace_f3(self.window)
+        agendar_maximizacao_workspace_f3(self)
 
     DisplayCheckMaskEditorWindow._maximize = maximize_editor
     DisplayMaskEditorWindow._maximize = maximize_editor
@@ -301,26 +374,20 @@ def instalar_workspace_telas_display_f3() -> None:
             self.grid.pack_configure(fill="both", expand=True, padx=28, pady=(0, 14))
         except Exception:
             pass
-        _reaplicar_maximizacao(self)
-        try:
-            self.window.after_idle(lambda owner=self: _reaplicar_maximizacao(owner))
-        except Exception:
-            pass
+        agendar_maximizacao_workspace_f3(self)
 
     DisplayReferenceConfigWindow.__init__ = reference_init
 
-    # ROI das referências físicas / CHECK: mantém a seleção modal, mas em tela cheia.
+    # ROI das referências físicas / CHECK permanece modal, mas maximizada uma vez.
     original_roi_init = DisplayReferenceRoiDialog.__init__
 
     def roi_init(self, *args, **kwargs):
         original_roi_init(self, *args, **kwargs)
-        _reaplicar_maximizacao(self)
-        try:
-            self.window.after_idle(lambda owner=self: _reaplicar_maximizacao(owner))
-        except Exception:
-            pass
+        agendar_maximizacao_workspace_f3(self)
 
     DisplayReferenceRoiDialog.__init__ = roi_init
+
+    _instalar_subclasses_finais()
 
     for cls in (
         DisplayProjectConfigWindow,
