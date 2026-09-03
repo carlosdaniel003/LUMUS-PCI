@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import inspect
+import unittest
+
+import cv2
+import numpy as np
+
+import src.platform.display_f3_reference_preview_rotation as rotation
+
+
+class DisplayF3ReferencePreviewRotationTests(unittest.TestCase):
+    def test_preview_90_matches_main_visual_convention(self):
+        image = np.arange(2 * 3 * 3, dtype=np.uint8).reshape((2, 3, 3))
+        expected = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+        actual = rotation.preparar_preview_referencia_visual_f3(image, 90)
+        self.assertTrue(np.array_equal(expected, actual))
+
+    def test_roi_round_trip_for_all_supported_rotations(self):
+        roi = {"x": 0.12, "y": 0.21, "width": 0.33, "height": 0.27}
+        for angle in (0, 90, 180, 270):
+            with self.subTest(angle=angle):
+                visual = rotation.transformar_roi_referencia_visual_f3(roi, angle)
+                restored = rotation.restaurar_roi_referencia_original_f3(visual, angle)
+                self.assertIsNotNone(restored)
+                for key in ("x", "y", "width", "height"):
+                    self.assertAlmostEqual(roi[key], restored[key], places=5)
+
+    def test_rotation_is_visual_only_and_does_not_patch_capture_store(self):
+        source = inspect.getsource(rotation)
+        self.assertIn("preparar_frame_visual_display", source)
+        self.assertNotIn("DisplayProjectPresenceReferenceStore.capture =", source)
+        self.assertNotIn("DisplayCheckPresenceReferenceStore.capture =", source)
+
+    def test_reference_rotation_module_has_no_f2_runtime_dependency(self):
+        source = inspect.getsource(rotation)
+        self.assertNotIn("src.platform.f2_", source)
+        self.assertNotIn("F2Automatic", source)
+
+
+if __name__ == "__main__":
+    unittest.main()
