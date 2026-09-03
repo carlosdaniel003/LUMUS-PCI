@@ -12,10 +12,10 @@ from src.models.led_features import LedFeatures
 from src.platform.display_check_presence_reference import (
     DisplayCheckPresenceReferenceStore,
 )
-from src.platform.display_f3_reference_authority_fix import (
-    F3_REFERENCE_MIN_CONFIDENCE,
-)
 from src.platform.display_f3_same_mask_reference_fix import (
+    F3_CHECK_PHOTO_LEARNING_SOURCE,
+    F3_CHECK_PHOTO_MIN_CONFIDENCE,
+    F3_SAME_MASK_REFERENCE_SOURCE,
     F3_STATE_SAMPLE_FALLBACK_SOURCE,
     F3SameMaskReferenceAnalyzer,
     classificar_mascara_por_referencias_locais_f3,
@@ -44,125 +44,276 @@ def _features(value: float) -> LedFeatures:
     )
 
 
+def _frame(mask_1_value: int, mask_2_value: int) -> np.ndarray:
+    image = np.full((80, 120, 3), 20, dtype=np.uint8)
+    image[25:56, 15:46] = int(mask_1_value)
+    image[25:56, 75:106] = int(mask_2_value)
+    return image
+
+
+def _project_with_two_masks(root: Path):
+    repository = DisplayProjectRepository(root / "odin_display_projects.json")
+    assert repository.adicionar_projeto("DISPLAY A", (120, 80))
+    masks = [
+        {
+            "id": "MASK_001",
+            "type": "circle",
+            "cx": 30,
+            "cy": 40,
+            "radius": 10,
+        },
+        {
+            "id": "MASK_002",
+            "type": "circle",
+            "cx": 90,
+            "cy": 40,
+            "radius": 10,
+        },
+    ]
+    assert repository.salvar_mascaras("DISPLAY A", masks)
+    checks = repository.listar_checks("DISPLAY A")
+    assert len(checks) >= 2
+    return repository, masks, checks
+
+
 class DisplayF3SameMaskReferenceFixTests(unittest.TestCase):
-    def test_reflexo_legitimo_off_is_compared_with_same_physical_mask(self):
+    def test_reflexo_legitimo_off_uses_same_physical_mask(self):
         result = classificar_mascara_por_referencias_locais_f3(
             current=_features(121),
             on_references=[_features(220)],
             off_references=[_features(120)],
-            low_light_references=[],
         )
 
         self.assertIsNotNone(result)
         self.assertEqual("off", result["state"])
-        self.assertEqual("f3_same_mask_checks", result["reference_source"])
-        self.assertGreaterEqual(result["confidence"], F3_REFERENCE_MIN_CONFIDENCE)
+        self.assertEqual(F3_SAME_MASK_REFERENCE_SOURCE, result["reference_source"])
+        self.assertGreaterEqual(result["confidence"], F3_CHECK_PHOTO_MIN_CONFIDENCE)
         self.assertLess(result["distances"]["off"], result["distances"]["on"])
 
-    def test_same_mask_classifier_does_not_receive_expected_state(self):
+    def test_classifier_does_not_receive_expected_state(self):
         result = classificar_mascara_por_referencias_locais_f3(
             current=_features(219),
             on_references=[_features(220)],
             off_references=[_features(120)],
-            low_light_references=[],
         )
 
         self.assertIsNotNone(result)
         self.assertEqual("on", result["state"])
 
-    def test_near_tie_keeps_searching_by_low_confidence(self):
+    def test_near_tie_without_low_light_evidence_keeps_searching(self):
         result = classificar_mascara_por_referencias_locais_f3(
             current=_features(150),
             on_references=[_features(160)],
             off_references=[_features(140)],
-            low_light_references=[],
+            detect_low_light=False,
         )
 
         self.assertIsNotNone(result)
-        self.assertLess(result["confidence"], F3_REFERENCE_MIN_CONFIDENCE)
+        self.assertLess(result["confidence"], F3_CHECK_PHOTO_MIN_CONFIDENCE)
 
-    def test_profiles_are_built_from_same_mask_across_check_photos(self):
+    def test_low_light_is_derived_from_real_on_off_pair(self):
+        result = classificar_mascara_por_referencias_locais_f3(
+            current=_features(140),
+            on_references=[_features(220)],
+            off_references=[_features(40)],
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual("low_light", result["state"])
+        self.assertGreaterEqual(result["confidence"], F3_CHECK_PHOTO_MIN_CONFIDENCE)
+        self.assertIsNotNone(result["low_light_interpolation"])
+
+    def test_check_photos_build_complete_learning_without_manual_references(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            repository = DisplayProjectRepository(root / "odin_display_projects.json")
-            self.assertTrue(repository.adicionar_projeto("DISPLAY A", (120, 80)))
-            mask = {
-                "id": "MASK_001",
-                "type": "circle",
-                "cx": 60,
-                "cy": 40,
-                "radius": 10,
-            }
-            self.assertTrue(repository.salvar_mascaras("DISPLAY A", [mask]))
+            repository, masks, checks = _project_with_two_masks(root)
+            h1_id = str(checks[0]["id"])
+            blue_id = str(checks[1]["id"])
 
-            checks = repository.listar_checks("DISPLAY A")
-            self.assertGreaterEqual(len(checks), 2)
-            on_check_id = str(checks[0]["id"])
-            off_check_id = str(checks[1]["id"])
             self.assertTrue(
                 repository.salvar_estados_check(
                     "DISPLAY A",
-                    on_check_id,
-                    {"MASK_001": "on"},
+                    h1_id,
+                    {"MASK_001": "on", "MASK_002": "off"},
                 )
             )
             self.assertTrue(
                 repository.salvar_estados_check(
                     "DISPLAY A",
-                    off_check_id,
-                    {"MASK_001": "off"},
+                    blue_id,
+                    {"MASK_001": "off", "MASK_002": "on"},
                 )
             )
 
             presence_store = DisplayCheckPresenceReferenceStore(repository)
-            on_frame = np.full((80, 120, 3), 220, dtype=np.uint8)
-            off_frame = np.full((80, 120, 3), 120, dtype=np.uint8)
             self.assertIsNotNone(
                 presence_store.capture(
                     "DISPLAY A",
-                    on_check_id,
-                    on_frame,
+                    h1_id,
+                    _frame(220, 35),
                     (120, 80),
                 )
             )
             self.assertIsNotNone(
                 presence_store.capture(
                     "DISPLAY A",
-                    off_check_id,
-                    off_frame,
+                    blue_id,
+                    _frame(35, 220),
                     (120, 80),
                 )
             )
 
             analyzer = F3SameMaskReferenceAnalyzer(repository)
             project = repository.carregar_projeto("DISPLAY A")
-            profiles = analyzer._build_same_mask_profiles(
+            learning = analyzer._build_check_photo_learning(
                 "DISPLAY A",
                 project,
-                list(project.get("masks", [])),
+                masks,
                 0,
             )
 
-            profile = profiles["MASK_001"]
-            self.assertEqual(1, len(profile["on"]))
-            self.assertEqual(1, len(profile["off"]))
-            self.assertEqual(
-                on_check_id,
-                profile["sources"]["on"][0]["check_id"],
+            self.assertEqual(2, learning["photo_count"])
+            self.assertEqual(4, learning["sample_count"])
+            self.assertEqual(1, len(learning["by_mask"]["MASK_001"]["on"]))
+            self.assertEqual(1, len(learning["by_mask"]["MASK_001"]["off"]))
+            self.assertEqual(2, len(learning["by_state"]["on"]))
+            self.assertEqual(2, len(learning["by_state"]["off"]))
+
+    def test_live_analysis_works_with_only_check_photos_and_annotations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository, _masks, checks = _project_with_two_masks(root)
+            h1_id = str(checks[0]["id"])
+            blue_id = str(checks[1]["id"])
+
+            self.assertTrue(
+                repository.salvar_estados_check(
+                    "DISPLAY A",
+                    h1_id,
+                    {"MASK_001": "on", "MASK_002": "off"},
+                )
             )
-            self.assertEqual(
-                off_check_id,
-                profile["sources"]["off"][0]["check_id"],
+            self.assertTrue(
+                repository.salvar_estados_check(
+                    "DISPLAY A",
+                    blue_id,
+                    {"MASK_001": "off", "MASK_002": "on"},
+                )
             )
 
-    def test_missing_local_pair_falls_back_without_current_check_photo(self):
-        source = inspect.getsource(F3SameMaskReferenceAnalyzer.analyze)
-        self.assertIn("check_expected_reference=None", source)
-        self.assertIn("F3_STATE_SAMPLE_FALLBACK_SOURCE", source)
-        self.assertEqual(
-            "f3_state_samples_no_check_photo",
-            F3_STATE_SAMPLE_FALLBACK_SOURCE,
-        )
+            presence_store = DisplayCheckPresenceReferenceStore(repository)
+            h1_frame = _frame(220, 35)
+            blue_frame = _frame(35, 220)
+            self.assertIsNotNone(
+                presence_store.capture(
+                    "DISPLAY A",
+                    h1_id,
+                    h1_frame,
+                    (120, 80),
+                )
+            )
+            self.assertIsNotNone(
+                presence_store.capture(
+                    "DISPLAY A",
+                    blue_id,
+                    blue_frame,
+                    (120, 80),
+                )
+            )
+
+            analyzer = F3SameMaskReferenceAnalyzer(repository)
+            h1 = analyzer.analyze(h1_frame, "DISPLAY A", h1_id, 0)
+            blue = analyzer.analyze(blue_frame, "DISPLAY A", blue_id, 0)
+
+            self.assertTrue(h1["ready"])
+            self.assertTrue(h1["approved"])
+            self.assertEqual(2, h1["matched_mask_count"])
+            self.assertTrue(blue["ready"])
+            self.assertTrue(blue["approved"])
+            self.assertEqual(2, blue["matched_mask_count"])
+            self.assertEqual(F3_CHECK_PHOTO_LEARNING_SOURCE, blue["reference_authority"])
+            self.assertEqual(2, blue["same_mask_reference_used_count"])
+
+    def test_missing_same_mask_state_uses_other_labeled_check_masks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository, masks, checks = _project_with_two_masks(root)
+            first_id = str(checks[0]["id"])
+            second_id = str(checks[1]["id"])
+
+            self.assertTrue(
+                repository.salvar_estados_check(
+                    "DISPLAY A",
+                    first_id,
+                    {"MASK_001": "on", "MASK_002": "off"},
+                )
+            )
+            self.assertTrue(
+                repository.salvar_estados_check(
+                    "DISPLAY A",
+                    second_id,
+                    {"MASK_001": "on", "MASK_002": "on"},
+                )
+            )
+            store = DisplayCheckPresenceReferenceStore(repository)
+            store.capture("DISPLAY A", first_id, _frame(220, 35), (120, 80))
+            store.capture("DISPLAY A", second_id, _frame(220, 220), (120, 80))
+
+            analyzer = F3SameMaskReferenceAnalyzer(repository)
+            project = repository.carregar_projeto("DISPLAY A")
+            learning = analyzer._build_check_photo_learning(
+                "DISPLAY A",
+                project,
+                masks,
+                0,
+            )
+            on_refs, off_refs, source, context = analyzer._references_for_mask(
+                "MASK_001",
+                learning,
+            )
+
+            self.assertEqual(F3_STATE_SAMPLE_FALLBACK_SOURCE, source)
+            self.assertTrue(context["local_on"])
+            self.assertFalse(context["local_off"])
+            self.assertGreaterEqual(len(on_refs), 1)
+            self.assertGreaterEqual(len(off_refs), 1)
+
+    def test_no_check_dataset_is_not_replaced_by_manual_learning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository, _masks, checks = _project_with_two_masks(root)
+            check_id = str(checks[0]["id"])
+            self.assertTrue(
+                repository.salvar_estados_check(
+                    "DISPLAY A",
+                    check_id,
+                    {"MASK_001": "on", "MASK_002": "off"},
+                )
+            )
+
+            analyzer = F3SameMaskReferenceAnalyzer(repository)
+            result = analyzer.analyze(
+                _frame(220, 35),
+                "DISPLAY A",
+                check_id,
+                0,
+            )
+
+            self.assertFalse(result["ready"])
+            self.assertEqual("checks_sem_amostras_aceso_apagado", result["reason"])
+            self.assertEqual(F3_CHECK_PHOTO_LEARNING_SOURCE, result["reference_authority"])
+
+    def test_module_has_no_manual_reference_learning_dependency(self):
+        source = inspect.getsource(same_mask_module)
+        for forbidden in (
+            "DisplayReferenceLearningStore",
+            "display_learning_path_for_repository",
+            "active_references",
+            "learned_features",
+            "_state_reference_sets",
+            "F3ReferenceAuthorityAnalyzer",
+        ):
+            self.assertNotIn(forbidden, source)
 
     def test_module_isolated_from_other_production_mode(self):
         source = inspect.getsource(same_mask_module)
