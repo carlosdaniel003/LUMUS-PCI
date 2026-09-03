@@ -128,12 +128,20 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
 
     DisplayAutomaticCheckF3Mixin._display_f3_fast_expected_gate_installed = True
 
-    # Esta correção precisa ser a última camada do F3: primeiro preservamos o
-    # fast-path de H1/BLUE; depois resolvemos UNKNOWN->OFF sem liberar máscaras
-    # e instalamos o painel copiável de diagnóstico técnico.
+    # Ordem final do F3:
+    # 1) fast-path preserva H1/BLUE;
+    # 2) fallback UNKNOWN/OFF instala o painel técnico base;
+    # 3) rastreio ao vivo corrige os scores para ROI-primeiro, mantém histórico
+    #    por frame e usa o gabarito exato como sonda positiva invisível.
     from src.platform.display_f3_unknown_debug_fix import (
         instalar_correcao_unknown_e_debug_display_f3,
     )
 
     instalar_correcao_unknown_e_debug_display_f3()
+
+    from src.platform.display_f3_live_diagnostic_trace import (
+        instalar_rastreio_ao_vivo_debug_display_f3,
+    )
+
+    instalar_rastreio_ao_vivo_debug_display_f3()
     _INSTALLED = True
