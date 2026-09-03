@@ -48,9 +48,10 @@ class DisplayF3ZeroCostDebugRuntimeTests(unittest.TestCase):
 
     def test_debug_off_runtime_does_not_build_trace_or_copy_analysis(self):
         source = inspect.getsource(module)
-        self.assertNotIn("deepcopy", source)
-        self.assertNotIn("set_technical_debug_provider", source)
-        self.assertNotIn("_record_live_frame", source)
+        # Verifica chamadas reais, não palavras explicativas em comentários/docstrings.
+        self.assertNotIn("deepcopy(", source)
+        self.assertNotIn("set_technical_debug_provider(", source)
+        self.assertNotIn("_record_live_frame(", source)
         self.assertIn("return runtime_produtivo(self)", source)
 
     def test_debug_on_keeps_original_diagnostic_runtime(self):
