@@ -39,6 +39,9 @@ from src.platform.display_f3_check_transition_guard import (
 from src.platform.display_f3_live_runtime_fix import (
     instalar_runtime_ao_vivo_display_f3,
 )
+from src.platform.display_f3_mask_status import (
+    instalar_status_mascaras_display_f3,
+)
 from src.platform.display_f3_operational_status import (
     instalar_status_operacional_display_f3,
 )
@@ -225,6 +228,7 @@ class RaspberryPi3ProductionApp(
         instalar_correcao_estado_fisico_display_f3()
         instalar_reconciliacao_optica_estado_fisico_display_f3()
         instalar_runtime_ao_vivo_display_f3()
+        instalar_status_mascaras_display_f3()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
