@@ -57,6 +57,9 @@ from src.platform.display_f3_reference_authority_bridge import (
 from src.platform.display_f3_reference_authority_fix import (
     instalar_autoridade_referencias_display_f3,
 )
+from src.platform.display_f3_same_mask_reference_fix import (
+    instalar_referencias_por_mesma_mascara_display_f3,
+)
 from src.platform.display_f3_status_layout_fix import (
     instalar_layout_status_f3_estavel,
 )
@@ -237,6 +240,7 @@ class RaspberryPi3ProductionApp(
         instalar_status_mascaras_display_f3()
         instalar_autoridade_referencias_display_f3()
         instalar_ponte_autoridade_referencias_display_f3()
+        instalar_referencias_por_mesma_mascara_display_f3()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
