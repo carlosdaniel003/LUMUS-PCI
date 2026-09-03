@@ -1,15 +1,30 @@
 from __future__ import annotations
 
 import inspect
+import tempfile
 import unittest
+from pathlib import Path
+
+import numpy as np
 
 from src.models.led_features import LedFeatures
 import src.platform.display_f3_physical_learning_policy as policy_module
+from src.platform.display_check_presence_reference import (
+    DisplayCheckPresenceReferenceStore,
+)
 from src.platform.display_f3_physical_learning_policy import (
     F3_STATUS_BOARD_OFF,
     F3_STATUS_BOARD_ON_PREFIX,
     aplicar_contexto_ao_estado_fisico_f3,
+    avaliar_evidencia_energia_check_pelas_mascaras_f3,
     classificar_mascara_binaria_pelas_fotos_dos_checks_f3,
+    decidir_placa_desligada_por_votos_mascaras_f3,
+)
+from src.platform.display_project_repository import DisplayProjectRepository
+from src.platform.display_visual_reference_status import (
+    DISPLAY_PROJECT_REFERENCE_BOARD_OFF,
+    DisplayProjectPresenceReferenceStore,
+    DisplayVisualReferenceMatcher,
 )
 from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 
@@ -33,6 +48,43 @@ def _features(value: float) -> LedFeatures:
         inner_area_pixels=60,
         ring_area_pixels=60,
     )
+
+
+def _frame(mask_1_value: int, mask_2_value: int) -> np.ndarray:
+    image = np.full((80, 120, 3), 20, dtype=np.uint8)
+    image[25:56, 15:46] = int(mask_1_value)
+    image[25:56, 75:106] = int(mask_2_value)
+    return image
+
+
+def _project_with_h1(root: Path):
+    repository = DisplayProjectRepository(root / "odin_display_projects.json")
+    assert repository.adicionar_projeto("DISPLAY A", (120, 80))
+    masks = [
+        {
+            "id": "MASK_001",
+            "type": "circle",
+            "cx": 30,
+            "cy": 40,
+            "radius": 10,
+        },
+        {
+            "id": "MASK_002",
+            "type": "circle",
+            "cx": 90,
+            "cy": 40,
+            "radius": 10,
+        },
+    ]
+    assert repository.salvar_mascaras("DISPLAY A", masks)
+    h1 = repository.listar_checks("DISPLAY A")[0]
+    h1_id = str(h1["id"])
+    assert repository.salvar_estados_check(
+        "DISPLAY A",
+        h1_id,
+        {"MASK_001": "on", "MASK_002": "on"},
+    )
+    return repository, h1_id
 
 
 class DisplayF3PhysicalLearningPolicyTests(unittest.TestCase):
@@ -88,6 +140,75 @@ class DisplayF3PhysicalLearningPolicyTests(unittest.TestCase):
         self.assertIn(result["state"], {"on", "off"})
         self.assertNotEqual("low_light", result["state"])
         self.assertEqual(0, result["reference_counts"]["low_light"])
+
+    def test_off_votes_require_strong_majority(self):
+        self.assertTrue(
+            decidir_placa_desligada_por_votos_mascaras_f3(
+                off_votes=7,
+                powered_votes=1,
+                valid_votes=8,
+            )
+        )
+        self.assertFalse(
+            decidir_placa_desligada_por_votos_mascaras_f3(
+                off_votes=4,
+                powered_votes=4,
+                valid_votes=8,
+            )
+        )
+
+    def test_real_off_frame_beats_h1_only_inside_expected_on_masks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository, h1_id = _project_with_h1(root)
+
+            off_frame = _frame(35, 35)
+            h1_frame = _frame(220, 220)
+
+            board_store = DisplayProjectPresenceReferenceStore(repository)
+            self.assertIsNotNone(
+                board_store.capture(
+                    "DISPLAY A",
+                    DISPLAY_PROJECT_REFERENCE_BOARD_OFF,
+                    off_frame,
+                    (120, 80),
+                )
+            )
+            check_store = DisplayCheckPresenceReferenceStore(repository)
+            self.assertIsNotNone(
+                check_store.capture(
+                    "DISPLAY A",
+                    h1_id,
+                    h1_frame,
+                    (120, 80),
+                )
+            )
+
+            matcher = DisplayVisualReferenceMatcher(repository)
+            off_evidence = avaliar_evidencia_energia_check_pelas_mascaras_f3(
+                repository=repository,
+                matcher=matcher,
+                frame=off_frame,
+                project_name="DISPLAY A",
+                check_id=h1_id,
+            )
+            h1_evidence = avaliar_evidencia_energia_check_pelas_mascaras_f3(
+                repository=repository,
+                matcher=matcher,
+                frame=h1_frame,
+                project_name="DISPLAY A",
+                check_id=h1_id,
+            )
+
+            self.assertTrue(off_evidence["available"])
+            self.assertTrue(off_evidence["off_confirmed"])
+            self.assertEqual(2, off_evidence["off_votes"])
+            self.assertEqual(0, off_evidence["powered_votes"])
+
+            self.assertTrue(h1_evidence["available"])
+            self.assertFalse(h1_evidence["off_confirmed"])
+            self.assertEqual(0, h1_evidence["off_votes"])
+            self.assertEqual(2, h1_evidence["powered_votes"])
 
     def test_final_policy_is_installed_after_check_photo_learning(self):
         source = inspect.getsource(RaspberryPi3ProductionApp.__init__)
