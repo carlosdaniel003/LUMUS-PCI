@@ -40,8 +40,10 @@ class DisplayF3FinalPerformanceTests(unittest.TestCase):
                 marker="_test_cache",
             )
             store = Store(path)
-            self.assertEqual("A", store._load()["value"])
-            self.assertEqual("A", store._load()["value"])
+            first = store._load()
+            second = store._load()
+            self.assertEqual("A", first["value"])
+            self.assertIs(first, second)
             self.assertEqual(1, store.loads)
 
             path.write_text("BBBB", encoding="utf-8")
@@ -52,16 +54,67 @@ class DisplayF3FinalPerformanceTests(unittest.TestCase):
             self.assertEqual("CC", store._load()["value"])
             self.assertEqual(3, store.loads)
 
-    def test_configuration_visibility_is_explicit(self):
+    def test_configuration_visibility_includes_opening_phase(self):
         class Config:
             visible = True
 
         class App:
+            _display_f3_configuration_opening = False
             _display_project_config_window = Config()
 
         self.assertTrue(performance.configuracao_f3_visivel(App()))
         App._display_project_config_window = None
         self.assertFalse(performance.configuracao_f3_visivel(App()))
+        App._display_f3_configuration_opening = True
+        self.assertTrue(performance.configuracao_f3_visivel(App()))
+
+    def test_configuration_open_is_deferred_before_heavy_constructor(self):
+        source = inspect.getsource(performance._install_fast_configuration_open)
+        self.assertIn("_display_f3_configuration_opening = True", source)
+        self.assertIn("root.after(F3_CONFIG_OPEN_DELAY_MS, build)", source)
+        self.assertIn("production_module.DisplayProjectConfigWindow", source)
+        self.assertIn("traceback.print_exc()", source)
+
+    def test_initial_project_and_reference_content_are_lazy(self):
+        source = inspect.getsource(performance._install_lazy_configuration_content)
+        self.assertIn("_display_f3_defer_initial_refresh", source)
+        self.assertIn("F3_REFERENCE_PREVIEW_DELAY_MS", source)
+        self.assertIn("after_cancel", source)
+
+    def test_fresh_frame_gate_is_before_expensive_runtime(self):
+        source = inspect.getsource(performance._install_fresh_frame_outer_gate)
+        self.assertIn("_display_f3_outer_last_frame_token", source)
+        self.assertIn("_display_auto_frame_token", source)
+        self.assertIn("return None", source)
+        installer = inspect.getsource(performance.instalar_performance_final_display_f3)
+        self.assertLess(
+            installer.index("_install_fresh_frame_outer_gate()"),
+            installer.index("_install_adaptive_preview_cadence()"),
+        )
+
+    def test_preview_cadence_keeps_fast_h1_blue_and_event_loop_idle(self):
+        self.assertLessEqual(performance.F3_FAST_CYCLE_TARGET_MS, 50)
+        self.assertGreaterEqual(performance.F3_NORMAL_CYCLE_TARGET_MS, 80)
+        self.assertGreaterEqual(performance.F3_MIN_IDLE_SLICE_MS, 10)
+        source = inspect.getsource(performance._install_adaptive_preview_cadence)
+        self.assertIn("_display_auto_is_reference_gate", source)
+        self.assertIn("_display_auto_is_transient_check", source)
+        self.assertIn("after_cancel", source)
+
+    def test_exact_reference_hot_path_avoids_full_hd_read_per_candidate(self):
+        source = inspect.getsource(performance._install_exact_reference_hot_path)
+        self.assertIn("_reference_image_cached", source)
+        self.assertIn("_small_reference_after_roi", source)
+        self.assertIn("_prepare_current_roi_small", source)
+        self.assertIn("_score_reference_full_roi", source)
+        self.assertNotIn("frame.copy()", source)
+
+    def test_exact_mask_reference_side_is_precomputed(self):
+        source = inspect.getsource(performance._install_exact_mask_reference_cache)
+        self.assertIn("_mask_reference_prepared", source)
+        self.assertIn("ref_bgr", source)
+        self.assertIn("ref_v", source)
+        self.assertIn("current_blur", source)
 
     def test_mask_hot_path_limits_full_redraw_to_30_hz(self):
         self.assertGreaterEqual(performance.F3_MASK_POINTER_INTERVAL_S, 1.0 / 20.0)
