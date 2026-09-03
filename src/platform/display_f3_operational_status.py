@@ -293,6 +293,13 @@ def _install_single_status_window() -> None:
 
 
 def _install_operational_auto_gate() -> None:
+    """Mantém o estado físico informativo sem decidir o CHECK.
+
+    A autoridade de H1/BLUE/USB/AUX é a análise óptica das máscaras executada por
+    DisplayAutomaticCheckF3Mixin. O estado físico continua sendo publicado no
+    painel e só participa do rearmamento terminal: depois de OK/NG/descartada,
+    uma nova placa não pode começar até o suporte vazio ser confirmado.
+    """
     cls = DisplayAutomaticCheckF3Mixin
     if bool(getattr(cls, "_display_f3_operational_gate_installed", False)):
         return
@@ -330,73 +337,38 @@ def _install_operational_auto_gate() -> None:
         except Exception:
             pass
 
+        # Memória usada apenas pela apresentação/classificação física. Ela não
+        # autoriza, reprova nem avança o CHECK.
         kind = str(state.get("kind") or "unknown")
-        allow_auto = bool(state.get("allow_auto"))
-
         if kind == "check":
-            # Este valor representa o que a câmera reconheceu fisicamente, não
-            # o CHECK que o sequenciador está esperando.
             self._display_f3_last_recognized_check_id = str(state.get("check_id") or "")
             self._display_f3_last_recognized_check_name = str(
                 state.get("check_name") or ""
             )
-            if allow_auto:
-                return original_process(self)
-
-        if kind == "empty":
+        elif kind == "empty":
             self._display_f3_last_recognized_check_id = ""
             self._display_f3_last_recognized_check_name = ""
-            try:
-                self._display_auto_clear_manual_entry_gate()
-            except Exception:
-                pass
 
-        board_complete = bool(state.get("board_references_complete"))
-        current_reference_configured = bool(
-            state.get("current_check_reference_configured")
-        )
-
-        should_block = (
-            kind in {"empty", "off"}
-            or (kind == "check" and not allow_auto)
-            or (
-                board_complete
-                and current_reference_configured
-                and kind == "unknown"
-            )
-        )
-        if should_block:
+        # Única trava física mantida: após um evento terminal, o mesmo produto
+        # não pode iniciar um novo ciclo até PLACA FORA DO SUPORTE ser confirmada.
+        # O wrapper de rearmamento limpa este latch assim que EMPTY é reconhecido.
+        if bool(getattr(self, "_display_f3_waiting_empty_rearm", False)):
             try:
                 self._reset_display_auto_stability(transition=False)
             except Exception:
                 pass
             try:
-                if kind == "empty":
-                    self._display_auto_set_preview_status(
-                        "AUTO • aguardando placa no suporte",
-                        "#94A3B8",
-                    )
-                elif kind == "off":
-                    self._display_auto_set_preview_status(
-                        "AUTO • placa desligada • aguardando acionamento",
-                        "#FBBF24",
-                    )
-                elif kind == "check" and not allow_auto:
-                    expected_name = str((context or {}).get("check_name") or "CHECK").upper()
-                    physical_name = str(state.get("check_name") or "DISPLAY").upper()
-                    self._display_auto_set_preview_status(
-                        f"AUTO • aguardando {expected_name} • físico em {physical_name}",
-                        "#FDE68A",
-                    )
-                else:
-                    self._display_auto_set_preview_status(
-                        "AUTO • identificando estado físico do Display",
-                        "#FDE68A",
-                    )
+                self._display_auto_set_preview_status(
+                    "AUTO • retire a placa • aguardando PLACA FORA DO SUPORTE",
+                    "#FDE68A",
+                )
             except Exception:
                 pass
             return None
 
+        # Fora do rearmamento terminal, o estado físico não participa da decisão.
+        # O processo original classifica as máscaras, aplica debounce e registra
+        # OK/NG/avanço conforme o CHECK lógico atual.
         return original_process(self)
 
     cls._process_display_auto_check = process
@@ -407,7 +379,7 @@ _DISPLAY_F3_OPERATIONAL_STATUS_INSTALLED = False
 
 
 def instalar_status_operacional_display_f3() -> None:
-    """Instala status único e gate físico somente na Produção Display F3."""
+    """Instala status físico; decisões de CHECK permanecem pelas máscaras no F3."""
     global _DISPLAY_F3_OPERATIONAL_STATUS_INSTALLED
     if _DISPLAY_F3_OPERATIONAL_STATUS_INSTALLED:
         return

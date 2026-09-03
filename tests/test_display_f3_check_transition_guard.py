@@ -229,10 +229,12 @@ class DisplayF3CheckTransitionGuardTests(unittest.TestCase):
         self.assertLess(classifier_call, expected_check)
         self.assertIn("physical_check_id == current_check_id", source)
 
-    def test_gate_bloqueia_check_fisico_diferente_do_check_esperado(self):
+    def test_estado_fisico_nao_decide_o_check_operacional(self):
         source = inspect.getsource(operational_module._install_operational_auto_gate)
-        self.assertIn('kind == "check" and not allow_auto', source)
-        self.assertIn("estado físico", source)
+        self.assertIn("return original_process(self)", source)
+        self.assertNotIn('kind == "check" and not allow_auto', source)
+        self.assertNotIn('kind in {"empty", "off"}', source)
+        self.assertIn("máscaras", source)
 
     def test_perfil_final_instala_guard_depois_do_status_operacional(self):
         source = inspect.getsource(RaspberryPi3ProductionApp.__init__)

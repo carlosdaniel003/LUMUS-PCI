@@ -107,11 +107,14 @@ class DisplayF3OperationalStatusTests(unittest.TestCase):
         self.assertIn("self.visual_reference_state_label = None", source)
         self.assertNotIn("score * 100", source)
 
-    def test_gate_bloqueia_vazio_desligado_e_desconhecido(self):
+    def test_status_fisico_nao_bloqueia_decisao_das_mascaras(self):
         source = inspect.getsource(operational_module._install_operational_auto_gate)
-        self.assertIn('kind in {"empty", "off"}', source)
-        self.assertIn('kind == "unknown"', source)
-        self.assertIn("_reset_display_auto_stability", source)
+        self.assertIn("return original_process(self)", source)
+        self.assertNotIn('kind in {"empty", "off"}', source)
+        self.assertNotIn("allow_auto =", source)
+        self.assertNotIn('kind == "check" and not allow_auto', source)
+        self.assertIn("_display_f3_waiting_empty_rearm", source)
+        self.assertIn("decisão", source)
 
     def test_perfil_final_instala_status_operacional_depois_do_layout(self):
         source = inspect.getsource(RaspberryPi3ProductionApp.__init__)
