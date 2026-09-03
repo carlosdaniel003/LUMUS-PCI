@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import src.platform.display_auto_check_runtime as auto_runtime_module
 import src.platform.display_f3_live_runtime_fix as live_runtime_module
 import src.platform.display_f3_optical_power_reconciliation as optical_power_module
 from src.platform.display_f3_reference_authority_fix import (
@@ -26,5 +27,10 @@ def instalar_ponte_autoridade_referencias_display_f3() -> None:
     # política F3 para que uma leitura ambígua não seja usada como evidência de
     # display ligado por um caminho secundário.
     optical_power_module.DISPLAY_AUTO_MIN_CONFIDENCE = F3_REFERENCE_MIN_CONFIDENCE
+
+    # H1, USB, AUX e demais estados estáveis precisam aparecer corretamente em
+    # dois frames novos antes de avançar. Bluetooth/BLUE continua com a exceção
+    # transitória já existente no runtime e pode confirmar com um único frame OK.
+    auto_runtime_module.DisplayAutomaticCheckF3Mixin.DISPLAY_AUTO_OK_STABLE_FRAMES = 2
 
     _INSTALLED = True
