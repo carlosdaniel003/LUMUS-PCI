@@ -16,6 +16,7 @@ from src.platform.display_f3_reference_authority_fix import (
     F3_REFERENCE_MIN_CONFIDENCE,
 )
 from src.platform.display_f3_same_mask_reference_fix import (
+    F3_STATE_SAMPLE_FALLBACK_SOURCE,
     F3SameMaskReferenceAnalyzer,
     classificar_mascara_por_referencias_locais_f3,
 )
@@ -153,6 +154,15 @@ class DisplayF3SameMaskReferenceFixTests(unittest.TestCase):
                 off_check_id,
                 profile["sources"]["off"][0]["check_id"],
             )
+
+    def test_missing_local_pair_falls_back_without_current_check_photo(self):
+        source = inspect.getsource(F3SameMaskReferenceAnalyzer.analyze)
+        self.assertIn("check_expected_reference=None", source)
+        self.assertIn("F3_STATE_SAMPLE_FALLBACK_SOURCE", source)
+        self.assertEqual(
+            "f3_state_samples_no_check_photo",
+            F3_STATE_SAMPLE_FALLBACK_SOURCE,
+        )
 
     def test_module_isolated_from_other_production_mode(self):
         source = inspect.getsource(same_mask_module)
