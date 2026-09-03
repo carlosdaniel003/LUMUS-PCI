@@ -129,19 +129,27 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     DisplayAutomaticCheckF3Mixin._display_f3_fast_expected_gate_installed = True
 
     # Ordem final do F3:
-    # 1) configuração do projeto abre maximizada e redimensionável;
+    # 1) configuração do projeto recebe workspace desktop e todas as telas
+    #    secundárias passam a abrir maximizadas/responsivas;
     # 2) fast-path preserva H1/BLUE;
     # 3) fallback UNKNOWN/OFF instala o painel técnico base;
-    # 4) rastreio ao vivo instala a infraestrutura de diagnóstico;
+    # 4) rastreio ao vivo existe somente quando solicitado pelo operador;
     # 5) toggle deixa o diagnóstico OFF por padrão;
-    # 6) H1/BLUE preservam a sonda positiva mesmo com debug desligado;
+    # 6) H1/BLUE preservam apenas a sonda positiva mínima com debug desligado;
     # 7) rearme impede reciclar evidência da placa anterior;
-    # 8) performance guard zera telemetria quando DEBUG está OFF.
+    # 8) performance guard limita o debug quando ativo;
+    # 9) runtime final pula completamente a camada diagnóstica quando DEBUG OFF.
     from src.platform.display_f3_responsive_config import (
         instalar_configuracao_responsiva_display_f3,
     )
 
     instalar_configuracao_responsiva_display_f3()
+
+    from src.platform.display_f3_workspace_ui import (
+        instalar_workspace_telas_display_f3,
+    )
+
+    instalar_workspace_telas_display_f3()
 
     from src.platform.display_f3_unknown_debug_fix import (
         instalar_correcao_unknown_e_debug_display_f3,
@@ -178,4 +186,10 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     )
 
     instalar_guard_performance_runtime_display_f3()
+
+    from src.platform.display_f3_zero_cost_debug_runtime import (
+        instalar_runtime_debug_off_custo_zero_display_f3,
+    )
+
+    instalar_runtime_debug_off_custo_zero_display_f3()
     _INSTALLED = True

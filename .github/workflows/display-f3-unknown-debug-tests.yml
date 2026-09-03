@@ -33,17 +33,21 @@ jobs:
             src/platform/display_f3_live_diagnostic_trace.py \
             src/platform/display_f3_debug_toggle.py \
             src/platform/display_f3_responsive_config.py \
+            src/platform/display_f3_workspace_ui.py \
             src/platform/display_f3_h1_single_frame_probe.py \
             src/platform/display_f3_probe_rearm_guard.py \
             src/platform/display_f3_fast_expected_gate.py \
             src/platform/display_f3_runtime_performance_guard.py \
+            src/platform/display_f3_zero_cost_debug_runtime.py \
             tests/test_display_f3_unknown_debug_fix.py \
             tests/test_display_f3_live_diagnostic_trace.py \
             tests/test_display_f3_debug_toggle.py \
             tests/test_display_f3_responsive_config.py \
+            tests/test_display_f3_workspace_ui.py \
             tests/test_display_f3_h1_single_frame_probe.py \
             tests/test_display_f3_probe_rearm_guard.py \
-            tests/test_display_f3_runtime_performance_guard.py
+            tests/test_display_f3_runtime_performance_guard.py \
+            tests/test_display_f3_zero_cost_debug_runtime.py
 
       - name: Run focused regressions
         run: |
@@ -52,9 +56,11 @@ jobs:
             tests.test_display_f3_live_diagnostic_trace \
             tests.test_display_f3_debug_toggle \
             tests.test_display_f3_responsive_config \
+            tests.test_display_f3_workspace_ui \
             tests.test_display_f3_h1_single_frame_probe \
             tests.test_display_f3_probe_rearm_guard \
             tests.test_display_f3_runtime_performance_guard \
+            tests.test_display_f3_zero_cost_debug_runtime \
             tests.test_display_f3_fast_expected_gate \
             tests.test_display_f3_physical_learning_policy \
             tests.test_display_f3_exact_check_template \
