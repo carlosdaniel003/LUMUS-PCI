@@ -13,7 +13,71 @@ from src.platform.raspberry_pi3_production_app import RaspberryPi3ProductionApp
 
 
 class DisplayF3FastExpectedGateTests(unittest.TestCase):
-    def test_h1_is_released_for_exact_analysis_without_waiting_physical_debounce(self):
+    def test_h1_is_released_on_first_positive_check_candidate_without_waiting_debounce(self):
+        context = {
+            "project_name": "DISPLAY A",
+            "check_id": "CHECK_001",
+            "check_name": "H1",
+            "current_index": 0,
+        }
+        state = {
+            "kind": "unknown",
+            "text": "IDENTIFICANDO...",
+            "allow_auto": False,
+            "physical_transition_pending": True,
+            "pending_physical_state_key": "check:CHECK_001",
+        }
+
+        result = liberar_gate_fisico_para_check_rapido_f3(state, context)
+
+        self.assertTrue(result["allow_auto"])
+        self.assertTrue(result["fast_expected_check_gate"])
+        self.assertEqual(
+            F3_FAST_EXPECTED_GATE_SOURCE,
+            result["fast_expected_check_source"],
+        )
+        self.assertEqual("unknown", result["kind"])
+
+    def test_board_off_is_absolute_and_never_releases_h1_fast_path(self):
+        context = {
+            "project_name": "DISPLAY A",
+            "check_id": "CHECK_001",
+            "check_name": "H1",
+            "current_index": 0,
+        }
+        state = {
+            "kind": "off",
+            "text": "PLACA NO SUPORTE • DESLIGADA • LEDS DESLIGADOS",
+            "allow_auto": False,
+            "physical_state_key": "off",
+        }
+
+        result = liberar_gate_fisico_para_check_rapido_f3(state, context)
+
+        self.assertFalse(result["allow_auto"])
+        self.assertNotIn("fast_expected_check_gate", result)
+
+    def test_pending_off_debounce_is_absolute_and_never_releases_h1(self):
+        context = {
+            "project_name": "DISPLAY A",
+            "check_id": "CHECK_001",
+            "check_name": "H1",
+            "current_index": 0,
+        }
+        state = {
+            "kind": "unknown",
+            "text": "IDENTIFICANDO...",
+            "allow_auto": False,
+            "physical_transition_pending": True,
+            "pending_physical_state_key": "off",
+        }
+
+        result = liberar_gate_fisico_para_check_rapido_f3(state, context)
+
+        self.assertFalse(result["allow_auto"])
+        self.assertNotIn("fast_expected_check_gate", result)
+
+    def test_generic_unknown_without_positive_power_evidence_never_releases_h1(self):
         context = {
             "project_name": "DISPLAY A",
             "check_id": "CHECK_001",
@@ -28,15 +92,28 @@ class DisplayF3FastExpectedGateTests(unittest.TestCase):
 
         result = liberar_gate_fisico_para_check_rapido_f3(state, context)
 
-        self.assertTrue(result["allow_auto"])
-        self.assertTrue(result["fast_expected_check_gate"])
-        self.assertEqual(
-            F3_FAST_EXPECTED_GATE_SOURCE,
-            result["fast_expected_check_source"],
-        )
-        self.assertEqual("unknown", result["kind"])
+        self.assertFalse(result["allow_auto"])
+        self.assertNotIn("fast_expected_check_gate", result)
 
-    def test_blue_can_be_analyzed_on_single_frame_even_if_global_state_says_usb(self):
+    def test_empty_support_is_absolute_and_never_releases_blue(self):
+        context = {
+            "project_name": "DISPLAY A",
+            "check_id": "CHECK_002",
+            "check_name": "BLUE",
+            "current_index": 1,
+        }
+        state = {
+            "kind": "empty",
+            "text": "PLACA FORA DO SUPORTE",
+            "allow_auto": False,
+        }
+
+        result = liberar_gate_fisico_para_check_rapido_f3(state, context)
+
+        self.assertFalse(result["allow_auto"])
+        self.assertNotIn("fast_expected_check_gate", result)
+
+    def test_blue_can_be_analyzed_on_single_powered_frame_even_if_global_state_says_usb(self):
         context = {
             "project_name": "DISPLAY A",
             "check_id": "CHECK_002",
