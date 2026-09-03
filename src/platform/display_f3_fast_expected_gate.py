@@ -101,7 +101,7 @@ _INSTALLED = False
 
 
 def instalar_gate_rapido_check_esperado_display_f3() -> None:
-    """Instala captura rápida depois do gabarito exato, somente no F3."""
+    """Instala captura rápida e as últimas políticas exclusivas do F3."""
     global _INSTALLED
     if _INSTALLED:
         return
@@ -128,23 +128,9 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
 
     DisplayAutomaticCheckF3Mixin._display_f3_fast_expected_gate_installed = True
 
-    # Ordem final do F3:
-    # 1) configuração do projeto recebe workspace desktop e todas as telas
-    #    secundárias passam a abrir maximizadas/responsivas;
-    # 2) fast-path preserva H1/BLUE;
-    # 3) fallback UNKNOWN/OFF instala o painel técnico base;
-    # 4) rastreio ao vivo existe somente quando solicitado pelo operador;
-    # 5) toggle deixa o diagnóstico OFF por padrão;
-    # 6) H1/BLUE preservam apenas a sonda positiva mínima com debug desligado;
-    # 7) rearme impede reciclar evidência da placa anterior;
-    # 8) performance guard limita o debug quando ativo;
-    # 9) runtime final pula completamente a camada diagnóstica quando DEBUG OFF.
-    from src.platform.display_f3_responsive_config import (
-        instalar_configuracao_responsiva_display_f3,
-    )
-
-    instalar_configuracao_responsiva_display_f3()
-
+    # Uma única camada é responsável pelo workspace. A antiga extensão
+    # display_f3_responsive_config não é mais instalada porque disputava geometria
+    # e maximização com o workspace final.
     from src.platform.display_f3_workspace_ui import (
         instalar_workspace_telas_display_f3,
     )
@@ -192,4 +178,19 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     )
 
     instalar_runtime_debug_off_custo_zero_display_f3()
+
+    from src.platform.display_f3_reference_preview_rotation import (
+        instalar_rotacao_preview_referencias_display_f3,
+    )
+
+    instalar_rotacao_preview_referencias_display_f3()
+
+    # Esta é propositalmente a última camada: cache, pausa de configuração,
+    # bypass do status visual legado e hot-path do editor devem ficar por fora de
+    # todos os wrappers anteriores.
+    from src.platform.display_f3_final_performance import (
+        instalar_performance_final_display_f3,
+    )
+
+    instalar_performance_final_display_f3()
     _INSTALLED = True
