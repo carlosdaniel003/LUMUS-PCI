@@ -31,15 +31,18 @@ jobs:
           python -m py_compile \
             src/platform/display_f3_unknown_debug_fix.py \
             src/platform/display_f3_live_diagnostic_trace.py \
+            src/platform/display_f3_h1_single_frame_probe.py \
             src/platform/display_f3_fast_expected_gate.py \
             tests/test_display_f3_unknown_debug_fix.py \
-            tests/test_display_f3_live_diagnostic_trace.py
+            tests/test_display_f3_live_diagnostic_trace.py \
+            tests/test_display_f3_h1_single_frame_probe.py
 
       - name: Run focused regressions
         run: |
           python -m unittest \
             tests.test_display_f3_unknown_debug_fix \
             tests.test_display_f3_live_diagnostic_trace \
+            tests.test_display_f3_h1_single_frame_probe \
             tests.test_display_f3_fast_expected_gate \
             tests.test_display_f3_physical_learning_policy \
             tests.test_display_f3_exact_check_template \
