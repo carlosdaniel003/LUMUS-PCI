@@ -2,25 +2,50 @@ from __future__ import annotations
 
 """Otimizações finais do Display F3 sem alterar o runtime da Produção F2.
 
-Esta camada atua em quatro custos que não acrescentam informação operacional:
+Esta camada atua nos custos que não acrescentam informação operacional:
 - releitura/normalização dos mesmos JSONs a cada frame;
+- processamento repetido do mesmo frame da câmera antes do gate de frame novo;
 - análise F3 e render da janela de produção atrás das telas de configuração;
+- abertura síncrona da configuração com carga pesada antes do primeiro paint;
 - matcher visual legado que ficou sem saída depois do status físico unificado;
+- leitura/cópia Full HD repetida das fotos de referência;
 - redraw completo do editor apenas para mover a lupa.
 """
 
 from copy import deepcopy
 from pathlib import Path
 import time
+import traceback
 
 import cv2
+import numpy as np
 
 
 F3_CONFIG_BACKGROUND_INTERVAL_MS = 280
+F3_CONFIG_OPEN_DELAY_MS = 1
+F3_REFERENCE_PREVIEW_DELAY_MS = 45
 F3_MASK_POINTER_INTERVAL_S = 1.0 / 20.0
 F3_MASK_DRAG_REDRAW_INTERVAL_S = 1.0 / 30.0
 F3_MAGNIFIER_TAG = "odin_f3_magnifier_overlay"
 F3_TIME_EPSILON = 1e-9
+
+# O preview anterior herdava 45 ms do automático. Isso colocava o Tk em uma fila
+# praticamente contínua quando um ciclo óptico custava mais do que 45 ms.
+# H1/BLUE continuam rápidos; demais estados cedem tempo ao event loop.
+F3_FAST_CYCLE_TARGET_MS = 50
+F3_NORMAL_CYCLE_TARGET_MS = 85
+F3_MIN_IDLE_SLICE_MS = 12
+
+# Comparação física usa a mesma lógica visual, mas a referência é recortada antes
+# de ser reduzida. Assim não copiamos/redimensionamos um frame Full HD inteiro uma
+# vez para cada candidato físico.
+F3_REFERENCE_COMPARE_WIDTH = 360
+F3_REFERENCE_CACHE_LIMIT = 64
+F3_MASK_REFERENCE_CACHE_LIMIT = 256
+
+_REFERENCE_IMAGE_CACHE: dict[str, tuple[tuple[int, int], object]] = {}
+_REFERENCE_COMPARE_CACHE: dict[tuple, object] = {}
+_MASK_REFERENCE_CACHE: dict[tuple, dict] = {}
 
 
 def _file_signature(path) -> tuple[int, int] | None:
@@ -35,8 +60,7 @@ def _file_signature(path) -> tuple[int, int] | None:
 def _cached_payload(self, signature_attr: str, payload_attr: str, signature):
     if signature != getattr(self, signature_attr, object()):
         return None
-    payload = getattr(self, payload_attr, None)
-    return deepcopy(payload) if isinstance(payload, dict) else None
+    return getattr(self, payload_attr, None)
 
 
 def _install_file_backed_cache(
@@ -47,6 +71,12 @@ def _install_file_backed_cache(
     path_attr: str,
     marker: str,
 ) -> None:
+    """Cacheia o payload normalizado sem deepcopy do documento inteiro por leitura.
+
+    Os repositórios F3 são usados no thread do Tk. APIs públicas que devolvem
+    projeto/referência já fazem cópia do item retornado; operações mutáveis seguem
+    o fluxo carregar -> alterar -> escrever e a escrita invalida o cache.
+    """
     if bool(getattr(cls, marker, False)):
         return
     original_load = getattr(cls, load_name)
@@ -62,18 +92,14 @@ def _install_file_backed_cache(
             return cached
 
         data = original_load(self)
-        # A assinatura é obtida de novo porque uma recuperação/migração pode ter
-        # alterado o arquivo enquanto a leitura era processada.
         setattr(self, signature_attr, _file_signature(path))
-        setattr(self, payload_attr, deepcopy(data) if isinstance(data, dict) else data)
-        return deepcopy(data) if isinstance(data, dict) else data
+        setattr(self, payload_attr, data)
+        return data
 
     def write(self, data):
         setattr(self, signature_attr, object())
         setattr(self, payload_attr, None)
         result = original_write(self, data)
-        # Não reutilizamos o objeto recebido: a próxima leitura normaliza uma vez
-        # o arquivo efetivamente persistido e passa a servir o cache.
         setattr(self, signature_attr, object())
         setattr(self, payload_attr, None)
         return result
@@ -116,6 +142,8 @@ def _install_repository_caches() -> None:
 
 
 def configuracao_f3_visivel(app) -> bool:
+    if bool(getattr(app, "_display_f3_configuration_opening", False)):
+        return True
     config = getattr(app, "_display_project_config_window", None)
     if config is None:
         return False
@@ -123,6 +151,158 @@ def configuracao_f3_visivel(app) -> bool:
         return bool(config.visible)
     except Exception:
         return False
+
+
+def _install_fast_configuration_open() -> None:
+    """Faz o clique em CONFIGURAR devolver o controle ao Tk imediatamente."""
+    import src.platform.display_production_f3 as production_module
+    from src.platform.display_project_repository import DisplayProjectRepository
+
+    cls = production_module.DisplayProductionF3Mixin
+    if bool(getattr(cls, "_display_f3_async_configuration_open_installed", False)):
+        return
+
+    def open_configuration(self) -> None:
+        existing = getattr(self, "_display_project_config_window", None)
+        if existing is not None:
+            try:
+                if existing.visible:
+                    existing.window.deiconify()
+                    existing.window.lift()
+                    existing.window.focus_force()
+                    return
+            except Exception:
+                self._display_project_config_window = None
+
+        if bool(getattr(self, "_display_f3_configuration_opening", False)):
+            return
+
+        self._display_f3_configuration_opening = True
+        self._display_f3_last_config_error = ""
+        try:
+            self._display_auto_set_preview_status(
+                "CONFIGURAÇÃO • abrindo...",
+                "#FDE68A",
+            )
+        except Exception:
+            pass
+
+        def build(owner=self):
+            try:
+                repository = getattr(owner, "display_project_repository", None)
+                if repository is None:
+                    repository = DisplayProjectRepository()
+                    owner.display_project_repository = repository
+
+                # A referência é resolvida em tempo de execução porque a extensão
+                # de presença física substitui a classe base no módulo F3.
+                window_cls = production_module.DisplayProjectConfigWindow
+                created = window_cls(
+                    root=owner.root,
+                    repository=repository,
+                    frame_provider=owner._obter_frame_para_configuracao_display,
+                    on_change=owner._atualizar_resumo_projeto_display_f3,
+                    on_close=owner._ao_fechar_configuracao_projeto_display,
+                )
+                owner._display_project_config_window = created
+            except Exception as exc:
+                owner._display_project_config_window = None
+                owner._display_f3_last_config_error = f"{type(exc).__name__}: {exc}"
+                traceback.print_exc()
+                try:
+                    owner._display_auto_set_preview_status(
+                        f"CONFIGURAÇÃO • falha ao abrir • {type(exc).__name__}",
+                        "#FCA5A5",
+                    )
+                except Exception:
+                    pass
+            finally:
+                owner._display_f3_configuration_opening = False
+
+        try:
+            self.root.after(F3_CONFIG_OPEN_DELAY_MS, build)
+        except Exception:
+            self._display_f3_configuration_opening = False
+            build()
+
+    cls.abrir_configuracao_projeto_display = open_configuration
+    cls._display_f3_async_configuration_open_installed = True
+
+
+def _install_lazy_configuration_content() -> None:
+    """Mostra o Toplevel antes de carregar projeto e thumbnails de referência."""
+    import src.platform.display_project_config as config_module
+
+    base_cls = config_module.DisplayProjectConfigWindow
+    if not bool(getattr(base_cls, "_display_f3_lazy_initial_content_installed", False)):
+        original_init = base_cls.__init__
+        original_refresh = base_cls.refresh
+
+        def refresh(self, prefer: str | None = None):
+            if bool(getattr(self, "_display_f3_defer_initial_refresh", False)):
+                self._display_f3_defer_initial_refresh = False
+
+                def delayed(owner=self, target=prefer):
+                    try:
+                        if owner.visible:
+                            original_refresh(owner, target)
+                    except Exception:
+                        pass
+
+                try:
+                    self.window.after(F3_CONFIG_OPEN_DELAY_MS, delayed)
+                except Exception:
+                    delayed()
+                return None
+            return original_refresh(self, prefer)
+
+        def init(self, *args, **kwargs):
+            self._display_f3_defer_initial_refresh = True
+            original_init(self, *args, **kwargs)
+
+        base_cls.refresh = refresh
+        base_cls.__init__ = init
+        base_cls._display_f3_lazy_initial_content_installed = True
+
+    # A extensão de presença lê e converte JPEGs para PhotoImage. Ela também é
+    # adiada/debounced para o primeiro paint da janela não esperar thumbnails.
+    try:
+        import src.platform.display_visual_reference_status as visual_module
+
+        presence_cls = visual_module.DisplayProjectConfigPresenceWindow
+        if not bool(
+            getattr(presence_cls, "_display_f3_lazy_reference_preview_installed", False)
+        ):
+            original_detail = presence_cls._update_project_presence_detail
+
+            def detail(self):
+                previous = getattr(self, "_display_f3_reference_preview_after_id", None)
+                if previous is not None:
+                    try:
+                        self.window.after_cancel(previous)
+                    except Exception:
+                        pass
+
+                def render(owner=self):
+                    owner._display_f3_reference_preview_after_id = None
+                    try:
+                        if owner.visible:
+                            original_detail(owner)
+                    except Exception:
+                        pass
+
+                try:
+                    self._display_f3_reference_preview_after_id = self.window.after(
+                        F3_REFERENCE_PREVIEW_DELAY_MS,
+                        render,
+                    )
+                except Exception:
+                    render()
+
+            presence_cls._update_project_presence_detail = detail
+            presence_cls._display_f3_lazy_reference_preview_installed = True
+    except Exception:
+        pass
 
 
 def _install_configuration_runtime_pause() -> None:
@@ -173,8 +353,6 @@ def _install_configuration_runtime_pause() -> None:
 
         def preview(self):
             if configuracao_f3_visivel(self):
-                # A câmera continua sendo produzida pelo serviço de câmera. Apenas
-                # evitamos converter/desenhar uma segunda preview atrás do editor.
                 self.display_f3_after_id = None
                 self._agendar_preview_display_f3(F3_CONFIG_BACKGROUND_INTERVAL_MS)
                 return None
@@ -183,9 +361,6 @@ def _install_configuration_runtime_pause() -> None:
         DisplayProductionF3Mixin._atualizar_preview_display_f3 = preview
         DisplayProductionF3Mixin._display_f3_configuration_preview_pause_installed = True
 
-    # O callback é somente leitura. Cada consumidor que precisa persistir ou
-    # editar a imagem já cria a própria cópia/rotação. Evita uma cópia Full HD
-    # adicional antes de abrir cada editor.
     if not bool(
         getattr(
             DisplayProductionF3Mixin,
@@ -205,6 +380,106 @@ def _install_configuration_runtime_pause() -> None:
         DisplayProductionF3Mixin._display_f3_zero_copy_config_frame_installed = True
 
 
+def _install_fresh_frame_outer_gate() -> None:
+    """Descarta frame repetido antes do matcher físico, não depois dele."""
+    from src.platform.display_auto_check_runtime import DisplayAutomaticCheckF3Mixin
+
+    cls = DisplayAutomaticCheckF3Mixin
+    if bool(getattr(cls, "_display_f3_outer_fresh_frame_gate_installed", False)):
+        return
+    original_process = cls._process_display_auto_check
+
+    def process(self):
+        if configuracao_f3_visivel(self):
+            self._display_f3_outer_last_frame_token = None
+            return original_process(self)
+
+        if not bool(getattr(self, "display_f3_ativo", False)):
+            self._display_f3_outer_last_frame_token = None
+            return original_process(self)
+
+        frame = getattr(self, "camera_frame_atual", None)
+        if frame is None or getattr(frame, "size", 0) == 0:
+            self._display_f3_outer_last_frame_token = None
+            return original_process(self)
+
+        try:
+            token = self._display_auto_frame_token(frame)
+        except Exception:
+            token = ("object", id(frame))
+
+        if token == getattr(self, "_display_f3_outer_last_frame_token", None):
+            return None
+
+        self._display_f3_outer_last_frame_token = token
+        return original_process(self)
+
+    cls._process_display_auto_check = process
+    cls._display_f3_outer_fresh_frame_gate_installed = True
+
+
+def _install_adaptive_preview_cadence() -> None:
+    """Evita fila infinita de callbacks quando um ciclo óptico demora."""
+    from src.platform.display_auto_check_runtime import DisplayAutomaticCheckF3Mixin
+
+    cls = DisplayAutomaticCheckF3Mixin
+    if bool(getattr(cls, "_display_f3_adaptive_preview_cadence_installed", False)):
+        return
+    original_update = cls._atualizar_preview_display_f3
+
+    def update(self):
+        started = time.perf_counter()
+        result = original_update(self)
+        elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        self._display_f3_last_cycle_ms = round(elapsed_ms, 2)
+
+        if not bool(getattr(self, "display_f3_ativo", False)):
+            return result
+
+        if configuracao_f3_visivel(self):
+            target_ms = F3_CONFIG_BACKGROUND_INTERVAL_MS
+        else:
+            try:
+                context = self._display_auto_current_context()
+            except Exception:
+                context = None
+            fast = False
+            if isinstance(context, dict):
+                try:
+                    fast = bool(
+                        self._display_auto_is_reference_gate(context)
+                        or self._display_auto_is_transient_check(context)
+                    )
+                except Exception:
+                    fast = False
+            target_ms = F3_FAST_CYCLE_TARGET_MS if fast else F3_NORMAL_CYCLE_TARGET_MS
+
+        # O método base agenda o próximo callback antes de executar toda a análise.
+        # Cancelamos esse agendamento e colocamos o próximo após um pequeno respiro
+        # do event loop. Se a análise já excedeu o alvo, ainda há slice mínimo.
+        scheduled = getattr(self, "display_f3_after_id", None)
+        if scheduled is not None:
+            try:
+                self.root.after_cancel(scheduled)
+            except Exception:
+                pass
+            self.display_f3_after_id = None
+
+        wait_ms = max(
+            F3_MIN_IDLE_SLICE_MS,
+            int(round(float(target_ms) - elapsed_ms)),
+        )
+        self._display_f3_last_idle_slice_ms = int(wait_ms)
+        try:
+            self._agendar_preview_display_f3(wait_ms)
+        except Exception:
+            pass
+        return result
+
+    cls._atualizar_preview_display_f3 = update
+    cls._display_f3_adaptive_preview_cadence_installed = True
+
+
 def _install_legacy_visual_status_bypass() -> None:
     """Desliga somente o matcher legado cuja saída já é ignorada pelo status único."""
     from src.platform.display_auto_check_runtime import DisplayAutomaticCheckF3Mixin
@@ -215,14 +490,313 @@ def _install_legacy_visual_status_bypass() -> None:
     original_preview = cls._atualizar_preview_display_f3
 
     def preview(self):
-        # O wrapper legado incrementa este contador e só executa SSIM em múltiplos
-        # de 5. Reiniciar para zero mantém esse caminho sempre no retorno barato.
-        # O status físico atual é publicado pelo runtime operacional final.
         self._display_visual_status_frame_counter = 0
         return original_preview(self)
 
     cls._atualizar_preview_display_f3 = preview
     cls._display_f3_legacy_visual_status_bypassed = True
+
+
+def _trim_cache(cache: dict, limit: int) -> None:
+    while len(cache) > int(limit):
+        try:
+            cache.pop(next(iter(cache)))
+        except Exception:
+            break
+
+
+def _reference_image_cached(metadata: dict | None):
+    if not isinstance(metadata, dict):
+        return None
+    path = Path(str(metadata.get("image_path") or ""))
+    signature = _file_signature(path)
+    if signature is None:
+        return None
+    key = str(path)
+    cached = _REFERENCE_IMAGE_CACHE.get(key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None or getattr(image, "size", 0) == 0:
+        return None
+    _REFERENCE_IMAGE_CACHE[key] = (signature, image)
+    _trim_cache(_REFERENCE_IMAGE_CACHE, F3_REFERENCE_CACHE_LIMIT)
+    return image
+
+
+def _small_reference_after_roi(metadata: dict | None, exact_module):
+    if not isinstance(metadata, dict):
+        return None
+    path = Path(str(metadata.get("image_path") or ""))
+    signature = _file_signature(path)
+    if signature is None:
+        return None
+    roi = exact_module.reference_roi_module.normalizar_roi_referencia(
+        metadata.get("roi")
+    )
+    roi_key = tuple(sorted((roi or {}).items())) if isinstance(roi, dict) else None
+    key = (str(path), signature, roi_key, F3_REFERENCE_COMPARE_WIDTH)
+    cached = _REFERENCE_COMPARE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    reference = _reference_image_cached(metadata)
+    if reference is None:
+        return None
+    if roi is not None:
+        reference = exact_module.reference_roi_module.recortar_roi_referencia(
+            reference,
+            roi,
+        )
+    if reference is None or getattr(reference, "size", 0) == 0:
+        return None
+
+    height, width = reference.shape[:2]
+    if width > F3_REFERENCE_COMPARE_WIDTH:
+        target_width = F3_REFERENCE_COMPARE_WIDTH
+        target_height = max(1, int(round(height * target_width / float(width))))
+        reference = cv2.resize(
+            reference,
+            (target_width, target_height),
+            interpolation=cv2.INTER_AREA,
+        )
+    _REFERENCE_COMPARE_CACHE[key] = reference
+    _trim_cache(_REFERENCE_COMPARE_CACHE, F3_REFERENCE_CACHE_LIMIT)
+    return reference
+
+
+def _prepare_current_roi_small(frame, metadata: dict | None, reference_small, exact_module):
+    if frame is None or getattr(frame, "size", 0) == 0 or reference_small is None:
+        return None
+    current = frame
+    if current.ndim == 2:
+        current = cv2.cvtColor(current, cv2.COLOR_GRAY2BGR)
+    elif current.ndim == 3 and current.shape[2] == 4:
+        current = cv2.cvtColor(current, cv2.COLOR_BGRA2BGR)
+    elif current.ndim != 3 or current.shape[2] != 3:
+        return None
+
+    roi = exact_module.reference_roi_module.normalizar_roi_referencia(
+        (metadata or {}).get("roi")
+    )
+    if roi is not None:
+        current = exact_module.reference_roi_module.recortar_roi_referencia(
+            current,
+            roi,
+        )
+    if current is None or getattr(current, "size", 0) == 0:
+        return None
+
+    height, width = reference_small.shape[:2]
+    if current.shape[:2] != (height, width):
+        current = cv2.resize(
+            current,
+            (width, height),
+            interpolation=cv2.INTER_AREA,
+        )
+    return current
+
+
+def _install_exact_reference_hot_path() -> None:
+    """Remove I/O JPEG e cópias Full HD do classificador físico por gabarito."""
+    import src.platform.display_f3_exact_check_template as exact_module
+
+    if bool(getattr(exact_module, "_display_f3_reference_hot_path_installed", False)):
+        return
+
+    def read_reference(metadata: dict | None):
+        return _reference_image_cached(metadata)
+
+    def score_reference(frame, metadata: dict | None) -> float | None:
+        reference_small = _small_reference_after_roi(metadata, exact_module)
+        if reference_small is None:
+            return None
+        current_small = _prepare_current_roi_small(
+            frame,
+            metadata,
+            reference_small,
+            exact_module,
+        )
+        if current_small is None:
+            return None
+        return float(
+            exact_module.calcular_similaridade_presenca_display(
+                reference_small,
+                current_small,
+            )
+        )
+
+    exact_module._read_reference_full = read_reference
+    exact_module._score_reference_full_roi = score_reference
+
+    analyzer_cls = exact_module.F3ExactCheckTemplateAnalyzer
+    original_reference_context = analyzer_cls._reference_visual_context
+
+    def reference_context(
+        self,
+        project_name: str,
+        check_id: str,
+        project: dict,
+        masks: list[dict],
+        visual_rotation: int,
+    ):
+        metadata = self.presence_store.get(project_name, check_id)
+        path = Path(str((metadata or {}).get("image_path") or ""))
+        signature = _file_signature(path)
+        masks_key = repr(masks)
+        key = (
+            str(project_name),
+            str(check_id),
+            int(visual_rotation or 0),
+            signature,
+            str(project.get("updated_at") or ""),
+            masks_key,
+        )
+        cached = getattr(self, "_display_f3_reference_visual_cache", None)
+        if isinstance(cached, tuple) and len(cached) == 2 and cached[0] == key:
+            return cached[1]
+        value = original_reference_context(
+            self,
+            project_name,
+            check_id,
+            project,
+            masks,
+            visual_rotation,
+        )
+        self._display_f3_reference_visual_cache = (key, value)
+        return value
+
+    analyzer_cls._reference_visual_context = reference_context
+
+    original_invalidate = analyzer_cls.invalidate_learning_cache
+
+    def invalidate(self):
+        self._display_f3_reference_visual_cache = None
+        try:
+            return original_invalidate(self)
+        finally:
+            _REFERENCE_COMPARE_CACHE.clear()
+            _MASK_REFERENCE_CACHE.clear()
+
+    analyzer_cls.invalidate_learning_cache = invalidate
+
+    exact_module._display_f3_reference_hot_path_installed = True
+
+
+def _mask_reference_prepared(reference_frame, selection, exact_module):
+    if reference_frame is None or getattr(reference_frame, "size", 0) == 0:
+        return None
+    height, width = reference_frame.shape[:2]
+    key = (id(reference_frame), repr(selection), width, height)
+    cached = _MASK_REFERENCE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    prepared = exact_module.criar_mascaras_roi(selection, width, height)
+    if prepared is None:
+        return None
+    x1, y1, x2, y2, mask, _inner, _ring = prepared
+    reference_roi = reference_frame[y1:y2, x1:x2]
+    if (
+        reference_roi is None
+        or getattr(reference_roi, "size", 0) == 0
+        or mask is None
+        or int(np.count_nonzero(mask)) <= 0
+    ):
+        return None
+
+    reference_blur = cv2.GaussianBlur(reference_roi, (3, 3), 0)
+    reference_hsv = cv2.cvtColor(reference_blur, cv2.COLOR_BGR2HSV)
+    ref_bgr = reference_blur[mask].astype(np.float32)
+    ref_s = reference_hsv[:, :, 1][mask].astype(np.float32)
+    ref_v = reference_hsv[:, :, 2][mask].astype(np.float32)
+    value = {
+        "bounds": (x1, y1, x2, y2),
+        "mask": mask,
+        "ref_bgr": ref_bgr,
+        "ref_s": ref_s,
+        "ref_v": ref_v,
+        "reference_v_mean": float(np.mean(ref_v)),
+    }
+    _MASK_REFERENCE_CACHE[key] = value
+    _trim_cache(_MASK_REFERENCE_CACHE, F3_MASK_REFERENCE_CACHE_LIMIT)
+    return value
+
+
+def _install_exact_mask_reference_cache() -> None:
+    """Pré-calcula a metade fixa da comparação de cada máscara do CHECK."""
+    import src.platform.display_f3_exact_check_template as exact_module
+
+    if bool(getattr(exact_module, "_display_f3_mask_hot_path_installed", False)):
+        return
+
+    def compare(current_frame, reference_frame, selection) -> dict | None:
+        if (
+            current_frame is None
+            or getattr(current_frame, "size", 0) == 0
+            or reference_frame is None
+            or getattr(reference_frame, "size", 0) == 0
+        ):
+            return None
+
+        height, width = reference_frame.shape[:2]
+        if current_frame.shape[:2] != (height, width):
+            current_frame = cv2.resize(
+                current_frame,
+                (width, height),
+                interpolation=cv2.INTER_AREA,
+            )
+
+        fixed = _mask_reference_prepared(reference_frame, selection, exact_module)
+        if fixed is None:
+            return None
+        x1, y1, x2, y2 = fixed["bounds"]
+        mask = fixed["mask"]
+        current_roi = current_frame[y1:y2, x1:x2]
+        if current_roi is None or getattr(current_roi, "size", 0) == 0:
+            return None
+
+        current_blur = cv2.GaussianBlur(current_roi, (3, 3), 0)
+        current_hsv = cv2.cvtColor(current_blur, cv2.COLOR_BGR2HSV)
+        cur_bgr = current_blur[mask].astype(np.float32)
+        cur_s = current_hsv[:, :, 1][mask].astype(np.float32)
+        cur_v = current_hsv[:, :, 2][mask].astype(np.float32)
+
+        ref_bgr = fixed["ref_bgr"]
+        ref_s = fixed["ref_s"]
+        ref_v = fixed["ref_v"]
+        bgr_mae = float(np.mean(np.abs(cur_bgr - ref_bgr)) / 255.0)
+        s_mae = float(np.mean(np.abs(cur_s - ref_s)) / 255.0)
+        v_mae = float(np.mean(np.abs(cur_v - ref_v)) / 255.0)
+
+        pixel_similarity = 1.0 - (
+            (0.30 * bgr_mae)
+            + (0.20 * s_mae)
+            + (0.50 * v_mae)
+        )
+        reference_v_mean = float(fixed["reference_v_mean"])
+        current_v_mean = float(np.mean(cur_v))
+        energy_similarity = 1.0 - min(
+            1.0,
+            abs(current_v_mean - reference_v_mean) / 255.0,
+        )
+        similarity = max(
+            0.0,
+            min(
+                1.0,
+                float((0.75 * pixel_similarity) + (0.25 * energy_similarity)),
+            ),
+        )
+        return {
+            "similarity": round(similarity, 4),
+            "pixel_similarity": round(float(pixel_similarity), 4),
+            "energy_similarity": round(float(energy_similarity), 4),
+            "reference_v_mean": round(reference_v_mean, 4),
+            "current_v_mean": round(current_v_mean, 4),
+        }
+
+    exact_module.comparar_mascara_com_gabarito_f3 = compare
+    exact_module._display_f3_mask_hot_path_installed = True
 
 
 def _interaction_due(last_time: float, now: float, interval: float) -> bool:
@@ -244,9 +818,6 @@ def _install_mask_editor_hot_path() -> None:
     original_leave = DisplayMaskEditorInteractionMixin._leave
 
     def merge(self, changed):
-        # snapshot já é uma cópia congelada criada no ButtonPress. Geometria
-        # transformada também retorna novos objetos; copiar novamente todas as
-        # máscaras em cada B1-Motion só aumenta pressão de CPU/GC.
         by_id = {mask_module._id(mask): mask for mask in changed}
         self.masks = [
             by_id.get(mask_module._id(mask), mask)
@@ -324,11 +895,8 @@ def _install_mask_editor_hot_path() -> None:
         self.pointer_master = self._to_master(event.x, event.y)
         if self.freeform and self.pointer_master:
             self.freeform_mouse = self.pointer_master
-            # Desenho ponto-a-ponto precisa atualizar a linha dinâmica.
             self.redraw()
         else:
-            # Movimento comum atualiza somente a lupa. Máscaras, fundo e handles
-            # permanecem como itens existentes no canvas.
             self._draw_magnifier()
         return None
 
@@ -354,8 +922,6 @@ def _install_mask_editor_hot_path() -> None:
         if allow_redraw:
             self._display_f3_last_drag_redraw_s = now
 
-        # A geometria acompanha todos os eventos; apenas o repaint completo fica
-        # limitado a 30 Hz. ButtonRelease do editor sempre faz o redraw final.
         previous = bool(getattr(self, "_odin_editor_suppress_redraw", False))
         self._odin_editor_suppress_redraw = previous or not allow_redraw
         try:
@@ -373,6 +939,12 @@ def _install_mask_editor_hot_path() -> None:
 
 def instalar_performance_final_display_f3() -> None:
     _install_repository_caches()
+    _install_fast_configuration_open()
+    _install_lazy_configuration_content()
     _install_configuration_runtime_pause()
     _install_legacy_visual_status_bypass()
+    _install_exact_reference_hot_path()
+    _install_exact_mask_reference_cache()
+    _install_fresh_frame_outer_gate()
+    _install_adaptive_preview_cadence()
     _install_mask_editor_hot_path()
