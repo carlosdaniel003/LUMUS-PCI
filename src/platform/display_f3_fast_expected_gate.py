@@ -129,13 +129,20 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     DisplayAutomaticCheckF3Mixin._display_f3_fast_expected_gate_installed = True
 
     # Ordem final do F3:
-    # 1) fast-path preserva H1/BLUE;
-    # 2) fallback UNKNOWN/OFF instala o painel técnico base;
-    # 3) rastreio ao vivo corrige os scores para ROI-primeiro, mantém histórico
-    #    por frame e usa o gabarito exato como sonda positiva invisível;
-    # 4) H1 e BLUE podem ser capturados no primeiro frame positivo confiável;
-    # 5) a sonda é bloqueada durante EMPTY -> nova placa para não reciclar H1;
-    # 6) telemetria pesada é amostrada e a sonda pausa fora do fluxo produtivo.
+    # 1) configuração do projeto abre maximizada e redimensionável;
+    # 2) fast-path preserva H1/BLUE;
+    # 3) fallback UNKNOWN/OFF instala o painel técnico base;
+    # 4) rastreio ao vivo instala a infraestrutura de diagnóstico;
+    # 5) toggle deixa o diagnóstico OFF por padrão;
+    # 6) H1/BLUE preservam a sonda positiva mesmo com debug desligado;
+    # 7) rearme impede reciclar evidência da placa anterior;
+    # 8) performance guard zera telemetria quando DEBUG está OFF.
+    from src.platform.display_f3_responsive_config import (
+        instalar_configuracao_responsiva_display_f3,
+    )
+
+    instalar_configuracao_responsiva_display_f3()
+
     from src.platform.display_f3_unknown_debug_fix import (
         instalar_correcao_unknown_e_debug_display_f3,
     )
@@ -147,6 +154,12 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     )
 
     instalar_rastreio_ao_vivo_debug_display_f3()
+
+    from src.platform.display_f3_debug_toggle import (
+        instalar_toggle_debug_tecnico_display_f3,
+    )
+
+    instalar_toggle_debug_tecnico_display_f3()
 
     from src.platform.display_f3_h1_single_frame_probe import (
         instalar_captura_h1_um_frame_display_f3,
