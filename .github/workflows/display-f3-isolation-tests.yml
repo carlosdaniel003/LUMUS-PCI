@@ -54,6 +54,7 @@ jobs:
             src/platform/display_f3_reference_authority_bridge.py \
             src/platform/display_f3_same_mask_reference_fix.py \
             src/platform/display_f3_physical_learning_policy.py \
+            src/platform/display_f3_exact_check_template.py \
             src/platform/freeform_segment_persistence.py \
             src/platform/segment_project_geometry_persistence.py \
             src/platform/raspberry_pi3_production_app.py \
@@ -81,7 +82,8 @@ jobs:
             tests/test_display_f3_editor_performance.py \
             tests/test_display_f3_reference_authority_fix.py \
             tests/test_display_f3_same_mask_reference_fix.py \
-            tests/test_display_f3_physical_learning_policy.py
+            tests/test_display_f3_physical_learning_policy.py \
+            tests/test_display_f3_exact_check_template.py
 
       - name: Run ROI geometry parity tests
         run: |
@@ -118,6 +120,7 @@ jobs:
             tests.test_display_f3_reference_authority_fix \
             tests.test_display_f3_same_mask_reference_fix \
             tests.test_display_f3_physical_learning_policy \
+            tests.test_display_f3_exact_check_template \
             -v
 
       - name: Run F2 regression tests
