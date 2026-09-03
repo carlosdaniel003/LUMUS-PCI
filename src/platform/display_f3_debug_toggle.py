@@ -5,8 +5,8 @@ import tkinter as tk
 from src.platform.display_production_f3_window import DisplayProductionF3Window
 
 
-F3_DEBUG_TOGGLE_OFF_TEXT = "DEBUG OFF"
-F3_DEBUG_TOGGLE_ON_TEXT = "DEBUG ON"
+F3_DEBUG_TOGGLE_OFF_TEXT = "OFF"
+F3_DEBUG_TOGGLE_ON_TEXT = "ON"
 
 
 def debug_tecnico_ativo_display_f3(target) -> bool:
@@ -79,6 +79,23 @@ def aplicar_estado_debug_tecnico_display_f3(window, enabled: bool) -> None:
     _limpar_telemetria_debug_display_f3(window)
 
 
+def _encontrar_owner_provider(provider):
+    """Recupera o App guardado tanto em default arg quanto em closure da lambda."""
+    try:
+        candidates = list(getattr(provider, "__defaults__", None) or ())
+        for cell in getattr(provider, "__closure__", None) or ():
+            try:
+                candidates.append(cell.cell_contents)
+            except Exception:
+                pass
+        for candidate in candidates:
+            if candidate is not None and hasattr(candidate, "display_f3_window"):
+                return candidate
+    except Exception:
+        pass
+    return None
+
+
 _INSTALLED = False
 
 
@@ -109,16 +126,9 @@ def instalar_toggle_debug_tecnico_display_f3() -> None:
         return original_open_debug(self)
 
     def set_provider(self, provider) -> None:
-        # Guardamos o owner da lambda para limpar a telemetria ao desligar.
-        try:
-            closure = getattr(provider, "__closure__", None) or ()
-            for cell in closure:
-                candidate = getattr(cell, "cell_contents", None)
-                if candidate is not None and hasattr(candidate, "display_f3_window"):
-                    self._display_f3_debug_owner = candidate
-                    break
-        except Exception:
-            pass
+        owner = _encontrar_owner_provider(provider)
+        if owner is not None:
+            self._display_f3_debug_owner = owner
         original_set_provider(self, provider)
 
     def init(self, *args, **kwargs):
@@ -128,6 +138,8 @@ def instalar_toggle_debug_tecnico_display_f3() -> None:
         self._display_f3_technical_debug_var = tk.BooleanVar(value=False)
         self._display_f3_debug_owner = None
 
+        # Controle compacto ao lado de DEBUG TÉCNICO: não ocupa a largura da
+        # informação do projeto e deixa explícito se o diagnóstico está ativo.
         toggle = tk.Checkbutton(
             self.project_frame,
             text=F3_DEBUG_TOGGLE_OFF_TEXT,
@@ -144,7 +156,7 @@ def instalar_toggle_debug_tecnico_display_f3() -> None:
             selectcolor="#0E7490",
             relief="flat",
             bd=0,
-            padx=9,
+            padx=7,
             pady=6,
             cursor="hand2",
             highlightthickness=0,
