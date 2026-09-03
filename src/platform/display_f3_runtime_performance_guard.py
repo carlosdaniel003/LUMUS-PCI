@@ -5,21 +5,37 @@ from datetime import datetime, timezone
 import time
 
 import src.platform.display_f3_live_diagnostic_trace as trace_module
+from src.platform.display_f3_debug_toggle import debug_tecnico_ativo_display_f3
 
 
 F3_PERF_DEBUG_REFRESH_MS = 1200
 F3_PERF_TRACE_MAX_FRAMES = 96
 F3_PERF_TRACE_DETAIL_FRAMES = 12
 F3_PERF_TRACE_SAMPLE_INTERVAL_S = 0.18
-F3_PERF_PROBE_PAUSE_REASON = "sonda_pausada_fora_fluxo_produtivo"
+F3_PERF_PROBE_PAUSE_REASON = "sonda_pausada_para_performance"
 
 
-def sonda_oculta_permitida_display_f3(app) -> bool:
-    """A sonda cara só pode rodar durante a inspeção F3 realmente ativa.
+def _contexto_exige_sonda_rapida_f3(app, context: dict | None) -> bool:
+    """H1 e CHECKS transitórios preservam a sonda positiva mesmo sem debug."""
+    if not isinstance(context, dict):
+        return False
+    try:
+        if app._display_auto_is_reference_gate(context):
+            return True
+    except Exception:
+        pass
+    try:
+        return bool(app._display_auto_is_transient_check(context))
+    except Exception:
+        return False
 
-    A configuração do projeto, a tela de resultado/rearme e uma janela F3 já
-    oculta não precisam continuar processando gabarito exato em background.
-    Isso preserva CPU para a interface sem alterar a lógica de produção.
+
+def sonda_oculta_permitida_display_f3(app, context: dict | None = None) -> bool:
+    """Controla a sonda cara sem sacrificar a captura operacional de H1/BLUE.
+
+    Fora da produção a sonda fica sempre pausada. Durante a produção, DEBUG ON
+    libera o diagnóstico completo. Com DEBUG OFF, somente H1 e CHECKS transitórios
+    conservam o gabarito exato positivo necessário à captura rápida.
     """
     if not bool(getattr(app, "display_f3_ativo", False)):
         return False
@@ -43,7 +59,10 @@ def sonda_oculta_permitida_display_f3(app) -> bool:
                 return False
         except Exception:
             pass
-    return True
+
+    if debug_tecnico_ativo_display_f3(app):
+        return True
+    return _contexto_exige_sonda_rapida_f3(app, context)
 
 
 def _analise_sonda_pausada(context: dict | None) -> dict:
@@ -151,7 +170,13 @@ def registrar_rastro_compacto_display_f3(
     stability: dict,
     advance: dict | None,
 ) -> None:
-    """Substitui deep-copy por frame por telemetria compacta e amostrada."""
+    """Telemetria só existe quando o operador habilita explicitamente o debug."""
+    # O token ainda precisa ser marcado para o wrapper nunca reprocessar a mesma
+    # imagem. Todo o restante fica zerado quando DEBUG OFF.
+    app._display_f3_live_trace_last_token = token
+    if not debug_tecnico_ativo_display_f3(app):
+        return
+
     now = time.monotonic()
     should_record = deve_registrar_rastro_display_f3(
         app,
@@ -160,10 +185,6 @@ def registrar_rastro_compacto_display_f3(
         advance=advance,
         now_monotonic=now,
     )
-
-    # Mesmo quando o frame não entra no histórico, marque o token. Sem isso o
-    # wrapper de debug poderia reprocessar a mesma imagem várias vezes.
-    app._display_f3_live_trace_last_token = token
 
     signature = _context_signature(context)
     approved = bool(isinstance(analysis, dict) and analysis.get("approved") is True)
@@ -240,7 +261,7 @@ def registrar_rastro_compacto_display_f3(
 
 
 def instalar_guard_performance_runtime_display_f3() -> None:
-    """Mantém debug útil sem deixar telemetria disputar a thread do Tkinter."""
+    """Mantém produção leve e só paga o custo técnico quando DEBUG está ON."""
     if bool(getattr(trace_module, "_display_f3_runtime_performance_guard_installed", False)):
         return
 
@@ -251,7 +272,7 @@ def instalar_guard_performance_runtime_display_f3() -> None:
     original_probe = trace_module._probe_expected_check
 
     def probe(app, frame, context):
-        if not sonda_oculta_permitida_display_f3(app):
+        if not sonda_oculta_permitida_display_f3(app, context):
             app._display_f3_live_probe_ok_frames = 0
             app._display_f3_live_probe_signature = None
             return _analise_sonda_pausada(context)
