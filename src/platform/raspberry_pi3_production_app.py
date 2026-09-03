@@ -48,6 +48,9 @@ from src.platform.display_f3_operational_status import (
 from src.platform.display_f3_optical_power_reconciliation import (
     instalar_reconciliacao_optica_estado_fisico_display_f3,
 )
+from src.platform.display_f3_physical_learning_policy import (
+    instalar_politica_fisica_e_aprendizado_display_f3,
+)
 from src.platform.display_f3_physical_state_fix import (
     instalar_correcao_estado_fisico_display_f3,
 )
@@ -241,6 +244,7 @@ class RaspberryPi3ProductionApp(
         instalar_autoridade_referencias_display_f3()
         instalar_ponte_autoridade_referencias_display_f3()
         instalar_referencias_por_mesma_mascara_display_f3()
+        instalar_politica_fisica_e_aprendizado_display_f3()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
