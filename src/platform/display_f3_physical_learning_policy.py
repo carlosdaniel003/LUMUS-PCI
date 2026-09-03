@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from math import ceil
+from pathlib import Path
+
+import cv2
 
 import src.platform.display_auto_check_runtime as auto_runtime_module
 import src.platform.display_f3_check_transition_guard as transition_module
@@ -9,11 +13,31 @@ import src.platform.display_f3_mask_status as mask_status_module
 import src.platform.display_f3_operational_status as operational_module
 import src.platform.display_f3_same_mask_reference_fix as learning_module
 import src.platform.display_live_roi_overlay as overlay_module
+from src.core.feature_extractor import extrair_features_selecao
+from src.platform.display_auto_check_analyzer import (
+    DISPLAY_AUTO_FEATURE_WEIGHTS,
+    display_mask_to_analysis_selection,
+)
+from src.platform.display_project_repository import (
+    DISPLAY_CHECK_STATE_ON,
+    normalizar_resolucao_display,
+)
+from src.platform.display_visual_reference_status import (
+    DISPLAY_PROJECT_REFERENCE_BOARD_OFF,
+)
 
 
 F3_STATUS_BOARD_OFF = "PLACA NO SUPORTE • DESLIGADA • LEDS DESLIGADOS"
 F3_STATUS_BOARD_ON_PREFIX = "PLACA NO SUPORTE • LIGADA"
 F3_STATUS_EMPTY = "PLACA FORA DO SUPORTE"
+
+# Antes de aceitar qualquer CHECK ligado, as máscaras que deveriam estar ACESAS
+# precisam parecer mais com a foto desse CHECK do que com a foto PLACA DESLIGADA.
+# A cena inteira continua útil para presença/posição, mas não pode sozinha dizer
+# que H1/BLUE/USB/AUX está ligado quando os segmentos estão visualmente apagados.
+F3_POWER_MASK_MIN_SEPARATION = 0.14
+F3_POWER_MASK_OFF_RATIO = 0.70
+F3_POWER_MASK_MIN_OFF_VOTES = 2
 
 
 _ORIGINAL_CHECK_PHOTO_CLASSIFIER = (
@@ -86,6 +110,238 @@ def aplicar_contexto_ao_estado_fisico_f3(
     return result
 
 
+def _feature_distance(left, right) -> float:
+    distance = 0.0
+    for name, weight in DISPLAY_AUTO_FEATURE_WEIGHTS.items():
+        distance += abs(
+            float(getattr(left, name, 0.0))
+            - float(getattr(right, name, 0.0))
+        ) * float(weight)
+    return float(distance)
+
+
+def _prepare_reference_image(metadata: dict | None, resolution: tuple[int, int]):
+    if not isinstance(metadata, dict):
+        return None
+    path = Path(str(metadata.get("image_path") or ""))
+    if not path.is_file():
+        return None
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if image is None or getattr(image, "size", 0) == 0:
+        return None
+    width, height = int(resolution[0]), int(resolution[1])
+    if image.shape[:2] != (height, width):
+        image = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+    return image
+
+
+def _prepare_live_image(frame, resolution: tuple[int, int]):
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return None
+    image = frame.copy()
+    if image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    elif image.ndim == 3 and image.shape[2] == 4:
+        image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+    elif image.ndim != 3 or image.shape[2] != 3:
+        return None
+    width, height = int(resolution[0]), int(resolution[1])
+    if image.shape[:2] != (height, width):
+        interpolation = (
+            cv2.INTER_AREA
+            if image.shape[1] > width or image.shape[0] > height
+            else cv2.INTER_LINEAR
+        )
+        image = cv2.resize(image, (width, height), interpolation=interpolation)
+    return image
+
+
+def decidir_placa_desligada_por_votos_mascaras_f3(
+    *,
+    off_votes: int,
+    powered_votes: int,
+    valid_votes: int,
+) -> bool:
+    """Decide OFF só quando a maioria forte das máscaras ACESAS aponta OFF."""
+    valid = max(0, int(valid_votes or 0))
+    off_count = max(0, int(off_votes or 0))
+    powered_count = max(0, int(powered_votes or 0))
+    if valid <= 0:
+        return False
+
+    minimum_votes = 1 if valid == 1 else max(
+        F3_POWER_MASK_MIN_OFF_VOTES,
+        int(ceil(valid * F3_POWER_MASK_OFF_RATIO)),
+    )
+    return bool(
+        off_count >= minimum_votes
+        and off_count > powered_count
+    )
+
+
+def avaliar_evidencia_energia_check_pelas_mascaras_f3(
+    *,
+    repository,
+    matcher,
+    frame,
+    project_name: str,
+    check_id: str,
+) -> dict:
+    """Compara somente segmentos que o CHECK diz que deveriam estar ACESOS.
+
+    Para cada máscara esperada ACESA, o frame atual disputa entre a aparência
+    real daquela mesma região na foto PLACA DESLIGADA e na foto do CHECK.
+    Assim suporte, fundo, placa e demais pixels iguais deixam de dominar a decisão.
+    """
+    project = repository.carregar_projeto(project_name)
+    check = repository.carregar_check(project_name, check_id)
+    if not isinstance(project, dict) or not isinstance(check, dict):
+        return {"available": False, "off_confirmed": False, "reason": "contexto_invalido"}
+
+    resolution = normalizar_resolucao_display(project.get("master_resolution"))
+    if resolution is None:
+        return {"available": False, "off_confirmed": False, "reason": "resolucao_ausente"}
+
+    states = check.get("mask_states", {}) if isinstance(check.get("mask_states"), dict) else {}
+    on_masks = [
+        mask
+        for mask in (project.get("masks", []) or [])
+        if isinstance(mask, dict)
+        and states.get(str(mask.get("id") or "")) == DISPLAY_CHECK_STATE_ON
+    ]
+    if not on_masks:
+        return {"available": False, "off_confirmed": False, "reason": "check_sem_mascara_acesa"}
+
+    project_refs = matcher.project_store.get_all(project_name)
+    off_metadata = project_refs.get(DISPLAY_PROJECT_REFERENCE_BOARD_OFF)
+    check_metadata = matcher.check_store.get(project_name, check_id)
+    off_image = _prepare_reference_image(off_metadata, resolution)
+    check_image = _prepare_reference_image(check_metadata, resolution)
+    live_image = _prepare_live_image(frame, resolution)
+    if off_image is None or check_image is None or live_image is None:
+        return {
+            "available": False,
+            "off_confirmed": False,
+            "reason": "referencias_energia_indisponiveis",
+        }
+
+    off_votes = 0
+    powered_votes = 0
+    ties = 0
+    details = []
+
+    for mask in on_masks:
+        mask_id = str(mask.get("id") or "")
+        try:
+            selection = display_mask_to_analysis_selection(mask)
+            current_features = extrair_features_selecao(live_image, selection)
+            off_features = extrair_features_selecao(off_image, selection)
+            check_features = extrair_features_selecao(check_image, selection)
+        except (TypeError, ValueError):
+            continue
+
+        if min(
+            int(getattr(current_features, "area_pixels", 0) or 0),
+            int(getattr(off_features, "area_pixels", 0) or 0),
+            int(getattr(check_features, "area_pixels", 0) or 0),
+        ) <= 0:
+            continue
+
+        # Se nem a própria foto do CHECK difere da foto desligada nessa máscara,
+        # ela não possui poder discriminante e não participa da votação.
+        reference_span = _feature_distance(off_features, check_features)
+        if reference_span <= 1e-6:
+            continue
+
+        distance_off = _feature_distance(current_features, off_features)
+        distance_check = _feature_distance(current_features, check_features)
+        separation = abs(distance_off - distance_check) / max(
+            1e-9,
+            distance_off + distance_check,
+        )
+
+        winner = "tie"
+        if separation >= F3_POWER_MASK_MIN_SEPARATION:
+            if distance_off < distance_check:
+                off_votes += 1
+                winner = "off"
+            else:
+                powered_votes += 1
+                winner = "check"
+        else:
+            ties += 1
+
+        details.append(
+            {
+                "mask_id": mask_id,
+                "distance_off": round(float(distance_off), 4),
+                "distance_check": round(float(distance_check), 4),
+                "reference_span": round(float(reference_span), 4),
+                "separation": round(float(separation), 4),
+                "winner": winner,
+            }
+        )
+
+    valid_votes = off_votes + powered_votes
+    off_confirmed = decidir_placa_desligada_por_votos_mascaras_f3(
+        off_votes=off_votes,
+        powered_votes=powered_votes,
+        valid_votes=valid_votes,
+    )
+    return {
+        "available": bool(details),
+        "off_confirmed": bool(off_confirmed),
+        "check_id": str(check_id),
+        "expected_on_mask_count": len(on_masks),
+        "off_votes": int(off_votes),
+        "powered_votes": int(powered_votes),
+        "tie_votes": int(ties),
+        "valid_votes": int(valid_votes),
+        "details": details,
+    }
+
+
+def corrigir_falso_check_ligado_pelas_mascaras_f3(
+    *,
+    repository,
+    matcher,
+    frame,
+    project_name: str,
+    state: dict | None,
+) -> dict:
+    """Um CHECK ligado só sobrevive se suas máscaras ACESAS tiverem energia real."""
+    result = deepcopy(state) if isinstance(state, dict) else {}
+    if str(result.get("kind") or "") != "check":
+        return result
+
+    check_id = str(result.get("check_id") or "")
+    if not check_id:
+        return result
+
+    evidence = avaliar_evidencia_energia_check_pelas_mascaras_f3(
+        repository=repository,
+        matcher=matcher,
+        frame=frame,
+        project_name=project_name,
+        check_id=check_id,
+    )
+    result["power_mask_evidence"] = evidence
+    if not bool(evidence.get("off_confirmed")):
+        return result
+
+    return {
+        "kind": "off",
+        "text": F3_STATUS_BOARD_OFF,
+        "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["off"],
+        "allow_auto": False,
+        "physical_state_key": "off",
+        "source": "f3_expected_on_masks_vs_board_off",
+        "power_mask_evidence": evidence,
+        "board_references_complete": bool(result.get("board_references_complete")),
+        "configured_count": int(result.get("configured_count", 0) or 0),
+    }
+
+
 def _build_physical_operational_state(
     self,
     frame,
@@ -112,6 +368,18 @@ def _build_physical_operational_state(
         frame,
         project_name,
     )
+
+    # A comparação global pode confundir OFF com H1 porque quase toda a cena é
+    # igual. Antes do debounce, confirmamos o suposto CHECK usando somente as
+    # máscaras que na foto dele deveriam estar realmente ACESAS.
+    raw_state = corrigir_falso_check_ligado_pelas_mascaras_f3(
+        repository=repository,
+        matcher=matcher,
+        frame=frame,
+        project_name=project_name,
+        state=raw_state,
+    )
+
     state = transition_module._estado_fisico_estavel(self, raw_state)
     current_check_id = str((context or {}).get("check_id") or "")
     state = aplicar_contexto_ao_estado_fisico_f3(
