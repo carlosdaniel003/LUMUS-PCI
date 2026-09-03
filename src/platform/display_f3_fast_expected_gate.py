@@ -133,7 +133,8 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     # 2) fallback UNKNOWN/OFF instala o painel técnico base;
     # 3) rastreio ao vivo corrige os scores para ROI-primeiro, mantém histórico
     #    por frame e usa o gabarito exato como sonda positiva invisível;
-    # 4) H1 e BLUE podem ser capturados no primeiro frame 100% conforme.
+    # 4) H1 e BLUE podem ser capturados no primeiro frame positivo confiável;
+    # 5) a sonda é bloqueada durante EMPTY -> nova placa para não reciclar H1.
     from src.platform.display_f3_unknown_debug_fix import (
         instalar_correcao_unknown_e_debug_display_f3,
     )
@@ -151,4 +152,10 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     )
 
     instalar_captura_h1_um_frame_display_f3()
+
+    from src.platform.display_f3_probe_rearm_guard import (
+        instalar_guard_sonda_rearme_display_f3,
+    )
+
+    instalar_guard_sonda_rearme_display_f3()
     _INSTALLED = True
