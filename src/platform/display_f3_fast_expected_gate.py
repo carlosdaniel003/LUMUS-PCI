@@ -127,4 +127,13 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
         operational_module._build_operational_state = operational_builder
 
     DisplayAutomaticCheckF3Mixin._display_f3_fast_expected_gate_installed = True
+
+    # Esta correção precisa ser a última camada do F3: primeiro preservamos o
+    # fast-path de H1/BLUE; depois resolvemos UNKNOWN->OFF sem liberar máscaras
+    # e instalamos o painel copiável de diagnóstico técnico.
+    from src.platform.display_f3_unknown_debug_fix import (
+        instalar_correcao_unknown_e_debug_display_f3,
+    )
+
+    instalar_correcao_unknown_e_debug_display_f3()
     _INSTALLED = True
