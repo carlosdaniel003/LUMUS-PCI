@@ -36,6 +36,9 @@ from src.platform.display_check_presence_reference import (
 from src.platform.display_f3_check_transition_guard import (
     instalar_guard_transicao_check_display_f3,
 )
+from src.platform.display_f3_exact_check_template import (
+    instalar_gabarito_exato_checks_display_f3,
+)
 from src.platform.display_f3_live_runtime_fix import (
     instalar_runtime_ao_vivo_display_f3,
 )
@@ -245,6 +248,7 @@ class RaspberryPi3ProductionApp(
         instalar_ponte_autoridade_referencias_display_f3()
         instalar_referencias_por_mesma_mascara_display_f3()
         instalar_politica_fisica_e_aprendizado_display_f3()
+        instalar_gabarito_exato_checks_display_f3()
         super().__init__(root)
         iniciar_debug_periodico_camera_windows(self)
 
