@@ -16,9 +16,9 @@ from src.platform.display_f3_reference_authority_fix import (
     F3_REFERENCE_AMBIGUOUS_SEPARATION,
     F3_REFERENCE_MIN_CONFIDENCE,
     F3ReferenceAuthorityAnalyzer,
-    _feature_distance,
     _nearest_reference,
     _separation,
+    classificar_mascara_com_referencias_f3,
 )
 from src.platform.display_project_repository import (
     DISPLAY_CHECK_STATE_OFF,
@@ -27,6 +27,7 @@ from src.platform.display_project_repository import (
 
 
 F3_SAME_MASK_REFERENCE_SOURCE = "f3_same_mask_checks"
+F3_STATE_SAMPLE_FALLBACK_SOURCE = "f3_state_samples_no_check_photo"
 
 
 def classificar_mascara_por_referencias_locais_f3(
@@ -284,6 +285,45 @@ class F3SameMaskReferenceAnalyzer(F3ReferenceAuthorityAnalyzer):
             return None
         return dict(sources[source_index])
 
+    @staticmethod
+    def _apply_classification(
+        item: dict,
+        classified: dict,
+        *,
+        reference_source: str,
+        reference_checks: dict | None = None,
+    ) -> dict:
+        updated = dict(item)
+        updated.update(
+            {
+                "classified": classified["state"],
+                "classified_label": classified["label"],
+                "matched": (
+                    classified["state"]
+                    == str(item.get("expected") or "")
+                ),
+                "confidence": classified["confidence"],
+                "distances": classified["distances"],
+                "reference_source": reference_source,
+                "reference_separation": classified.get(
+                    "reference_separation"
+                ),
+                "nearest_reference_indexes": classified.get(
+                    "nearest_reference_indexes",
+                    {},
+                ),
+                "reference_counts": classified.get(
+                    "reference_counts",
+                    {},
+                ),
+            }
+        )
+        if reference_checks is not None:
+            updated["reference_checks"] = reference_checks
+        else:
+            updated.pop("reference_checks", None)
+        return updated
+
     def analyze(
         self,
         frame,
@@ -318,62 +358,43 @@ class F3SameMaskReferenceAnalyzer(F3ReferenceAuthorityAnalyzer):
             masks,
             visual_rotation,
         )
-        low_light_references = self._state_reference_sets(project_name).get(
-            DISPLAY_AUTO_CLASS_LOW_LIGHT,
-            [],
+        state_sets = self._state_reference_sets(project_name)
+        generic_on = list(state_sets.get(DISPLAY_CHECK_STATE_ON, []) or [])
+        generic_off = list(state_sets.get(DISPLAY_CHECK_STATE_OFF, []) or [])
+        low_light_references = list(
+            state_sets.get(DISPLAY_AUTO_CLASS_LOW_LIGHT, []) or []
         )
 
         recalibrated = []
-        used_count = 0
+        local_used_count = 0
+        fallback_used_count = 0
         complete_pair_count = 0
         missing_pair_ids = []
 
         for item in results:
             mask_id = str(item.get("mask_id") or "")
-            profile = profiles.get(mask_id, {})
-            local_on = list(profile.get(DISPLAY_CHECK_STATE_ON, []) or [])
-            local_off = list(profile.get(DISPLAY_CHECK_STATE_OFF, []) or [])
-            if local_on and local_off:
-                complete_pair_count += 1
-            else:
-                missing_pair_ids.append(mask_id)
-                recalibrated.append(item)
-                continue
-
+            expected = str(item.get("expected") or "")
             features_data = item.get("features")
             if not isinstance(features_data, dict):
                 recalibrated.append(item)
                 continue
+            current_features = LedFeatures.from_dict(features_data)
 
-            classified = classificar_mascara_por_referencias_locais_f3(
-                current=LedFeatures.from_dict(features_data),
-                on_references=local_on,
-                off_references=local_off,
-                low_light_references=low_light_references,
-            )
-            if classified is None:
-                recalibrated.append(item)
-                continue
+            profile = profiles.get(mask_id, {})
+            local_on = list(profile.get(DISPLAY_CHECK_STATE_ON, []) or [])
+            local_off = list(profile.get(DISPLAY_CHECK_STATE_OFF, []) or [])
 
-            nearest = classified["nearest_reference_indexes"]
-            updated = dict(item)
-            updated.update(
-                {
-                    "classified": classified["state"],
-                    "classified_label": classified["label"],
-                    "matched": (
-                        classified["state"]
-                        == str(item.get("expected") or "")
-                    ),
-                    "confidence": classified["confidence"],
-                    "distances": classified["distances"],
-                    "reference_source": classified["reference_source"],
-                    "reference_separation": classified[
-                        "reference_separation"
-                    ],
-                    "nearest_reference_indexes": nearest,
-                    "reference_counts": classified["reference_counts"],
-                    "reference_checks": {
+            if local_on and local_off:
+                complete_pair_count += 1
+                classified = classificar_mascara_por_referencias_locais_f3(
+                    current=current_features,
+                    on_references=local_on,
+                    off_references=local_off,
+                    low_light_references=low_light_references,
+                )
+                if classified is not None:
+                    nearest = classified["nearest_reference_indexes"]
+                    reference_checks = {
                         DISPLAY_CHECK_STATE_ON: self._source_for_index(
                             profile,
                             DISPLAY_CHECK_STATE_ON,
@@ -384,11 +405,43 @@ class F3SameMaskReferenceAnalyzer(F3ReferenceAuthorityAnalyzer):
                             DISPLAY_CHECK_STATE_OFF,
                             nearest.get(DISPLAY_CHECK_STATE_OFF),
                         ),
-                    },
-                }
+                    }
+                    recalibrated.append(
+                        self._apply_classification(
+                            item,
+                            classified,
+                            reference_source=F3_SAME_MASK_REFERENCE_SOURCE,
+                            reference_checks=reference_checks,
+                        )
+                    )
+                    local_used_count += 1
+                    continue
+
+            # Sem um par local completo, não reutilizamos a classificação do pai,
+            # pois ela contém a foto do CHECK atual como referência esperada. Foi
+            # exatamente essa mistura (foto local + estado oposto genérico) que
+            # produziu o padrão sistemático de baixa conformidade no BLUE.
+            missing_pair_ids.append(mask_id)
+            fallback = classificar_mascara_com_referencias_f3(
+                current=current_features,
+                expected=expected,
+                on_references=generic_on,
+                off_references=generic_off,
+                low_light_references=low_light_references,
+                check_expected_reference=None,
             )
-            recalibrated.append(updated)
-            used_count += 1
+            if fallback is None:
+                recalibrated.append(item)
+                continue
+
+            recalibrated.append(
+                self._apply_classification(
+                    item,
+                    fallback,
+                    reference_source=F3_STATE_SAMPLE_FALLBACK_SOURCE,
+                )
+            )
+            fallback_used_count += 1
 
         analysis["mask_results"] = recalibrated
         analysis["active_mask_count"] = len(recalibrated)
@@ -406,7 +459,8 @@ class F3SameMaskReferenceAnalyzer(F3ReferenceAuthorityAnalyzer):
         )
         analysis["reference_authority"] = F3_SAME_MASK_REFERENCE_SOURCE
         analysis["same_mask_reference_pair_count"] = int(complete_pair_count)
-        analysis["same_mask_reference_used_count"] = int(used_count)
+        analysis["same_mask_reference_used_count"] = int(local_used_count)
+        analysis["state_sample_fallback_used_count"] = int(fallback_used_count)
         analysis["same_mask_reference_missing_ids"] = missing_pair_ids
         return analysis
 
