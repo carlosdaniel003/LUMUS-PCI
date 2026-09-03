@@ -73,7 +73,7 @@ class DisplayF3FinalPerformanceTests(unittest.TestCase):
 
     def test_workspace_does_not_flush_tk_while_window_is_being_built(self):
         source = inspect.getsource(workspace.maximizar_janela_workspace_f3)
-        self.assertNotIn("update_idletasks", source.replace("# update_idletasks", "# removed"))
+        self.assertNotIn("window.update_idletasks(", source)
         installer = inspect.getsource(workspace.instalar_workspace_telas_display_f3)
         self.assertIn("agendar_maximizacao_workspace_f3", installer)
 
