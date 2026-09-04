@@ -2,13 +2,16 @@ from __future__ import annotations
 
 """Contrato final do runtime Display F3.
 
-Esta camada corrige duas regras operacionais que não podem ser quebradas por
+Esta camada corrige regras operacionais que não podem ser quebradas por
 otimizações posteriores:
 
 1. As máscaras do CHECK atual são diagnóstico óptico contínuo e nunca ficam
    inativas por causa do estado físico da placa. O estado físico pode bloquear
    avanço/NG, mas não pode impedir classificação ou overlay.
-2. A janela Configurar deve conservar o contrato explícito de construtor
+2. Um falso OFF do classificador global pode ser reconciliado pelo CHECK lógico
+   atual somente quando a própria análise aprovada comprova segmento ACESO. Isso
+   vale para qualquer CHECK presente ou futuro, sem regras por nome/posição.
+3. A janela Configurar deve conservar o contrato explícito de construtor
    ``root/repository/frame_provider/on_change/on_close`` mesmo após o lazy-load.
 
 O módulo é exclusivo do F3 e é instalado depois da camada final de performance.
@@ -23,7 +26,7 @@ import src.platform.display_f3_physical_learning_policy as physical_policy_modul
 F3_MASK_CONFIRMED_SOURCE = "f3_current_check_confirmed_by_live_masks"
 F3_DECISION_ALLOWED_KEY = "_display_f3_physical_decision_allowed"
 F3_MASK_LIVE_KEY = "mask_analysis_active"
-F3_MASK_CONFIRMABLE_KINDS = frozenset({"unknown", "powered"})
+F3_MASK_CONFIRMABLE_KINDS = frozenset({"unknown", "powered", "off"})
 
 
 def preparar_estado_para_mascaras_ativas_f3(state: dict | None) -> dict:
@@ -73,18 +76,51 @@ def _analysis_confirms_current_check(app) -> tuple[bool, dict | None]:
     return confirmed, context
 
 
-def _state_accepts_mask_confirmation(state: dict | None) -> bool:
-    """UNKNOWN e POWERED podem ser resolvidos pelo CHECK atual 100% conforme.
+def _analysis_has_positive_on_evidence(analysis: dict | None) -> bool:
+    """Confirma que o frame contém pelo menos um segmento esperado realmente ACESO.
 
-    ``powered`` significa apenas que o H1 já provou que a placa está energizada;
-    ele não autoriza decisão sozinho. Quando o analisador do CHECK lógico atual
-    retorna aprovado, porém, essa leitura é evidência positiva do próprio estado
-    e pode transformar POWERED em CHECK. OFF/EMPTY continuam fora deste caminho.
+    Esta prova adicional é obrigatória quando o matcher global chamou o frame de
+    OFF. Assim um CHECK composto somente por segmentos APAGADOS nunca pode, por
+    si só, contradizer a referência física de placa desligada.
+    """
+    if not isinstance(analysis, dict):
+        return False
+
+    try:
+        if int(analysis.get("positive_on_matched_count", 0) or 0) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+
+    for item in analysis.get("mask_results") or []:
+        if not isinstance(item, dict):
+            continue
+        expected = str(item.get("expected") or "").strip().lower()
+        classified = str(item.get("classified") or "").strip().lower()
+        if expected == "on" and classified == "on" and bool(item.get("matched")):
+            return True
+    return False
+
+
+def _state_accepts_mask_confirmation(
+    state: dict | None,
+    analysis: dict | None = None,
+) -> bool:
+    """Resolve qualquer CHECK atual sem depender de H1/BLUE/USB/AUX.
+
+    UNKNOWN e POWERED podem ser resolvidos por uma análise 100% conforme do
+    CHECK lógico atual. OFF também pode ser reconciliado, mas somente quando a
+    mesma análise possui evidência positiva de pelo menos um segmento ACESO.
+    EMPTY e UNAVAILABLE permanecem absolutos e nunca são promovidos por máscara.
     """
     if not isinstance(state, dict):
         return False
     kind = str(state.get("kind") or "unknown").strip().lower()
-    return kind in F3_MASK_CONFIRMABLE_KINDS
+    if kind not in F3_MASK_CONFIRMABLE_KINDS:
+        return False
+    if kind == "off":
+        return _analysis_has_positive_on_evidence(analysis)
+    return True
 
 
 def _state_from_mask_confirmation(state: dict, context: dict) -> dict:
@@ -98,7 +134,9 @@ def _state_from_mask_confirmation(state: dict, context: dict) -> dict:
             "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["check"],
             "check_id": check_id,
             "check_name": check_name,
+            "physical_state_key": f"check:{check_id}",
             "physical_matches_expected_check": True,
+            "powered_board_confirmed": True,
             "allow_auto": True,
             F3_DECISION_ALLOWED_KEY: True,
             F3_MASK_LIVE_KEY: True,
@@ -202,17 +240,25 @@ def _install_masks_always_live_gate() -> None:
     def physical_builder(self, frame, project_name: str, context: dict | None):
         state = original_builder(self, frame, project_name, context)
 
-        # Se as máscaras do próprio CHECK já confirmaram este estado no frame
-        # anterior, elas são evidência física positiva de display ligado. Isso
-        # evita ficar eternamente em IDENTIFICANDO quando o matcher global é mais
-        # sensível à iluminação, sem jamais transformar OFF/EMPTY em CHECK ligado.
-        kind = str((state or {}).get("kind") or "unknown").strip().lower()
+        # Se o frame anterior confirmou integralmente o MESMO CHECK, reutilizamos
+        # essa evidência já no início do frame seguinte. Isso é o que permite que
+        # a estabilidade acumule 1/2 -> 2/2 em vez de o falso OFF zerá-la sempre.
         latch = getattr(self, "_display_f3_mask_confirmed_signature", None)
         expected_signature = (
             str(project_name or ""),
             str((context or {}).get("check_id") or ""),
         )
-        if kind == "unknown" and latch == expected_signature and expected_signature[1]:
+        analysis = getattr(self, "_display_auto_last_analysis", None)
+        previous_confirmed = bool(
+            latch == expected_signature
+            and expected_signature[1]
+            and _analysis_matches_context(analysis, context)
+            and isinstance(analysis, dict)
+            and analysis.get("ready")
+            and analysis.get("approved") is True
+            and _state_accepts_mask_confirmation(state, analysis)
+        )
+        if previous_confirmed:
             state = _state_from_mask_confirmation(state, context or {})
             self._display_f3_mask_confirmed_signature = None
 
@@ -236,11 +282,15 @@ def _install_masks_always_live_gate() -> None:
             return original_register(self, aprovado)
 
         # CHECK confirmado pelas próprias máscaras é evidência positiva válida.
-        # Isso resolve UNKNOWN e também POWERED, estado que existe após H1 para
-        # impedir o falso OFF global de derrubar a placa durante USB/AUX.
+        # A regra é genérica: nenhum nome ou índice de CHECK aparece aqui.
         kind = str((state or {}).get("kind") or "unknown").strip().lower()
+        analysis = getattr(self, "_display_auto_last_analysis", None)
         confirmed, context = _analysis_confirms_current_check(self)
-        if _state_accepts_mask_confirmation(state) and confirmed and isinstance(context, dict):
+        if (
+            _state_accepts_mask_confirmation(state, analysis)
+            and confirmed
+            and isinstance(context, dict)
+        ):
             promoted = _state_from_mask_confirmation(state or {}, context)
             promoted["physical_kind_before_mask_confirmation"] = kind
             self._display_f3_operational_state = promoted
@@ -267,11 +317,12 @@ def _install_masks_always_live_gate() -> None:
         decision_allowed = bool(
             state.get(F3_DECISION_ALLOWED_KEY, state.get("allow_auto", False))
         )
+        analysis = getattr(self, "_display_auto_last_analysis", None)
         confirmed, context = _analysis_confirms_current_check(self)
 
         if (
             not decision_allowed
-            and _state_accepts_mask_confirmation(state)
+            and _state_accepts_mask_confirmation(state, analysis)
             and confirmed
             and isinstance(context, dict)
         ):
