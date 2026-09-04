@@ -51,6 +51,14 @@ def _reset_auto_after_physical_transition(app) -> None:
     app._display_f3_last_recognized_check_id = ""
     app._display_f3_last_recognized_check_name = ""
 
+    # O último CHECK aprovado pertence à placa anterior. Ele permanece válido
+    # durante o card final e enquanto a mesma placa continua no suporte, mas deve
+    # desaparecer assim que EMPTY foi confirmado e o ciclo físico realmente mudou.
+    app._display_f3_physical_status_memory_project = ""
+    app._display_f3_physical_status_memory_check_id = ""
+    app._display_f3_physical_status_memory_check_name = ""
+    app._display_f3_physical_status_memory_reason = "suporte_vazio_confirmado"
+
     clear_gate = getattr(app, "_display_auto_clear_manual_entry_gate", None)
     if callable(clear_gate):
         try:
