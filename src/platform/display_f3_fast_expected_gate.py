@@ -250,4 +250,14 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     )
 
     instalar_sincronia_visual_sonda_display_f3()
+
+    # Última autoridade do ciclo físico: se a sonda exata confirmou integralmente
+    # o H1, ela pode liberar o registro daquele CHECK mesmo quando a comparação de
+    # cena ainda prefere OFF. Após H1, a placa permanece LIGADA/AGUARDANDO até
+    # EMPTY/rearme, sem liberar OK/NG dos CHECKS seguintes por memória de estado.
+    from src.platform.display_f3_powered_cycle_latch import (
+        instalar_latch_ciclo_energizado_display_f3,
+    )
+
+    instalar_latch_ciclo_energizado_display_f3()
     _INSTALLED = True
