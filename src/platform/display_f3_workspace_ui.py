@@ -292,10 +292,19 @@ def _instalar_subclasses_finais() -> None:
 
         cls = visual_module.DisplayProjectConfigPresenceWindow
         if not bool(getattr(cls, "_display_f3_workspace_final_presence", False)):
-            original_init = cls.__init__
+            # Não reutilizar o mesmo nome de variável do wrapper de CHECK abaixo.
+            # As funções aninhadas usam closure por referência; reutilizar
+            # ``original_init`` fazia a janela de Projeto Display chamar, em
+            # runtime, o __init__ de DisplayCheckManagerPresenceWindow.
+            original_project_presence_init = cls.__init__
 
-            def project_presence_init(self, *args, **kwargs):
-                original_init(self, *args, **kwargs)
+            def project_presence_init(
+                self,
+                *args,
+                _original_init=original_project_presence_init,
+                **kwargs,
+            ):
+                _original_init(self, *args, **kwargs)
                 aplicar_workspace_projeto_display_f3(self)
                 agendar_maximizacao_workspace_f3(self)
 
@@ -309,10 +318,15 @@ def _instalar_subclasses_finais() -> None:
 
         cls = check_presence_module.DisplayCheckManagerPresenceWindow
         if not bool(getattr(cls, "_display_f3_workspace_final_presence", False)):
-            original_init = cls.__init__
+            original_check_presence_init = cls.__init__
 
-            def check_presence_init(self, *args, **kwargs):
-                original_init(self, *args, **kwargs)
+            def check_presence_init(
+                self,
+                *args,
+                _original_init=original_check_presence_init,
+                **kwargs,
+            ):
+                _original_init(self, *args, **kwargs)
                 aplicar_workspace_checks_display_f3(self)
                 agendar_maximizacao_workspace_f3(self)
 
