@@ -185,12 +185,18 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
 
     instalar_rotacao_preview_referencias_display_f3()
 
-    # Esta é propositalmente a última camada: cache, pausa de configuração,
-    # bypass do status visual legado e hot-path do editor devem ficar por fora de
-    # todos os wrappers anteriores.
+    # Performance deve ficar por fora dos wrappers históricos.
     from src.platform.display_f3_final_performance import (
         instalar_performance_final_display_f3,
     )
 
     instalar_performance_final_display_f3()
+
+    # Contrato operacional é a última camada de todas: otimização nenhuma pode
+    # voltar a desativar máscaras ou alterar a assinatura do Configurar.
+    from src.platform.display_f3_runtime_contract_fix import (
+        instalar_contrato_runtime_display_f3,
+    )
+
+    instalar_contrato_runtime_display_f3()
     _INSTALLED = True
