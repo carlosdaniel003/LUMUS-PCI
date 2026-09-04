@@ -241,4 +241,13 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     )
 
     instalar_debug_snapshot_leve_display_f3()
+
+    # A sonda exata de H1/BLUE já calcula a classificação de cada máscara. Publica
+    # essa mesma análise no overlay para que um CHECK reconhecido nunca permaneça
+    # cinza apenas porque o gate físico bloqueou o analisador produtivo naquele frame.
+    from src.platform.display_f3_probe_visual_sync import (
+        instalar_sincronia_visual_sonda_display_f3,
+    )
+
+    instalar_sincronia_visual_sonda_display_f3()
     _INSTALLED = True
