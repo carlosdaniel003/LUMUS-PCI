@@ -31,9 +31,11 @@ jobs:
           python -m py_compile \
             src/platform/display_f3_fast_expected_gate.py \
             src/platform/display_f3_h1_single_frame_probe.py \
+            src/platform/display_f3_runtime_contract_fix.py \
             src/platform/raspberry_pi3_production_app.py \
             tests/test_display_f3_fast_expected_gate.py \
-            tests/test_display_f3_h1_single_frame_probe.py
+            tests/test_display_f3_h1_single_frame_probe.py \
+            tests/test_display_f3_runtime_contract_fix.py
 
       - name: Run fast H1 BLUE tests
         run: |
@@ -44,4 +46,5 @@ jobs:
             tests.test_display_f3_strict_manual_transition_gate \
             tests.test_display_f3_exact_check_template \
             tests.test_display_f3_h1_single_frame_probe \
+            tests.test_display_f3_runtime_contract_fix \
             -v
