@@ -60,7 +60,7 @@ def _restore_copy_feedback(status_label=None, copy_button=None) -> None:
 
 
 def _copy_report(window, top, status_label=None, copy_button=None) -> bool:
-    """Copia sem reentrar no event loop do Tk com update()/update_idletasks()."""
+    """Copia diretamente para o clipboard sem forçar processamento síncrono da UI."""
     report = str(getattr(window, "_display_f3_manual_snapshot_report", "") or "")
     if not report:
         _set_copy_feedback(
