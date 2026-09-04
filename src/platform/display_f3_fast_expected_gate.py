@@ -137,6 +137,14 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
 
     instalar_workspace_telas_display_f3()
 
+    # O editor de referências usa segmento como geometria nativa. Esta camada
+    # impede que a ROI visível seja descartada no OK e gere "Uma máscara necessária".
+    from src.platform.display_f3_reference_mask_save_fix import (
+        instalar_correcao_salvamento_mascara_referencia_display_f3,
+    )
+
+    instalar_correcao_salvamento_mascara_referencia_display_f3()
+
     from src.platform.display_f3_unknown_debug_fix import (
         instalar_correcao_unknown_e_debug_display_f3,
     )
@@ -209,12 +217,28 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
 
     instalar_gate_placa_ligada_display_f3()
 
+    # Quebra o caso circular em que OFF bloqueava o analisador que o gate acima
+    # precisava consultar. A sonda direta CHECK x OFF só responde se há energia.
+    from src.platform.display_f3_power_deadlock_fix import (
+        instalar_correcao_deadlock_energia_display_f3,
+    )
+
+    instalar_correcao_deadlock_energia_display_f3()
+
     # Última camada visual/diagnóstica: remove o toggle OFF/ON e o debug ao vivo
-    # da interface. ANALISAR congela um frame e DEBUG TÉCNICO apenas exibe aquele
-    # snapshot, sem recalcular e sem interferir no sequenciador produtivo.
+    # da interface. ANALISAR congela um frame e DEBUG TÉCNICO usa aquele snapshot,
+    # sem recalcular e sem interferir no sequenciador produtivo.
     from src.platform.display_f3_manual_snapshot_debug import (
         instalar_analise_manual_snapshot_display_f3,
     )
 
     instalar_analise_manual_snapshot_display_f3()
+
+    # A janela final de debug é maximizada como os workspaces F3 e não renderiza
+    # milhares de linhas. O relatório completo fica somente no botão COPIAR DEBUG.
+    from src.platform.display_f3_snapshot_debug_lightweight_ui import (
+        instalar_debug_snapshot_leve_display_f3,
+    )
+
+    instalar_debug_snapshot_leve_display_f3()
     _INSTALLED = True
