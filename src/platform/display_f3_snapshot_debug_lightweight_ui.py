@@ -11,7 +11,7 @@ import tkinter as tk
 
 import src.platform.display_f3_manual_snapshot_debug as manual_module
 from src.platform.display_f3_workspace_ui import maximizar_janela_workspace_f3
-from src.ui.display_production_f3 import DisplayProductionF3Window
+from src.platform.display_production_f3_window import DisplayProductionF3Window
 
 
 DEBUG_SUMMARY = (
