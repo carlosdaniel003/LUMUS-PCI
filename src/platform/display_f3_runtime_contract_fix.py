@@ -23,6 +23,7 @@ import src.platform.display_f3_physical_learning_policy as physical_policy_modul
 F3_MASK_CONFIRMED_SOURCE = "f3_current_check_confirmed_by_live_masks"
 F3_DECISION_ALLOWED_KEY = "_display_f3_physical_decision_allowed"
 F3_MASK_LIVE_KEY = "mask_analysis_active"
+F3_MASK_CONFIRMABLE_KINDS = frozenset({"unknown", "powered"})
 
 
 def preparar_estado_para_mascaras_ativas_f3(state: dict | None) -> dict:
@@ -72,6 +73,20 @@ def _analysis_confirms_current_check(app) -> tuple[bool, dict | None]:
     return confirmed, context
 
 
+def _state_accepts_mask_confirmation(state: dict | None) -> bool:
+    """UNKNOWN e POWERED podem ser resolvidos pelo CHECK atual 100% conforme.
+
+    ``powered`` significa apenas que o H1 já provou que a placa está energizada;
+    ele não autoriza decisão sozinho. Quando o analisador do CHECK lógico atual
+    retorna aprovado, porém, essa leitura é evidência positiva do próprio estado
+    e pode transformar POWERED em CHECK. OFF/EMPTY continuam fora deste caminho.
+    """
+    if not isinstance(state, dict):
+        return False
+    kind = str(state.get("kind") or "unknown").strip().lower()
+    return kind in F3_MASK_CONFIRMABLE_KINDS
+
+
 def _state_from_mask_confirmation(state: dict, context: dict) -> dict:
     result = deepcopy(state)
     check_id = str(context.get("check_id") or "")
@@ -100,6 +115,9 @@ def _blocked_preview_text(state: dict, context: dict | None) -> str:
         return "AUTO • placa desligada • máscaras em leitura"
     if kind == "empty":
         return "AUTO • aguardando placa no suporte • máscaras em leitura"
+    if kind == "powered":
+        expected = str((context or {}).get("check_name") or "CHECK").strip().upper()
+        return f"AUTO • placa ligada • aguardando {expected} • máscaras em leitura"
     if kind == "check":
         expected = str((context or {}).get("check_name") or "CHECK").strip().upper()
         actual = str(state.get("check_name") or "CHECK").strip().upper()
@@ -217,13 +235,14 @@ def _install_masks_always_live_gate() -> None:
         if allowed:
             return original_register(self, aprovado)
 
-        # CHECK confirmado pelas próprias máscaras é evidência positiva válida
-        # quando o classificador físico ainda está UNKNOWN. Necessário sobretudo
-        # para BLUE/Bluetooth, que pode existir por um único frame.
+        # CHECK confirmado pelas próprias máscaras é evidência positiva válida.
+        # Isso resolve UNKNOWN e também POWERED, estado que existe após H1 para
+        # impedir o falso OFF global de derrubar a placa durante USB/AUX.
         kind = str((state or {}).get("kind") or "unknown").strip().lower()
         confirmed, context = _analysis_confirms_current_check(self)
-        if kind == "unknown" and confirmed and isinstance(context, dict):
+        if _state_accepts_mask_confirmation(state) and confirmed and isinstance(context, dict):
             promoted = _state_from_mask_confirmation(state or {}, context)
+            promoted["physical_kind_before_mask_confirmation"] = kind
             self._display_f3_operational_state = promoted
             return original_register(self, aprovado)
 
@@ -252,11 +271,13 @@ def _install_masks_always_live_gate() -> None:
 
         if (
             not decision_allowed
-            and str(state.get("kind") or "unknown").strip().lower() == "unknown"
+            and _state_accepts_mask_confirmation(state)
             and confirmed
             and isinstance(context, dict)
         ):
+            previous_kind = str(state.get("kind") or "unknown").strip().lower()
             state = _state_from_mask_confirmation(state, context)
+            state["physical_kind_before_mask_confirmation"] = previous_kind
             self._display_f3_mask_confirmed_signature = (
                 str(context.get("project_name") or ""),
                 str(context.get("check_id") or ""),
