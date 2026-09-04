@@ -1,0 +1,188 @@
+from __future__ import annotations
+
+import inspect
+import unittest
+from unittest.mock import patch
+
+import numpy as np
+
+import src.platform.display_f3_manual_snapshot_debug as snapshot_module
+from src.platform.display_f3_fast_expected_gate import (
+    instalar_gate_rapido_check_esperado_display_f3,
+)
+
+
+class _FrameApp:
+    def __init__(self):
+        self.camera_ultimo_frame_id = 41
+        self.camera_frame_atual = np.full((4, 6, 3), 25, dtype=np.uint8)
+
+
+class _FakeButton:
+    def __init__(self):
+        self.values = {}
+
+    def configure(self, **kwargs):
+        self.values.update(kwargs)
+
+    def update_idletasks(self):
+        return None
+
+    def after(self, _delay, callback):
+        # Não executa o reset no teste; queremos inspecionar o estado imediato.
+        self.callback = callback
+
+
+class _FakeWindow:
+    def __init__(self, app):
+        self._display_f3_manual_debug_owner = app
+        self.f3_manual_analyze_button = _FakeButton()
+        self.f3_snapshot_debug_button = _FakeButton()
+        self._display_f3_manual_snapshot = None
+        self._display_f3_manual_snapshot_report = ""
+        self._display_f3_manual_snapshot_serial = 0
+        self.closed = 0
+
+    def close_f3_snapshot_debug(self):
+        self.closed += 1
+
+
+class DisplayF3ManualSnapshotDebugTests(unittest.TestCase):
+    def test_frame_e_copiado_no_instante_do_analisar(self):
+        app = _FrameApp()
+        frozen, capture = snapshot_module._freeze_current_frame(app)
+
+        self.assertTrue(capture["stable_frame_id"])
+        self.assertEqual(41, capture["frame_id"])
+        self.assertTrue(np.all(frozen == 25))
+
+        app.camera_frame_atual[:] = 200
+        self.assertTrue(np.all(frozen == 25))
+        self.assertTrue(np.all(app.camera_frame_atual == 200))
+
+    def test_relatorio_identifica_frame_por_hash_e_declara_snapshot_estatico(self):
+        frame = np.arange(60, dtype=np.uint8).reshape(4, 5, 3)
+        stats = snapshot_module._frame_statistics(frame)
+        snapshot = {
+            "source": snapshot_module.F3_MANUAL_SNAPSHOT_SOURCE,
+            "captured_at": "2026-09-04T12:00:00.000-04:00",
+            "capture": {"frame_id": 88, "stable_frame_id": True},
+            "frame": stats,
+            "rotation": 180,
+            "project_name": "TESTE",
+            "config_file": "data/config/odin_display_projects.json",
+            "logical_context": {"check_id": "H1", "check_name": "H1"},
+            "project": {"mask_count": 30, "check_count": 4},
+            "reference_analysis": [],
+            "physical_analysis": {},
+            "check_configuration": [],
+            "mask_configuration": [],
+            "check_analyses": [],
+            "runtime_at_click": {},
+            "errors": [],
+        }
+
+        text = snapshot_module.montar_relatorio_snapshot_display_f3(snapshot)
+
+        self.assertIn("ODIN DISPLAY F3 - ANÁLISE MANUAL DE FRAME", text)
+        self.assertIn("frame_id=88", text)
+        self.assertIn(stats["sha256_24"], text)
+        self.assertIn("MESMA cópia congelada", text)
+        self.assertIn("Abrir DEBUG TÉCNICO não recalcula nada", text)
+        self.assertIn("[ANÁLISE DA IMAGEM / FRAME CONGELADO]", text)
+        self.assertIn("[REFERÊNCIAS VISUAIS / PRESENÇA / SCORE - MESMO FRAME]", text)
+        self.assertIn("[ANÁLISE FÍSICA - SEM DEBOUNCE / MESMO FRAME]", text)
+        self.assertIn("[COMPARAÇÃO DO MESMO FRAME CONTRA TODOS OS CHECKS]", text)
+        self.assertIn("[RUNTIME PRODUTIVO OBSERVADO NO MESMO CLIQUE]", text)
+
+    def test_debug_so_e_liberado_depois_de_analisar(self):
+        app = object()
+        window = _FakeWindow(app)
+        snapshot = {
+            "report_ready": True,
+            "source": snapshot_module.F3_MANUAL_SNAPSHOT_SOURCE,
+            "captured_at": "agora",
+            "capture": {"frame_id": 123, "stable_frame_id": True},
+            "frame": {"available": True, "sha256_24": "abc"},
+            "errors": [],
+        }
+
+        with patch.object(
+            snapshot_module,
+            "capturar_snapshot_debug_display_f3",
+            return_value=snapshot,
+        ), patch.object(
+            snapshot_module,
+            "montar_relatorio_snapshot_display_f3",
+            return_value="RELATORIO-FRAME-123",
+        ):
+            result = snapshot_module._capture_from_window(window)
+
+        self.assertIs(result, snapshot)
+        self.assertEqual("RELATORIO-FRAME-123", window._display_f3_manual_snapshot_report)
+        self.assertEqual(1, window._display_f3_manual_snapshot_serial)
+        self.assertEqual("normal", window.f3_snapshot_debug_button.values.get("state"))
+        self.assertEqual("hand2", window.f3_snapshot_debug_button.values.get("cursor"))
+
+    def test_novo_analisar_substitui_o_snapshot_anterior(self):
+        app = object()
+        window = _FakeWindow(app)
+        snapshots = [
+            {
+                "report_ready": True,
+                "capture": {"frame_id": 10},
+                "frame": {"available": True, "sha256_24": "aaa"},
+                "errors": [],
+            },
+            {
+                "report_ready": True,
+                "capture": {"frame_id": 11},
+                "frame": {"available": True, "sha256_24": "bbb"},
+                "errors": [],
+            },
+        ]
+
+        with patch.object(
+            snapshot_module,
+            "capturar_snapshot_debug_display_f3",
+            side_effect=snapshots,
+        ), patch.object(
+            snapshot_module,
+            "montar_relatorio_snapshot_display_f3",
+            side_effect=("FRAME-10", "FRAME-11"),
+        ):
+            snapshot_module._capture_from_window(window)
+            snapshot_module._capture_from_window(window)
+
+        self.assertEqual("FRAME-11", window._display_f3_manual_snapshot_report)
+        self.assertEqual(2, window._display_f3_manual_snapshot_serial)
+        self.assertEqual(2, window.closed)
+
+    def test_interface_remove_debug_antigo_e_toggle_off(self):
+        source = inspect.getsource(snapshot_module._install_window_controls)
+        self.assertIn('_destroy_widget(self, "technical_debug_button")', source)
+        self.assertIn('_destroy_widget(self, "technical_debug_toggle")', source)
+        self.assertIn('text="ANALISAR"', source)
+        self.assertIn('text="DEBUG TÉCNICO"', source)
+        self.assertIn('state=tk.DISABLED', source)
+
+    def test_analise_manual_e_instalada_depois_do_contrato_runtime(self):
+        source = inspect.getsource(instalar_gate_rapido_check_esperado_display_f3)
+        contract = source.index("instalar_contrato_runtime_display_f3()")
+        manual = source.index("instalar_analise_manual_snapshot_display_f3()")
+        self.assertLess(contract, manual)
+
+    def test_modulo_manual_nao_depende_de_f2_nem_registra_resultado(self):
+        source = inspect.getsource(snapshot_module)
+        for forbidden in (
+            "src.platform.f2_",
+            "F2Automatic",
+            "registrar_resultado_check_display_f3(",
+            "concluir_check_display_f3(",
+            "descartar_placa_display_f3(",
+        ):
+            self.assertNotIn(forbidden, source)
+
+
+if __name__ == "__main__":
+    unittest.main()
