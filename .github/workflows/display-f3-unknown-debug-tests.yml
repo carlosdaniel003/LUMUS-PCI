@@ -33,6 +33,8 @@ jobs:
             src/platform/display_f3_live_diagnostic_trace.py \
             src/platform/display_f3_debug_toggle.py \
             src/platform/display_f3_manual_snapshot_debug.py \
+            src/platform/display_f3_snapshot_debug_lightweight_ui.py \
+            src/platform/display_f3_reference_mask_save_fix.py \
             src/platform/display_f3_responsive_config.py \
             src/platform/display_f3_workspace_ui.py \
             src/platform/display_f3_h1_single_frame_probe.py \
@@ -43,10 +45,13 @@ jobs:
             src/platform/display_f3_final_performance.py \
             src/platform/display_f3_reference_preview_rotation.py \
             src/platform/display_f3_physical_powered_gate.py \
+            src/platform/display_f3_power_deadlock_fix.py \
             tests/test_display_f3_unknown_debug_fix.py \
             tests/test_display_f3_live_diagnostic_trace.py \
             tests/test_display_f3_debug_toggle.py \
             tests/test_display_f3_manual_snapshot_debug.py \
+            tests/test_display_f3_snapshot_debug_lightweight_ui.py \
+            tests/test_display_f3_reference_mask_save_fix.py \
             tests/test_display_f3_responsive_config.py \
             tests/test_display_f3_workspace_ui.py \
             tests/test_display_f3_h1_single_frame_probe.py \
@@ -55,7 +60,8 @@ jobs:
             tests/test_display_f3_zero_cost_debug_runtime.py \
             tests/test_display_f3_final_performance.py \
             tests/test_display_f3_reference_preview_rotation.py \
-            tests/test_display_f3_physical_powered_gate.py
+            tests/test_display_f3_physical_powered_gate.py \
+            tests/test_display_f3_power_deadlock_fix.py
 
       - name: Run focused regressions
         run: |
@@ -64,6 +70,8 @@ jobs:
             tests.test_display_f3_live_diagnostic_trace \
             tests.test_display_f3_debug_toggle \
             tests.test_display_f3_manual_snapshot_debug \
+            tests.test_display_f3_snapshot_debug_lightweight_ui \
+            tests.test_display_f3_reference_mask_save_fix \
             tests.test_display_f3_responsive_config \
             tests.test_display_f3_workspace_ui \
             tests.test_display_f3_h1_single_frame_probe \
@@ -73,6 +81,7 @@ jobs:
             tests.test_display_f3_final_performance \
             tests.test_display_f3_reference_preview_rotation \
             tests.test_display_f3_physical_powered_gate \
+            tests.test_display_f3_power_deadlock_fix \
             tests.test_display_f3_fast_expected_gate \
             tests.test_display_f3_physical_learning_policy \
             tests.test_display_f3_exact_check_template \
