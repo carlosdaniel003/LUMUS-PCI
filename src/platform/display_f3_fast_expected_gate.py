@@ -199,6 +199,16 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
 
     instalar_contrato_runtime_display_f3()
 
+    # A decisão física final separa presença de placa da conformidade do CHECK.
+    # UNKNOWN/falso OFF pode virar PLACA LIGADA quando OFF x EMPTY confirma placa
+    # no suporte e as máscaras do mesmo CHECK já mostram energia real. Isso não
+    # aprova H1/BLUE/USB/AUX; apenas libera o analisador sem ficar preso no SSIM.
+    from src.platform.display_f3_physical_powered_gate import (
+        instalar_gate_placa_ligada_display_f3,
+    )
+
+    instalar_gate_placa_ligada_display_f3()
+
     # Última camada visual/diagnóstica: remove o toggle OFF/ON e o debug ao vivo
     # da interface. ANALISAR congela um frame e DEBUG TÉCNICO apenas exibe aquele
     # snapshot, sem recalcular e sem interferir no sequenciador produtivo.
