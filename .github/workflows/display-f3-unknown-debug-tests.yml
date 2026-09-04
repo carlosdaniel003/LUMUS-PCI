@@ -42,6 +42,7 @@ jobs:
             src/platform/display_f3_zero_cost_debug_runtime.py \
             src/platform/display_f3_final_performance.py \
             src/platform/display_f3_reference_preview_rotation.py \
+            src/platform/display_f3_physical_powered_gate.py \
             tests/test_display_f3_unknown_debug_fix.py \
             tests/test_display_f3_live_diagnostic_trace.py \
             tests/test_display_f3_debug_toggle.py \
@@ -53,7 +54,8 @@ jobs:
             tests/test_display_f3_runtime_performance_guard.py \
             tests/test_display_f3_zero_cost_debug_runtime.py \
             tests/test_display_f3_final_performance.py \
-            tests/test_display_f3_reference_preview_rotation.py
+            tests/test_display_f3_reference_preview_rotation.py \
+            tests/test_display_f3_physical_powered_gate.py
 
       - name: Run focused regressions
         run: |
@@ -70,6 +72,7 @@ jobs:
             tests.test_display_f3_zero_cost_debug_runtime \
             tests.test_display_f3_final_performance \
             tests.test_display_f3_reference_preview_rotation \
+            tests.test_display_f3_physical_powered_gate \
             tests.test_display_f3_fast_expected_gate \
             tests.test_display_f3_physical_learning_policy \
             tests.test_display_f3_exact_check_template \
