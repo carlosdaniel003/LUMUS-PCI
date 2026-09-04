@@ -26,12 +26,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install opencv-python-headless numpy gpiozero
 
-      - name: Compile F3 UNKNOWN and live debug modules
+      - name: Compile F3 UNKNOWN and debug modules
         run: |
           python -m py_compile \
             src/platform/display_f3_unknown_debug_fix.py \
             src/platform/display_f3_live_diagnostic_trace.py \
             src/platform/display_f3_debug_toggle.py \
+            src/platform/display_f3_manual_snapshot_debug.py \
             src/platform/display_f3_responsive_config.py \
             src/platform/display_f3_workspace_ui.py \
             src/platform/display_f3_h1_single_frame_probe.py \
@@ -44,6 +45,7 @@ jobs:
             tests/test_display_f3_unknown_debug_fix.py \
             tests/test_display_f3_live_diagnostic_trace.py \
             tests/test_display_f3_debug_toggle.py \
+            tests/test_display_f3_manual_snapshot_debug.py \
             tests/test_display_f3_responsive_config.py \
             tests/test_display_f3_workspace_ui.py \
             tests/test_display_f3_h1_single_frame_probe.py \
@@ -59,6 +61,7 @@ jobs:
             tests.test_display_f3_unknown_debug_fix \
             tests.test_display_f3_live_diagnostic_trace \
             tests.test_display_f3_debug_toggle \
+            tests.test_display_f3_manual_snapshot_debug \
             tests.test_display_f3_responsive_config \
             tests.test_display_f3_workspace_ui \
             tests.test_display_f3_h1_single_frame_probe \
