@@ -22,9 +22,14 @@ class DisplayF3SnapshotDebugLightweightUiTests(unittest.TestCase):
         self.assertIn("<Configure>", source)
 
     def test_copia_nao_reentra_sincronamente_no_event_loop(self):
-        source = inspect.getsource(debug_ui)
-        self.assertNotIn("top.update()", source)
-        self.assertNotIn("update_idletasks", source)
+        source = "\n".join(
+            (
+                inspect.getsource(debug_ui._copy_report),
+                inspect.getsource(debug_ui._schedule_copy_report),
+            )
+        )
+        self.assertNotIn(".update(", source)
+        self.assertNotIn("update_idletasks(", source)
         self.assertIn("COPY_START_DELAY_MS", source)
         self.assertIn("top.after(COPY_START_DELAY_MS, do_copy)", source)
 
