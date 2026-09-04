@@ -192,11 +192,19 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
 
     instalar_performance_final_display_f3()
 
-    # Contrato operacional é a última camada de todas: otimização nenhuma pode
-    # voltar a desativar máscaras ou alterar a assinatura do Configurar.
+    # Contrato operacional permanece por fora das otimizações de runtime.
     from src.platform.display_f3_runtime_contract_fix import (
         instalar_contrato_runtime_display_f3,
     )
 
     instalar_contrato_runtime_display_f3()
+
+    # Última camada visual/diagnóstica: remove o toggle OFF/ON e o debug ao vivo
+    # da interface. ANALISAR congela um frame e DEBUG TÉCNICO apenas exibe aquele
+    # snapshot, sem recalcular e sem interferir no sequenciador produtivo.
+    from src.platform.display_f3_manual_snapshot_debug import (
+        instalar_analise_manual_snapshot_display_f3,
+    )
+
+    instalar_analise_manual_snapshot_display_f3()
     _INSTALLED = True
