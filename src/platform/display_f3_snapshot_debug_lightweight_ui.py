@@ -21,26 +21,117 @@ DEBUG_SUMMARY = (
     "evidências de energia. O conteúdo completo não é renderizado nesta tela "
     "para evitar lentidão. Use COPIAR DEBUG para enviá-lo ao suporte."
 )
+COPY_START_DELAY_MS = 12
+COPY_FEEDBACK_RESET_MS = 1800
+READY_TEXT = "RELATÓRIO PRONTO PARA CÓPIA"
 
 
-def _copy_report(window, top, status_label=None) -> bool:
+def _set_copy_feedback(
+    status_label=None,
+    copy_button=None,
+    *,
+    status_text: str,
+    button_text: str,
+    enabled: bool,
+) -> None:
+    if status_label is not None:
+        try:
+            status_label.configure(text=status_text)
+        except Exception:
+            pass
+    if copy_button is not None:
+        try:
+            copy_button.configure(
+                text=button_text,
+                state=(tk.NORMAL if enabled else tk.DISABLED),
+            )
+        except Exception:
+            pass
+
+
+def _restore_copy_feedback(status_label=None, copy_button=None) -> None:
+    _set_copy_feedback(
+        status_label,
+        copy_button,
+        status_text=READY_TEXT,
+        button_text="COPIAR DEBUG",
+        enabled=True,
+    )
+
+
+def _copy_report(window, top, status_label=None, copy_button=None) -> bool:
+    """Copia sem reentrar no event loop do Tk com update()/update_idletasks()."""
     report = str(getattr(window, "_display_f3_manual_snapshot_report", "") or "")
     if not report:
+        _set_copy_feedback(
+            status_label,
+            copy_button,
+            status_text="SEM DEBUG DISPONÍVEL PARA COPIAR",
+            button_text="TENTAR NOVAMENTE",
+            enabled=True,
+        )
         return False
+
     try:
         top.clipboard_clear()
         top.clipboard_append(report)
-        top.update()
-        if status_label is not None:
-            status_label.configure(text="DEBUG COPIADO")
+        _set_copy_feedback(
+            status_label,
+            copy_button,
+            status_text="DEBUG COPIADO COM SUCESSO",
+            button_text="COPIADO",
+            enabled=False,
+        )
         return True
     except Exception:
-        if status_label is not None:
-            try:
-                status_label.configure(text="NÃO FOI POSSÍVEL COPIAR")
-            except Exception:
-                pass
+        _set_copy_feedback(
+            status_label,
+            copy_button,
+            status_text="NÃO FOI POSSÍVEL COPIAR O DEBUG",
+            button_text="TENTAR NOVAMENTE",
+            enabled=True,
+        )
         return False
+
+
+def _schedule_copy_report(window, top, status_label=None, copy_button=None) -> bool:
+    """Entrega um paint ao Tk antes de copiar o relatório grande para o clipboard."""
+    report = str(getattr(window, "_display_f3_manual_snapshot_report", "") or "")
+    if not report:
+        _set_copy_feedback(
+            status_label,
+            copy_button,
+            status_text="SEM DEBUG DISPONÍVEL PARA COPIAR",
+            button_text="TENTAR NOVAMENTE",
+            enabled=True,
+        )
+        return False
+
+    _set_copy_feedback(
+        status_label,
+        copy_button,
+        status_text="COPIANDO DEBUG...",
+        button_text="COPIANDO...",
+        enabled=False,
+    )
+
+    def do_copy() -> None:
+        copied = _copy_report(window, top, status_label, copy_button)
+        if not copied:
+            return
+        try:
+            top.after(
+                COPY_FEEDBACK_RESET_MS,
+                lambda: _restore_copy_feedback(status_label, copy_button),
+            )
+        except Exception:
+            pass
+
+    try:
+        top.after(COPY_START_DELAY_MS, do_copy)
+    except Exception:
+        do_copy()
+    return True
 
 
 def _open_lightweight_snapshot_debug(window):
@@ -64,7 +155,9 @@ def _open_lightweight_snapshot_debug(window):
     window._display_f3_snapshot_debug_text = None
     top.title("ODIN • DISPLAY F3 • DEBUG DO FRAME ANALISADO")
     top.configure(bg=manual_module.DEBUG_BG)
-    maximizar_janela_workspace_f3(top)
+
+    # Uma única maximização, somente depois de toda a hierarquia estar criada.
+    # Evita o antigo ciclo geometry -> paint -> geometry -> paint na abertura.
     try:
         top.after_idle(lambda current=top: maximizar_janela_workspace_f3(current))
     except Exception:
@@ -121,7 +214,7 @@ def _open_lightweight_snapshot_debug(window):
 
     status = tk.Label(
         body,
-        text="RELATÓRIO PRONTO PARA CÓPIA",
+        text=READY_TEXT,
         font=("Segoe UI", 9, "bold"),
         bg=manual_module.DEBUG_BG,
         fg=manual_module.DEBUG_MUTED,
@@ -132,21 +225,25 @@ def _open_lightweight_snapshot_debug(window):
     actions = tk.Frame(shell, bg=manual_module.DEBUG_BG)
     actions.pack(fill="x")
 
-    tk.Button(
+    copy_button = tk.Button(
         actions,
         text="COPIAR DEBUG",
-        command=lambda: _copy_report(window, top, status),
         font=("Segoe UI", 10, "bold"),
         bg=manual_module.DEBUG_ACTION,
         fg="#FFFFFF",
         activebackground=manual_module.DEBUG_ACTION_ACTIVE,
         activeforeground="#FFFFFF",
+        disabledforeground="#CBD5E1",
         relief="flat",
         bd=0,
         padx=16,
         pady=8,
         cursor="hand2",
-    ).pack(side="left")
+    )
+    copy_button.configure(
+        command=lambda: _schedule_copy_report(window, top, status, copy_button)
+    )
+    copy_button.pack(side="left")
 
     tk.Button(
         actions,
