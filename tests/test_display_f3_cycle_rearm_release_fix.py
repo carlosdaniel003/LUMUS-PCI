@@ -61,6 +61,10 @@ class _App:
         self.display_check_runtime = _SequenceRuntime()
         self.reset_calls = 0
         self.clear_gate_calls = 0
+        self._display_f3_physical_status_memory_project = "DISPLAY_TESTE"
+        self._display_f3_physical_status_memory_check_id = "CHECK_AUX"
+        self._display_f3_physical_status_memory_check_name = "AUX"
+        self._display_f3_physical_status_memory_reason = "check_aprovado"
 
     def _display_auto_clear_manual_entry_gate(self):
         self.clear_gate_calls += 1
@@ -122,6 +126,9 @@ class DisplayF3CycleRearmReleaseFixTests(unittest.TestCase):
             "DISPLAY_TESTE",
             self._false_check_state(),
         )
+        # Um único frame de EMPTY ainda não representa retirada confirmada.
+        self.assertEqual("CHECK_AUX", app._display_f3_physical_status_memory_check_id)
+
         second = aplicar_rearme_fisico_dedicado_f3(
             app,
             matcher,
@@ -138,6 +145,12 @@ class DisplayF3CycleRearmReleaseFixTests(unittest.TestCase):
         self.assertFalse(app._display_f3_waiting_empty_rearm)
         self.assertTrue(app._display_f3_waiting_new_board_after_empty)
         self.assertEqual(1, app.display_check_runtime.restart_calls)
+        self.assertEqual("", app._display_f3_physical_status_memory_check_id)
+        self.assertEqual("", app._display_f3_physical_status_memory_check_name)
+        self.assertEqual(
+            "suporte_vazio_confirmado",
+            app._display_f3_physical_status_memory_reason,
+        )
 
         still_empty = aplicar_rearme_fisico_dedicado_f3(
             app,
@@ -172,7 +185,7 @@ class DisplayF3CycleRearmReleaseFixTests(unittest.TestCase):
         self.assertTrue(new_board_second["allow_auto"])
         self.assertFalse(app._display_f3_waiting_new_board_after_empty)
 
-    def test_mesma_placa_sem_empty_continua_bloqueada(self):
+    def test_mesma_placa_sem_empty_continua_bloqueada_e_memoria_permanece(self):
         app = _App()
         matcher = self._matcher()
         _empty, board = self._images()
@@ -197,6 +210,8 @@ class DisplayF3CycleRearmReleaseFixTests(unittest.TestCase):
         self.assertFalse(first["allow_auto"])
         self.assertFalse(second["allow_auto"])
         self.assertEqual(0, app.display_check_runtime.restart_calls)
+        self.assertEqual("CHECK_AUX", app._display_f3_physical_status_memory_check_id)
+        self.assertEqual("AUX", app._display_f3_physical_status_memory_check_name)
 
 
 if __name__ == "__main__":
