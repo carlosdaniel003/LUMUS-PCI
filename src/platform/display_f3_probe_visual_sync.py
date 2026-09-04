@@ -154,6 +154,17 @@ def executar_avanco_sonda_com_sincronia_visual_f3(
     )
 
 
+def _install_physical_status_memory() -> None:
+    # O status físico precisa sobreviver à troca do CHECK lógico e ao rearme
+    # terminal sem virar uma nova autoridade de OK/NG. A extensão é genérica e
+    # usa o último CHECK realmente aprovado, qualquer que seja o seu nome.
+    from src.platform.display_f3_physical_status_memory import (
+        instalar_memoria_status_fisico_display_f3,
+    )
+
+    instalar_memoria_status_fisico_display_f3()
+
+
 _INSTALLED = False
 
 
@@ -161,8 +172,10 @@ def instalar_sincronia_visual_sonda_display_f3() -> None:
     """Instala a sincronização por fora das sondas/guards existentes do F3."""
     global _INSTALLED
     if _INSTALLED:
+        _install_physical_status_memory()
         return
     if bool(getattr(trace_module, "_display_f3_probe_visual_sync_installed", False)):
+        _install_physical_status_memory()
         _INSTALLED = True
         return
 
@@ -179,4 +192,5 @@ def instalar_sincronia_visual_sonda_display_f3() -> None:
 
     trace_module._advance_positive_probe_if_needed = advance
     trace_module._display_f3_probe_visual_sync_installed = True
+    _install_physical_status_memory()
     _INSTALLED = True
