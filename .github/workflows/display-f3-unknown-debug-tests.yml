@@ -39,6 +39,7 @@ jobs:
             src/platform/display_f3_workspace_ui.py \
             src/platform/display_f3_h1_single_frame_probe.py \
             src/platform/display_f3_probe_rearm_guard.py \
+            src/platform/display_f3_probe_visual_sync.py \
             src/platform/display_f3_fast_expected_gate.py \
             src/platform/display_f3_runtime_performance_guard.py \
             src/platform/display_f3_zero_cost_debug_runtime.py \
@@ -56,6 +57,7 @@ jobs:
             tests/test_display_f3_workspace_ui.py \
             tests/test_display_f3_h1_single_frame_probe.py \
             tests/test_display_f3_probe_rearm_guard.py \
+            tests/test_display_f3_probe_visual_sync.py \
             tests/test_display_f3_runtime_performance_guard.py \
             tests/test_display_f3_zero_cost_debug_runtime.py \
             tests/test_display_f3_final_performance.py \
@@ -76,6 +78,7 @@ jobs:
             tests.test_display_f3_workspace_ui \
             tests.test_display_f3_h1_single_frame_probe \
             tests.test_display_f3_probe_rearm_guard \
+            tests.test_display_f3_probe_visual_sync \
             tests.test_display_f3_runtime_performance_guard \
             tests.test_display_f3_zero_cost_debug_runtime \
             tests.test_display_f3_final_performance \
