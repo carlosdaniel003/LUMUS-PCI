@@ -24,6 +24,22 @@ F3_CHECK_NAV_WIDTH = 380
 F3_WORKSPACE_MAX_WIDTH = 1180
 F3_EDITOR_REDRAW_DELAY_MS = 90
 
+# O F3 roda também em notebooks/estações com 1366x768 e em Windows com barra de
+# tarefas sobreposta/auto-ocultável. Mesmo quando o zoom nativo respeita a área
+# útil, controles encostados no limite inferior podem ficar atrás da barra.
+# Reservamos uma faixa operacional sem mudar a hierarquia visual das telas.
+F3_BOTTOM_SAFE_INSET = 48
+F3_FALLBACK_SYSTEM_RESERVED_PX = 72
+
+
+def _screen_size(window) -> tuple[int, int]:
+    try:
+        width = max(1, int(window.winfo_screenwidth()))
+        height = max(1, int(window.winfo_screenheight()))
+        return width, height
+    except Exception:
+        return F3_DESKTOP_MIN_WIDTH, F3_DESKTOP_MIN_HEIGHT + F3_FALLBACK_SYSTEM_RESERVED_PX
+
 
 def maximizar_janela_workspace_f3(window) -> str:
     """Maximiza com barra de título sem forçar um flush síncrono do Tk."""
@@ -31,8 +47,14 @@ def maximizar_janela_workspace_f3(window) -> str:
         window.resizable(True, True)
     except Exception:
         pass
+
+    screen_width, screen_height = _screen_size(window)
+    usable_height_hint = max(480, screen_height - F3_FALLBACK_SYSTEM_RESERVED_PX)
     try:
-        window.minsize(F3_DESKTOP_MIN_WIDTH, F3_DESKTOP_MIN_HEIGHT)
+        window.minsize(
+            min(F3_DESKTOP_MIN_WIDTH, max(640, screen_width)),
+            min(F3_DESKTOP_MIN_HEIGHT, usable_height_hint),
+        )
     except Exception:
         pass
 
@@ -48,13 +70,70 @@ def maximizar_janela_workspace_f3(window) -> str:
         return "attribute_zoomed"
     except Exception:
         pass
+
+    # Último fallback: nunca usa a altura física inteira da tela. A geometria
+    # antiga ia até screenheight e podia deixar a última ação atrás da taskbar.
     try:
-        width = max(F3_DESKTOP_MIN_WIDTH, int(window.winfo_screenwidth()))
-        height = max(F3_DESKTOP_MIN_HEIGHT, int(window.winfo_screenheight()))
+        width = max(640, screen_width)
+        height = max(480, screen_height - F3_FALLBACK_SYSTEM_RESERVED_PX)
         window.geometry(f"{width}x{height}+0+0")
-        return "screen_geometry"
+        return "screen_geometry_safe"
     except Exception:
         return "unavailable"
+
+
+def _pad_pair(value) -> tuple[int, int]:
+    if isinstance(value, (tuple, list)) and value:
+        try:
+            if len(value) >= 2:
+                return int(float(value[0])), int(float(value[1]))
+            item = int(float(value[0]))
+            return item, item
+        except (TypeError, ValueError):
+            return 0, 0
+    try:
+        text = str(value or "0").replace("{", " ").replace("}", " ")
+        parts = [part for part in text.split() if part]
+        if len(parts) >= 2:
+            return int(float(parts[0])), int(float(parts[1]))
+        if parts:
+            item = int(float(parts[0]))
+            return item, item
+    except (TypeError, ValueError):
+        pass
+    return 0, 0
+
+
+def reservar_area_inferior_workspace_f3(window, preferred_widget=None) -> None:
+    """Mantém a última ação acima da borda inferior/taskbar.
+
+    Não cria card, barra nem container novo. Apenas aumenta o `pady` inferior do
+    último widget empacotado da própria Toplevel. Isso preserva a composição das
+    telas existentes e faz o corpo expansível ceder espaço antes de cortar ações.
+    """
+    target = preferred_widget
+    if target is None and window is not None:
+        try:
+            children = list(window.winfo_children())
+        except Exception:
+            children = []
+        for child in reversed(children):
+            try:
+                if str(child.winfo_manager()) == "pack":
+                    target = child
+                    break
+            except Exception:
+                continue
+    if target is None:
+        return
+    try:
+        info = target.pack_info()
+        top_pad, bottom_pad = _pad_pair(info.get("pady", 0))
+        target.pack_configure(
+            pady=(top_pad, max(bottom_pad, F3_BOTTOM_SAFE_INSET))
+        )
+    except Exception:
+        pass
 
 
 def _maximizar_agendado(owner) -> None:
@@ -182,6 +261,8 @@ def aplicar_workspace_projeto_display_f3(owner) -> None:
     except Exception:
         pass
 
+    reservar_area_inferior_workspace_f3(getattr(owner, "window", None))
+
 
 def aplicar_workspace_checks_display_f3(owner) -> None:
     """Lista da sequência como navegação e detalhe usando o restante da tela."""
@@ -237,6 +318,8 @@ def aplicar_workspace_checks_display_f3(owner) -> None:
         check_title.configure(font=("Segoe UI", 18, "bold"))
     except Exception:
         pass
+
+    reservar_area_inferior_workspace_f3(getattr(owner, "window", None))
 
 
 def _instalar_redraw_configuracao_debounced(cls) -> None:
@@ -371,6 +454,10 @@ def instalar_workspace_telas_display_f3() -> None:
     # O editor pede maximização durante __init__. Apenas agendamos para after_idle,
     # quando a camada de debounce do canvas já estará instalada.
     def maximize_editor(self):
+        reservar_area_inferior_workspace_f3(
+            getattr(self, "window", None),
+            getattr(self, "status", None),
+        )
         agendar_maximizacao_workspace_f3(self)
 
     DisplayCheckMaskEditorWindow._maximize = maximize_editor
@@ -388,6 +475,11 @@ def instalar_workspace_telas_display_f3() -> None:
             self.grid.pack_configure(fill="both", expand=True, padx=28, pady=(0, 14))
         except Exception:
             pass
+        footer = getattr(getattr(self, "learning_status", None), "master", None)
+        reservar_area_inferior_workspace_f3(
+            getattr(self, "window", None),
+            footer,
+        )
         agendar_maximizacao_workspace_f3(self)
 
     DisplayReferenceConfigWindow.__init__ = reference_init
@@ -397,6 +489,7 @@ def instalar_workspace_telas_display_f3() -> None:
 
     def roi_init(self, *args, **kwargs):
         original_roi_init(self, *args, **kwargs)
+        reservar_area_inferior_workspace_f3(getattr(self, "window", None))
         agendar_maximizacao_workspace_f3(self)
 
     DisplayReferenceRoiDialog.__init__ = roi_init
