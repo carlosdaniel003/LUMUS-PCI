@@ -159,7 +159,7 @@ _INSTALLED = False
 
 
 def instalar_sincronia_status_check_atual_display_f3() -> None:
-    """Instala status e, por último, o contrato final de estabilidade produtiva."""
+    """Instala status, estabilidade final e aprovação positiva em um frame."""
     global _INSTALLED
     if _INSTALLED:
         return
@@ -188,3 +188,11 @@ def instalar_sincronia_status_check_atual_display_f3() -> None:
     )
 
     instalar_estabilidade_final_checks_display_f3()
+
+    # Contrato final de aprovação positiva: um único frame válido para qualquer
+    # CHECK atual ou futuro. NG mantém seu debounce conservador independente.
+    from src.platform.display_f3_single_frame_approval import (
+        instalar_aprovacao_um_frame_display_f3,
+    )
+
+    instalar_aprovacao_um_frame_display_f3()
