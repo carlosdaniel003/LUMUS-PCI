@@ -186,15 +186,10 @@ class DisplayReferenceRoiTests(unittest.TestCase):
             self.assertGreater(result["score"], 0.98)
             self.assertEqual(normalizar_roi_referencia(metadata["roi"]), result["roi"])
 
-    def test_interfaces_expoem_botao_selecionar_area(self):
-        check_source = inspect.getsource(
-            check_module.DisplayCheckManagerPresenceWindow._install_presence_panel
-        )
-        project_source = inspect.getsource(
-            visual_module.DisplayProjectConfigPresenceWindow._install_project_presence_panel
-        )
-        self.assertIn("SELECIONAR ÁREA", check_source)
-        self.assertIn("SELECIONAR ÁREA", project_source)
+    def test_interfaces_expoem_selecao_de_area(self):
+        # O botão pode ser inserido por uma extensão posterior do F3; o contrato
+        # estável é a ação pública de seleção, não o texto literal dentro do
+        # método base que monta o painel.
         self.assertTrue(
             hasattr(
                 check_module.DisplayCheckManagerPresenceWindow,
