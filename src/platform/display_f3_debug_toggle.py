@@ -178,4 +178,13 @@ def instalar_toggle_debug_tecnico_display_f3() -> None:
     cls.set_technical_debug_provider = set_provider
     cls.__init__ = init
     cls._display_f3_debug_toggle_installed = True
+
+    # O runtime e o DEBUG manual usam o classificador físico exato. Instala aqui,
+    # ainda no bootstrap F3, o fallback OFF/EMPTY que reaproveita os scores desse
+    # classificador. A camada é exclusiva do F3 e não executa visão adicional.
+    from src.platform.display_f3_exact_physical_board_fallback import (
+        instalar_fallback_fisico_exato_off_empty_display_f3,
+    )
+
+    instalar_fallback_fisico_exato_off_empty_display_f3()
     _INSTALLED = True
