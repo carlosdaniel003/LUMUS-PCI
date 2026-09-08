@@ -260,4 +260,14 @@ def instalar_gate_rapido_check_esperado_display_f3() -> None:
     )
 
     instalar_latch_ciclo_energizado_display_f3()
+
+    # Autoridade final apenas de APRESENTAÇÃO: se o analisador produtivo confirmou
+    # 100% das máscaras do CHECK lógico atual, o status não pode continuar exibindo
+    # o CHECK anterior memorizado. Vale para USB, AUX e qualquer CHECK futuro sem
+    # nomes/índices especiais e não altera gate, debounce ou registro de resultado.
+    from src.platform.display_f3_current_check_status_sync import (
+        instalar_sincronia_status_check_atual_display_f3,
+    )
+
+    instalar_sincronia_status_check_atual_display_f3()
     _INSTALLED = True
