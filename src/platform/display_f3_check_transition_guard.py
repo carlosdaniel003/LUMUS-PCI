@@ -24,6 +24,20 @@ F3_PHYSICAL_ERROR_MARGIN = 1.5
 F3_PHYSICAL_MIN_DIFFERENT_RATIO = 0.002
 F3_PHYSICAL_MIN_SCORE_MARGIN = 0.015
 
+# O threshold absoluto das fotos (normalmente 0.72) continua sendo a autoridade
+# para CHECKS. Para os dois estados físicos estruturais, OFF x EMPTY, permitimos
+# uma segunda decisão relativa somente quando nenhum candidato atingiu o threshold
+# normal e uma das duas referências físicas domina claramente a outra e todos os
+# CHECKS. Isso usa os mesmos scores já calculados sobre a ROI configurada e não
+# acrescenta uma segunda passagem de visão computacional.
+F3_PHYSICAL_BOARD_FALLBACK_MIN_SCORE = 0.36
+F3_PHYSICAL_BOARD_FALLBACK_MIN_MARGIN = 0.12
+F3_PHYSICAL_BOARD_FALLBACK_MIN_RATIO = 1.45
+F3_PHYSICAL_EMPTY_FALLBACK_MIN_SCORE = 0.36
+F3_PHYSICAL_EMPTY_FALLBACK_MIN_MARGIN = 0.15
+F3_PHYSICAL_EMPTY_FALLBACK_MIN_RATIO = 1.70
+F3_PHYSICAL_BOARD_FALLBACK_MIN_CHECK_MARGIN = 0.08
+
 
 def _as_color_image(image):
     if image is None or getattr(image, "size", 0) == 0:
@@ -207,6 +221,85 @@ def _reference_candidates(matcher, project_name: str) -> list[dict]:
     return candidates
 
 
+def _fallback_estado_fisico_por_dominancia_referencias_f3(
+    prepared: list[dict],
+    board_complete: bool,
+) -> dict | None:
+    """Resolve somente OFF/EMPTY quando as duas fotos físicas dominam claramente.
+
+    O fallback não reduz o threshold de H1/BLUE/USB/AUX. Ele só existe para o
+    caso em que nenhuma referência passou do threshold absoluto, mas OFF ou EMPTY
+    é inequivocamente a melhor referência na ROI física configurada.
+    """
+    if not board_complete:
+        return None
+
+    valid = [
+        item
+        for item in prepared
+        if isinstance(item, dict) and item.get("score") is not None
+    ]
+    by_key = {str(item.get("key") or ""): item for item in valid}
+    off = by_key.get("off")
+    empty = by_key.get("empty")
+    if off is None or empty is None:
+        return None
+
+    off_score = float(off.get("score") or 0.0)
+    empty_score = float(empty.get("score") or 0.0)
+    winner = off if off_score >= empty_score else empty
+    loser = empty if winner is off else off
+    winner_score = float(winner.get("score") or 0.0)
+    loser_score = float(loser.get("score") or 0.0)
+
+    # A decisão relativa só pode ser usada se OFF/EMPTY também for o vencedor
+    # global. Um CHECK que pontua mais alto mantém o comportamento anterior.
+    overall = max(valid, key=lambda item: float(item.get("score") or 0.0))
+    if str(overall.get("key") or "") != str(winner.get("key") or ""):
+        return None
+
+    best_check_score = max(
+        (
+            float(item.get("score") or 0.0)
+            for item in valid
+            if str(item.get("key") or "").startswith("check:")
+        ),
+        default=0.0,
+    )
+    board_margin = winner_score - loser_score
+    check_margin = winner_score - best_check_score
+    ratio = winner_score / max(loser_score, 1e-6)
+
+    if str(winner.get("key") or "") == "empty":
+        min_score = F3_PHYSICAL_EMPTY_FALLBACK_MIN_SCORE
+        min_margin = F3_PHYSICAL_EMPTY_FALLBACK_MIN_MARGIN
+        min_ratio = F3_PHYSICAL_EMPTY_FALLBACK_MIN_RATIO
+    else:
+        min_score = F3_PHYSICAL_BOARD_FALLBACK_MIN_SCORE
+        min_margin = F3_PHYSICAL_BOARD_FALLBACK_MIN_MARGIN
+        min_ratio = F3_PHYSICAL_BOARD_FALLBACK_MIN_RATIO
+
+    if winner_score < min_score:
+        return None
+    if board_margin < min_margin:
+        return None
+    if ratio < min_ratio:
+        return None
+    if check_margin < F3_PHYSICAL_BOARD_FALLBACK_MIN_CHECK_MARGIN:
+        return None
+
+    result = dict(winner)
+    result["physical_low_score_fallback"] = True
+    result["physical_low_score_fallback_source"] = (
+        "board_reference_relative_dominance"
+    )
+    result["physical_low_score_fallback_margin"] = float(board_margin)
+    result["physical_low_score_fallback_ratio"] = float(ratio)
+    result["physical_low_score_best_check_score"] = float(best_check_score)
+    result["physical_low_score_check_margin"] = float(check_margin)
+    return result
+
+
 def classificar_estado_fisico_referencias_f3(
     matcher,
     frame,
@@ -307,17 +400,6 @@ def classificar_estado_fisico_referencias_f3(
         for item in prepared
         if float(item["score"]) >= float(item["threshold"])
     ]
-    if not eligible:
-        best = max(prepared, key=lambda item: float(item["score"]))
-        return {
-            "kind": "unknown",
-            "text": "IDENTIFICANDO...",
-            "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unknown"],
-            "allow_auto": False,
-            "board_references_complete": board_complete,
-            "configured_count": len(prepared),
-            "best_score": float(best["score"]),
-        }
 
     def ranking(item: dict):
         comparisons = max(1, int(item["comparisons"]))
@@ -329,14 +411,13 @@ def classificar_estado_fisico_referencias_f3(
             float(item["score"]),
         )
 
-    eligible.sort(key=ranking, reverse=True)
-    winner = eligible[0]
-    if len(eligible) >= 2:
-        second = eligible[1]
-        winner_net = int(winner["wins"]) - int(winner["losses"])
-        second_net = int(second["wins"]) - int(second["losses"])
-        score_margin = float(winner["score"]) - float(second["score"])
-        if winner_net == second_net and score_margin < F3_PHYSICAL_MIN_SCORE_MARGIN:
+    if not eligible:
+        winner = _fallback_estado_fisico_por_dominancia_referencias_f3(
+            prepared,
+            board_complete,
+        )
+        if winner is None:
+            best = max(prepared, key=lambda item: float(item["score"]))
             return {
                 "kind": "unknown",
                 "text": "IDENTIFICANDO...",
@@ -344,8 +425,26 @@ def classificar_estado_fisico_referencias_f3(
                 "allow_auto": False,
                 "board_references_complete": board_complete,
                 "configured_count": len(prepared),
-                "ambiguous": True,
+                "best_score": float(best["score"]),
             }
+    else:
+        eligible.sort(key=ranking, reverse=True)
+        winner = eligible[0]
+        if len(eligible) >= 2:
+            second = eligible[1]
+            winner_net = int(winner["wins"]) - int(winner["losses"])
+            second_net = int(second["wins"]) - int(second["losses"])
+            score_margin = float(winner["score"]) - float(second["score"])
+            if winner_net == second_net and score_margin < F3_PHYSICAL_MIN_SCORE_MARGIN:
+                return {
+                    "kind": "unknown",
+                    "text": "IDENTIFICANDO...",
+                    "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unknown"],
+                    "allow_auto": False,
+                    "board_references_complete": board_complete,
+                    "configured_count": len(prepared),
+                    "ambiguous": True,
+                }
 
     kind = str(winner["kind"])
     state = {
@@ -358,6 +457,17 @@ def classificar_estado_fisico_referencias_f3(
         "physical_wins": int(winner["wins"]),
         "physical_losses": int(winner["losses"]),
     }
+    for diagnostic_key in (
+        "physical_low_score_fallback",
+        "physical_low_score_fallback_source",
+        "physical_low_score_fallback_margin",
+        "physical_low_score_fallback_ratio",
+        "physical_low_score_best_check_score",
+        "physical_low_score_check_margin",
+    ):
+        if diagnostic_key in winner:
+            state[diagnostic_key] = winner[diagnostic_key]
+
     if kind == "empty":
         state.update(
             text="PLACA FORA DO SUPORTE",
