@@ -10,6 +10,11 @@ CHECK lógico atual.
 Esta camada é somente de apresentação/memória de status. Não registra resultado,
 não avança CHECK, não altera debounce e não muda os campos de autoridade física.
 Funciona para qualquer CHECK atual ou futuro, sem nomes especiais.
+
+Depois desta camada ser instalada, o instalador acopla por fora dela o contrato
+`display_f3_final_check_stability`, que fecha a estabilidade produtiva usando o
+estado FINAL já reconciliado. Assim nenhum wrapper interno que ainda tenha visto
+OFF pode zerar a confirmação de um CHECK que terminou o frame 100% aprovado.
 """
 
 from copy import deepcopy
@@ -154,7 +159,7 @@ _INSTALLED = False
 
 
 def instalar_sincronia_status_check_atual_display_f3() -> None:
-    """Instala a última camada de status, por fora de todos os wrappers do F3."""
+    """Instala status e, por último, o contrato final de estabilidade produtiva."""
     global _INSTALLED
     if _INSTALLED:
         return
@@ -174,3 +179,12 @@ def instalar_sincronia_status_check_atual_display_f3() -> None:
     cls._process_display_auto_check = process
     cls._display_f3_current_check_status_sync_installed = True
     _INSTALLED = True
+
+    # Deve ser literalmente a camada mais externa. Ela enxerga o estado já
+    # reconciliado por todas as políticas anteriores e acumula estabilidade sem
+    # depender do nome/posição do CHECK.
+    from src.platform.display_f3_final_check_stability import (
+        instalar_estabilidade_final_checks_display_f3,
+    )
+
+    instalar_estabilidade_final_checks_display_f3()
