@@ -61,6 +61,15 @@ class DisplayReferenceRoiTests(unittest.TestCase):
         )
         self.assertEqual((60, 100, 3), crop.shape)
 
+    def test_seletor_reserva_altura_para_acoes_inferiores(self):
+        self.assertGreaterEqual(
+            roi_module.DISPLAY_REFERENCE_ROI_VERTICAL_UI_RESERVE,
+            300,
+        )
+        source = inspect.getsource(roi_module.DisplayReferenceRoiDialog.__init__)
+        self.assertIn("DISPLAY_REFERENCE_ROI_VERTICAL_UI_RESERVE", source)
+        self.assertIn("DISPLAY_REFERENCE_ROI_MIN_DRAW_HEIGHT", source)
+
     def test_check_store_persiste_roi_por_referencia(self):
         with tempfile.TemporaryDirectory() as tmp:
             repository = SimpleNamespace(
