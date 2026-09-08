@@ -26,11 +26,14 @@ jobs:
         run: |
           python -m py_compile \
             src/platform/display_f3_check_transition_guard.py \
-            tests/test_display_f3_board_reference_relative_fallback.py
+            src/platform/display_f3_exact_physical_board_fallback.py \
+            tests/test_display_f3_board_reference_relative_fallback.py \
+            tests/test_display_f3_exact_physical_board_fallback.py
 
       - name: Run OFF and EMPTY physical regressions
         run: |
           python -m unittest \
             tests.test_display_f3_board_reference_relative_fallback \
+            tests.test_display_f3_exact_physical_board_fallback \
             tests.test_display_f3_check_transition_guard \
             -v
