@@ -42,6 +42,7 @@ jobs:
             src/platform/display_f3_probe_visual_sync.py \
             src/platform/display_f3_powered_cycle_latch.py \
             src/platform/display_f3_physical_status_memory.py \
+            src/platform/display_f3_current_check_status_sync.py \
             src/platform/display_f3_runtime_contract_fix.py \
             src/platform/display_f3_fast_expected_gate.py \
             src/platform/display_f3_runtime_performance_guard.py \
@@ -63,6 +64,7 @@ jobs:
             tests/test_display_f3_probe_visual_sync.py \
             tests/test_display_f3_powered_cycle_latch.py \
             tests/test_display_f3_physical_status_memory.py \
+            tests/test_display_f3_current_check_status_sync.py \
             tests/test_display_f3_runtime_contract_fix.py \
             tests/test_display_f3_runtime_performance_guard.py \
             tests/test_display_f3_zero_cost_debug_runtime.py \
@@ -87,6 +89,7 @@ jobs:
             tests.test_display_f3_probe_visual_sync \
             tests.test_display_f3_powered_cycle_latch \
             tests.test_display_f3_physical_status_memory \
+            tests.test_display_f3_current_check_status_sync \
             tests.test_display_f3_runtime_contract_fix \
             tests.test_display_f3_runtime_performance_guard \
             tests.test_display_f3_zero_cost_debug_runtime \
