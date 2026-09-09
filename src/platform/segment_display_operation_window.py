@@ -26,6 +26,10 @@ F2_LIVE_ROI_LEGEND = (
     "VERDE: ACESO  •  VERMELHO: APAGADO  •  AMARELO: POUCA LUZ"
 )
 
+F2_ANALYZED_WAITING_TEXT = "PLACA JÁ ANALISADA\nCOLOQUE OUTRA PLACA"
+F2_ANALYZED_WAITING_FONT_MAX = 28
+F2_ANALYZED_WAITING_FONT_MIN = 14
+
 F2_BOARD_STATUS_UI = {
     "board_on": ("PLACA PRESENTE — LIGADA", "#86EFAC"),
     "board_off": ("PLACA PRESENTE — DESLIGADA", "#FBBF24"),
@@ -35,6 +39,23 @@ F2_BOARD_STATUS_UI = {
     "analyzed_ok": ("JÁ ANALISADA — RESULTADO: OK", "#86EFAC"),
     "analyzed_ng": ("JÁ ANALISADA — RESULTADO: NG", "#FCA5A5"),
 }
+
+
+def tamanho_fonte_status_analisado_f2(panel_width: int) -> int:
+    """Dimensiona o aviso em duas linhas para não cortar em telas estreitas."""
+    try:
+        width = int(panel_width)
+    except (TypeError, ValueError):
+        width = 640
+
+    usable_width = max(160, max(220, width) - 72)
+    longest_line = max(len(line) for line in F2_ANALYZED_WAITING_TEXT.splitlines())
+    # Aproxima a largura de texto em DejaVu Sans Bold de forma conservadora.
+    estimated = int(usable_width / max(1.0, longest_line * 0.90))
+    return max(
+        F2_ANALYZED_WAITING_FONT_MIN,
+        min(F2_ANALYZED_WAITING_FONT_MAX, estimated),
+    )
 
 
 def renderizar_overlay_rois_f2(frame, leds, states: dict[str, str] | None):
@@ -111,6 +132,7 @@ class SegmentDisplayOperationWindow(BlueRaspberryOperationWindow):
         self._live_roi_states: dict[str, str] = {}
         self._live_roi_overlay_enabled = False
         self._board_presence_status = "unknown"
+        self._f2_analyzed_waiting_active = False
         super().__init__(*args, **kwargs)
         try:
             self.preview_legend.configure(text="AZUL: ROI APAGADA")
@@ -134,6 +156,79 @@ class SegmentDisplayOperationWindow(BlueRaspberryOperationWindow):
             pady=(7, 0),
         )
         self.board_presence_label.grid_remove()
+
+    def _set_state(
+        self,
+        background: str,
+        foreground: str,
+        status: str,
+        detail: str,
+    ) -> None:
+        """Restaura uma linha antes de cada estado normal exclusivo do F2."""
+        self._f2_analyzed_waiting_active = False
+        label = getattr(self, "status_label", None)
+        if label is not None:
+            try:
+                label.configure(height=1, wraplength=0, pady=0)
+            except Exception:
+                pass
+        super()._set_state(
+            background=background,
+            foreground=foreground,
+            status=status,
+            detail=detail,
+        )
+
+    def _aplicar_status_pos_analise_f2(self, panel_width: int | None = None) -> None:
+        if panel_width is None:
+            try:
+                panel_width = int(self.analysis_panel.winfo_width())
+            except Exception:
+                panel_width = 640
+        if int(panel_width or 0) <= 2:
+            panel_width = 640
+
+        font_size = tamanho_fonte_status_analisado_f2(int(panel_width))
+        self.status_label.configure(
+            text=F2_ANALYZED_WAITING_TEXT,
+            font=("DejaVu Sans", font_size, "bold"),
+            height=2,
+            pady=0,
+            justify="center",
+            anchor="center",
+            wraplength=0,
+        )
+
+    def show_waiting(
+        self,
+        led_count: int,
+        total: int,
+        ok_count: int,
+        ng_count: int,
+    ) -> None:
+        """Após resultado, orienta a troca da placa sem alterar o ciclo F2."""
+        super().show_waiting(
+            led_count=led_count,
+            total=total,
+            ok_count=ok_count,
+            ng_count=ng_count,
+        )
+        if not (
+            bool(getattr(self, "_has_led_result", False))
+            and getattr(self, "_last_result_ok", None) is not None
+        ):
+            return
+        self._f2_analyzed_waiting_active = True
+        self._aplicar_status_pos_analise_f2()
+
+    def _on_analysis_resize(self, event) -> None:
+        super()._on_analysis_resize(event)
+        if bool(getattr(self, "_f2_analyzed_waiting_active", False)):
+            try:
+                width = int(event.width)
+            except (TypeError, ValueError, AttributeError):
+                width = 640
+            self._aplicar_status_pos_analise_f2(width)
 
     def set_board_presence_status(
         self,
