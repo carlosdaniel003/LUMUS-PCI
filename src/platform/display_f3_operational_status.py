@@ -227,8 +227,90 @@ def _build_operational_state(self, frame, project_name: str, context: dict | Non
     return state
 
 
+def _build_visual_analysis_state(self, frame, project_name: str) -> dict:
+    """Classificação puramente visual das referências de projeto; nunca decide o fluxo."""
+    repository = getattr(self, "display_project_repository", None)
+    if repository is None:
+        return {
+            "text": "ANÁLISE VISUAL: projeto indisponível",
+            "color": F3_OPERATIONAL_STATUS_COLORS["unavailable"],
+        }
+
+    matcher = getattr(self, "_display_f3_operational_matcher", None)
+    if matcher is None or getattr(matcher, "repository", None) is not repository:
+        matcher = DisplayVisualReferenceMatcher(repository)
+        self._display_f3_operational_matcher = matcher
+
+    current_small = visual_status_module._small_image(frame)
+    if current_small is None:
+        return {
+            "text": "ANÁLISE VISUAL: aguardando câmera",
+            "color": F3_OPERATIONAL_STATUS_COLORS["unavailable"],
+        }
+
+    references = matcher.project_store.get_all(project_name)
+    if not all(kind in references for kind in DISPLAY_PROJECT_REFERENCE_TYPES):
+        return {
+            "text": "ANÁLISE VISUAL: configure as 2 referências do projeto",
+            "color": F3_OPERATIONAL_STATUS_COLORS["unavailable"],
+        }
+
+    empty_candidate = _score_candidate(
+        matcher,
+        current_small,
+        references.get(DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT),
+    )
+    off_candidate = _score_candidate(
+        matcher,
+        current_small,
+        references.get(DISPLAY_PROJECT_REFERENCE_BOARD_OFF),
+    )
+
+    empty_score = float((empty_candidate or {}).get("score", 0.0) or 0.0)
+    off_score = float((off_candidate or {}).get("score", 0.0) or 0.0)
+    empty_matched = bool((empty_candidate or {}).get("matched"))
+    off_matched = bool((off_candidate or {}).get("matched"))
+
+    if empty_matched and off_matched:
+        if abs(empty_score - off_score) < F3_OPERATIONAL_PHYSICAL_MARGIN:
+            return {
+                "text": "ANÁLISE VISUAL: identificando estado da placa...",
+                "color": F3_OPERATIONAL_STATUS_COLORS["unknown"],
+            }
+        if empty_score > off_score:
+            off_matched = False
+        else:
+            empty_matched = False
+
+    if empty_matched:
+        return {
+            "text": f"ANÁLISE VISUAL: PLACA FORA DO SUPORTE • {empty_score * 100:.0f}%",
+            "color": F3_OPERATIONAL_STATUS_COLORS["empty"],
+        }
+
+    if off_matched:
+        return {
+            "text": f"ANÁLISE VISUAL: PLACA DESLIGADA NO SUPORTE • {off_score * 100:.0f}%",
+            "color": F3_OPERATIONAL_STATUS_COLORS["off"],
+        }
+
+    best_score = max(empty_score, off_score)
+    return {
+        "text": f"ANÁLISE VISUAL: estado visual não identificado • melhor {best_score * 100:.0f}%",
+        "color": F3_OPERATIONAL_STATUS_COLORS["unknown"],
+    }
+
+
 def _set_operational_reference_status(self, text: str, color: str) -> None:
     label = getattr(self, "operational_reference_state_label", None)
+    if label is None:
+        return
+    if str(label.cget("text")) != str(text) or str(label.cget("fg")) != str(color):
+        label.configure(text=str(text), fg=str(color))
+
+
+def _set_visual_analysis_status(self, text: str, color: str) -> None:
+    label = getattr(self, "visual_analysis_state_label", None)
     if label is None:
         return
     if str(label.cget("text")) != str(text) or str(label.cget("fg")) != str(color):
@@ -259,7 +341,7 @@ def _install_single_status_window() -> None:
         self.board_reference_state_label = None
         self.visual_reference_state_label = None
 
-        status_box = tk.Frame(self.preview_header, bg=self.PREVIEW_PANEL, height=28)
+        status_box = tk.Frame(self.preview_header, bg=self.PREVIEW_PANEL, height=48)
         status_box.grid(
             row=1,
             column=0,
@@ -286,8 +368,25 @@ def _install_single_status_window() -> None:
             sticky="ew",
         )
 
+        self.visual_analysis_state_label = tk.Label(
+            status_box,
+            text="ANÁLISE VISUAL: aguardando referências do projeto",
+            font=("DejaVu Sans", 9, "bold"),
+            bg=self.PREVIEW_PANEL,
+            fg=F3_OPERATIONAL_STATUS_COLORS["unavailable"],
+            anchor="w",
+            justify="left",
+        )
+        self.visual_analysis_state_label.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            pady=(2, 0),
+        )
+
     cls.__init__ = init
     cls.set_operational_reference_status = _set_operational_reference_status
+    cls.set_visual_analysis_status = _set_visual_analysis_status
     cls.set_visual_reference_status = _ignore_legacy_dual_status
     cls._display_f3_single_operational_status_installed = True
 
@@ -333,6 +432,21 @@ def _install_operational_auto_gate() -> None:
             window.set_operational_reference_status(
                 str(state.get("text") or "IDENTIFICANDO..."),
                 str(state.get("color") or F3_OPERATIONAL_STATUS_COLORS["unknown"]),
+            )
+        except Exception:
+            pass
+
+        # Status paralelo e estritamente informativo. Usa somente as duas fotos
+        # de presença do Projeto Display (e a ROI, quando configurada). O valor
+        # não entra em nenhuma condição de aprovação, reprovação ou transição.
+        visual_state = _build_visual_analysis_state(self, frame, str(project_name))
+        try:
+            window.set_visual_analysis_status(
+                str(visual_state.get("text") or "ANÁLISE VISUAL: identificando..."),
+                str(
+                    visual_state.get("color")
+                    or F3_OPERATIONAL_STATUS_COLORS["unknown"]
+                ),
             )
         except Exception:
             pass
