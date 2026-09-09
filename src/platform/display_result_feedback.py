@@ -407,7 +407,14 @@ def instalar_feedback_resultado_display_f3() -> None:
             status="PLACA JÁ ANALISADA\nCOLOQUE OUTRA PLACA",
             detail=detail,
         )
-        self.status_label.configure(font=("DejaVu Sans", 28, "bold"))
+        # O layout estável do F3 usa height=1 para estados normais. Este aviso é
+        # deliberadamente composto por duas linhas e precisa reservar duas linhas
+        # reais no Tkinter; caso contrário as partes superior/inferior são cortadas.
+        self.status_label.configure(
+            font=("DejaVu Sans", 22, "bold"),
+            height=2,
+            pady=0,
+        )
         aplicar_tema_visual_display_f3(
             self,
             "ok_waiting" if result == "OK" else "ng_waiting",
