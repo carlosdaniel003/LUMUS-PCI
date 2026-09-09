@@ -205,3 +205,13 @@ def instalar_sincronia_status_check_atual_display_f3() -> None:
     )
 
     instalar_fallback_relativo_analise_visual_display_f3()
+
+    # Desempate exclusivamente visual: cada CHECK é comparado, dentro da própria
+    # ROI desenhada, contra sua foto e contra a foto da placa desligada. Se OFF
+    # vencer claramente na mesma região, o CHECK sai apenas da disputa do status
+    # ANÁLISE VISUAL. Não usa máscaras e não altera qualquer decisão produtiva.
+    from src.platform.display_f3_visual_roi_disambiguation import (
+        instalar_desambiguacao_roi_analise_visual_display_f3,
+    )
+
+    instalar_desambiguacao_roi_analise_visual_display_f3()
