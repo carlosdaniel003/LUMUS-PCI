@@ -1,7 +1,13 @@
 import unittest
 
 from src.models.led_selection import LedSelection
-from src.platform.segment_display_operation_window import SegmentDisplayOperationWindow
+from src.platform.segment_display_operation_window import (
+    F2_ANALYZED_WAITING_FONT_MAX,
+    F2_ANALYZED_WAITING_FONT_MIN,
+    F2_ANALYZED_WAITING_TEXT,
+    SegmentDisplayOperationWindow,
+    tamanho_fonte_status_analisado_f2,
+)
 
 
 class FakeCanvas:
@@ -38,6 +44,14 @@ class FakeLabel:
 
     def grid_remove(self):
         self.visible = False
+
+
+class FakePanel:
+    def __init__(self, width: int):
+        self.width = width
+
+    def winfo_width(self):
+        return self.width
 
 
 class SegmentOperationPreviewTests(unittest.TestCase):
@@ -135,6 +149,29 @@ class SegmentOperationPreviewTests(unittest.TestCase):
         self.assertTrue(window.board_presence_label.visible)
         window.set_board_presence_status(None, enabled=False)
         self.assertFalse(window.board_presence_label.visible)
+
+    def test_aviso_pos_analise_f2_reserva_duas_linhas(self):
+        window = SegmentDisplayOperationWindow.__new__(SegmentDisplayOperationWindow)
+        window.status_label = FakeLabel()
+        window.analysis_panel = FakePanel(640)
+
+        window._aplicar_status_pos_analise_f2()
+
+        self.assertEqual(
+            F2_ANALYZED_WAITING_TEXT,
+            window.status_label.options["text"],
+        )
+        self.assertEqual(2, window.status_label.options["height"])
+        self.assertEqual("center", window.status_label.options["justify"])
+        self.assertEqual(0, window.status_label.options["wraplength"])
+
+    def test_fonte_pos_analise_reduz_em_painel_estreito(self):
+        fonte_larga = tamanho_fonte_status_analisado_f2(700)
+        fonte_estreita = tamanho_fonte_status_analisado_f2(320)
+
+        self.assertGreater(fonte_larga, fonte_estreita)
+        self.assertLessEqual(fonte_larga, F2_ANALYZED_WAITING_FONT_MAX)
+        self.assertGreaterEqual(fonte_estreita, F2_ANALYZED_WAITING_FONT_MIN)
 
 
 if __name__ == "__main__":
