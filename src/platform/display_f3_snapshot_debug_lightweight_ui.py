@@ -5,25 +5,415 @@ from __future__ import annotations
 O relatório completo continua disponível para suporte e para o clipboard, porém
 não é inserido em um widget Text. Isso evita custo de layout/renderização de
 milhares de linhas e mantém a janela consistente com os workspaces F3.
+
+A análise visual de presença usa exatamente o mesmo frame congelado pelo botão
+ANALISAR. Ela é anexada ao snapshot somente para diagnóstico e nunca participa
+de OK/NG, avanço de CHECK, rearmamento ou qualquer decisão produtiva.
 """
 
+import base64
 import tkinter as tk
 
+import cv2
+
 import src.platform.display_f3_manual_snapshot_debug as manual_module
+import src.platform.display_f3_operational_status as operational_module
+import src.platform.display_visual_reference_status as visual_status_module
 from src.platform.display_f3_workspace_ui import maximizar_janela_workspace_f3
 from src.platform.display_production_f3_window import DisplayProductionF3Window
+from src.platform.display_visual_reference_status import (
+    DISPLAY_PROJECT_REFERENCE_BOARD_OFF,
+    DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT,
+    DISPLAY_PROJECT_REFERENCE_LABELS,
+    DISPLAY_PROJECT_REFERENCE_TYPES,
+    DisplayVisualReferenceMatcher,
+)
 
 
 DEBUG_SUMMARY = (
-    "O debug técnico contém o snapshot congelado do frame analisado, dados da "
-    "captura, estado físico, scores das referências, CHECK lógico, configuração "
-    "das máscaras, comparação com os gabaritos, aprendizado ACESO/APAGADO e "
-    "evidências de energia. O conteúdo completo não é renderizado nesta tela "
-    "para evitar lentidão. Use COPIAR DEBUG para enviá-lo ao suporte."
+    "O debug técnico contém o snapshot congelado do frame analisado, a análise "
+    "visual informativa da placa, dados da captura, estado físico, scores das "
+    "referências, CHECK lógico, configuração das máscaras, comparação com os "
+    "gabaritos, aprendizado ACESO/APAGADO e evidências de energia. O conteúdo "
+    "completo não é renderizado nesta tela para evitar lentidão. Use COPIAR DEBUG "
+    "para enviá-lo ao suporte."
 )
 COPY_START_DELAY_MS = 12
 COPY_FEEDBACK_RESET_MS = 1800
 READY_TEXT = "RELATÓRIO PRONTO PARA CÓPIA"
+VISUAL_FRAME_MAX_WIDTH = 640
+VISUAL_FRAME_MAX_HEIGHT = 340
+
+
+def _safe_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _pct(value) -> str:
+    number = _safe_float(value)
+    return "--" if number is None else f"{number * 100.0:.1f}%"
+
+
+def _visual_candidate(
+    matcher: DisplayVisualReferenceMatcher,
+    current_small,
+    metadata: dict | None,
+    kind: str,
+) -> dict:
+    configured = isinstance(metadata, dict)
+    score = None
+    threshold = None
+    error = None
+    if configured and current_small is not None:
+        try:
+            score = matcher._score(current_small, metadata)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+        try:
+            threshold = matcher._threshold(metadata)
+        except Exception as exc:
+            if error is None:
+                error = f"{type(exc).__name__}: {exc}"
+
+    score_float = _safe_float(score)
+    threshold_float = _safe_float(threshold)
+    matched = bool(
+        score_float is not None
+        and threshold_float is not None
+        and score_float >= threshold_float
+    )
+    return {
+        "kind": str(kind),
+        "name": DISPLAY_PROJECT_REFERENCE_LABELS.get(str(kind), str(kind)),
+        "configured": configured,
+        "score": score_float,
+        "threshold": threshold_float,
+        "matched": matched,
+        "margin_to_threshold": (
+            None
+            if score_float is None or threshold_float is None
+            else round(score_float - threshold_float, 6)
+        ),
+        "roi": dict((metadata or {}).get("roi") or {})
+        if isinstance((metadata or {}).get("roi"), dict)
+        else None,
+        "image_path": str((metadata or {}).get("image_path") or "")
+        if configured
+        else "",
+        "error": error,
+    }
+
+
+def _build_visual_analysis_snapshot(app, frame, project_name: str) -> dict:
+    """Reexecuta somente a leitura visual sobre a mesma cópia congelada."""
+    repository = getattr(app, "display_project_repository", None)
+    if repository is None:
+        return {
+            "available": False,
+            "informational_only": True,
+            "affects_result": False,
+            "status_text": "ANÁLISE VISUAL: projeto indisponível",
+            "reason": "repository_display_indisponivel",
+        }
+
+    matcher = DisplayVisualReferenceMatcher(repository)
+    try:
+        status_state = operational_module._build_visual_analysis_state(
+            app,
+            frame,
+            str(project_name),
+        )
+    except Exception as exc:
+        status_state = {
+            "text": "ANÁLISE VISUAL: falha no diagnóstico",
+            "color": operational_module.F3_OPERATIONAL_STATUS_COLORS["unavailable"],
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    current_small = visual_status_module._small_image(frame)
+    try:
+        references = matcher.project_store.get_all(str(project_name))
+    except Exception as exc:
+        references = {}
+        load_error = f"{type(exc).__name__}: {exc}"
+    else:
+        load_error = None
+
+    empty = _visual_candidate(
+        matcher,
+        current_small,
+        references.get(DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT),
+        DISPLAY_PROJECT_REFERENCE_EMPTY_SUPPORT,
+    )
+    off = _visual_candidate(
+        matcher,
+        current_small,
+        references.get(DISPLAY_PROJECT_REFERENCE_BOARD_OFF),
+        DISPLAY_PROJECT_REFERENCE_BOARD_OFF,
+    )
+    candidates = {
+        "empty_support": empty,
+        "board_off": off,
+    }
+
+    empty_score = _safe_float(empty.get("score"))
+    off_score = _safe_float(off.get("score"))
+    score_margin = (
+        None
+        if empty_score is None or off_score is None
+        else abs(empty_score - off_score)
+    )
+
+    complete = all(bool(item.get("configured")) for item in candidates.values())
+    empty_matched = bool(empty.get("matched"))
+    off_matched = bool(off.get("matched"))
+    selected_reference = None
+    result_kind = "unidentified"
+
+    if not complete:
+        result_kind = "incomplete"
+    elif current_small is None:
+        result_kind = "camera_unavailable"
+    elif empty_matched and off_matched:
+        if (
+            score_margin is not None
+            and score_margin < operational_module.F3_OPERATIONAL_PHYSICAL_MARGIN
+        ):
+            result_kind = "ambiguous"
+        elif (empty_score or 0.0) > (off_score or 0.0):
+            result_kind = "empty_support"
+            selected_reference = "empty_support"
+        else:
+            result_kind = "board_off"
+            selected_reference = "board_off"
+    elif empty_matched:
+        result_kind = "empty_support"
+        selected_reference = "empty_support"
+    elif off_matched:
+        result_kind = "board_off"
+        selected_reference = "board_off"
+
+    scored = [
+        (key, _safe_float(value.get("score")))
+        for key, value in candidates.items()
+        if _safe_float(value.get("score")) is not None
+    ]
+    scored.sort(key=lambda item: item[1], reverse=True)
+    best_reference = scored[0][0] if scored else None
+
+    return {
+        "available": bool(current_small is not None and complete),
+        "informational_only": True,
+        "affects_result": False,
+        "uses_masks": False,
+        "uses_check_state": False,
+        "analysis_type": "project_visual_reference_comparison",
+        "comparison_basis": "imagem_de_referencia_do_projeto_com_roi_quando_configurada",
+        "status_text": str(status_state.get("text") or "ANÁLISE VISUAL: identificando..."),
+        "status_color": str(status_state.get("color") or ""),
+        "result_kind": result_kind,
+        "selected_reference": selected_reference,
+        "best_reference": best_reference,
+        "score_margin": score_margin,
+        "minimum_margin": operational_module.F3_OPERATIONAL_PHYSICAL_MARGIN,
+        "project_references_complete": complete,
+        "candidates": candidates,
+        "load_error": load_error,
+        "status_error": status_state.get("error"),
+    }
+
+
+def _visual_report_block(snapshot: dict) -> str:
+    visual = snapshot.get("visual_analysis")
+    if not isinstance(visual, dict):
+        return ""
+
+    lines = [
+        "[ANÁLISE VISUAL INFORMATIVA - MESMO FRAME CONGELADO]",
+        "Esta leitura usa somente as referências visuais do projeto e a ROI configurada.",
+        "Ela NÃO participa de OK/NG, CHECK, máscaras, avanço de fluxo ou rearmamento.",
+        f"status={visual.get('status_text', '--')}",
+        " | ".join(
+            (
+                f"result_kind={visual.get('result_kind', '--')}",
+                f"available={visual.get('available', '--')}",
+                f"informational_only={visual.get('informational_only', '--')}",
+                f"affects_result={visual.get('affects_result', '--')}",
+                f"uses_masks={visual.get('uses_masks', '--')}",
+                f"uses_check_state={visual.get('uses_check_state', '--')}",
+            )
+        ),
+        " | ".join(
+            (
+                f"selected_reference={visual.get('selected_reference', '--')}",
+                f"best_reference={visual.get('best_reference', '--')}",
+                f"score_margin={manual_module._fmt(visual.get('score_margin'))}",
+                f"minimum_margin={manual_module._fmt(visual.get('minimum_margin'))}",
+                f"comparison={visual.get('comparison_basis', '--')}",
+            )
+        ),
+    ]
+
+    for key in ("empty_support", "board_off"):
+        candidate = (visual.get("candidates") or {}).get(key)
+        if not isinstance(candidate, dict):
+            continue
+        lines.append(
+            "visual_reference "
+            + " | ".join(
+                (
+                    f"key={key}",
+                    f"name={candidate.get('name', '--')}",
+                    f"configured={candidate.get('configured', '--')}",
+                    f"matched={candidate.get('matched', '--')}",
+                    f"score={manual_module._fmt(candidate.get('score'))}",
+                    f"threshold={manual_module._fmt(candidate.get('threshold'))}",
+                    f"margin_threshold={manual_module._fmt(candidate.get('margin_to_threshold'))}",
+                    f"roi={candidate.get('roi', '--')}",
+                    f"path={candidate.get('image_path', '--')}",
+                    f"error={candidate.get('error', '--')}",
+                )
+            )
+        )
+    return "\n".join(lines)
+
+
+def _install_visual_analysis_snapshot_extension() -> None:
+    """Anexa a leitura visual ao snapshot sem capturar um segundo frame."""
+    if bool(getattr(manual_module, "_display_f3_visual_analysis_debug_extended", False)):
+        return
+
+    original_freeze = manual_module._freeze_current_frame
+    original_capture = manual_module.capturar_snapshot_debug_display_f3
+    original_report = manual_module.montar_relatorio_snapshot_display_f3
+
+    def freeze(app):
+        frame, capture = original_freeze(app)
+        try:
+            app._display_f3_manual_snapshot_frozen_frame = frame
+        except Exception:
+            pass
+        return frame, capture
+
+    def capture(app):
+        snapshot = original_capture(app)
+        frame = getattr(app, "_display_f3_manual_snapshot_frozen_frame", None)
+        project_name = str((snapshot or {}).get("project_name") or "")
+        if frame is None or getattr(frame, "size", 0) == 0 or not project_name:
+            return snapshot
+        try:
+            snapshot["visual_analysis"] = _build_visual_analysis_snapshot(
+                app,
+                frame,
+                project_name,
+            )
+        except Exception as exc:
+            snapshot["visual_analysis"] = {
+                "available": False,
+                "informational_only": True,
+                "affects_result": False,
+                "status_text": "ANÁLISE VISUAL: falha no diagnóstico",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        return snapshot
+
+    def report(snapshot):
+        base = original_report(snapshot)
+        block = _visual_report_block(snapshot)
+        if not block:
+            return base
+        marker = "\nCole este bloco inteiro na conversa/chamado de debug do Display F3."
+        if marker in base:
+            return base.replace(marker, f"\n\n{block}\n{marker}", 1)
+        return f"{base}\n\n{block}"
+
+    manual_module._freeze_current_frame = freeze
+    manual_module.capturar_snapshot_debug_display_f3 = capture
+    manual_module.montar_relatorio_snapshot_display_f3 = report
+    manual_module._display_f3_visual_analysis_debug_extended = True
+
+
+def _normalized_roi(roi) -> dict | None:
+    if not isinstance(roi, dict):
+        return None
+    try:
+        x = max(0.0, min(1.0, float(roi.get("x", 0.0))))
+        y = max(0.0, min(1.0, float(roi.get("y", 0.0))))
+        width = max(0.0, min(1.0 - x, float(roi.get("width", roi.get("w", 0.0)))))
+        height = max(0.0, min(1.0 - y, float(roi.get("height", roi.get("h", 0.0)))))
+    except (TypeError, ValueError):
+        return None
+    if width <= 0.0 or height <= 0.0:
+        return None
+    return {"x": x, "y": y, "width": width, "height": height}
+
+
+def _frame_photo(frame, visual: dict | None):
+    if frame is None or getattr(frame, "size", 0) == 0:
+        return None
+    try:
+        image = frame.copy()
+    except Exception:
+        return None
+
+    if image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    elif image.ndim == 3 and image.shape[2] == 4:
+        image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+    elif image.ndim != 3 or image.shape[2] != 3:
+        return None
+
+    data = visual if isinstance(visual, dict) else {}
+    candidate_key = data.get("selected_reference") or data.get("best_reference")
+    candidate = (data.get("candidates") or {}).get(candidate_key)
+    roi = _normalized_roi((candidate or {}).get("roi"))
+    if roi is not None:
+        height, width = image.shape[:2]
+        x1 = int(round(roi["x"] * width))
+        y1 = int(round(roi["y"] * height))
+        x2 = int(round((roi["x"] + roi["width"]) * width))
+        y2 = int(round((roi["y"] + roi["height"]) * height))
+        cv2.rectangle(
+            image,
+            (max(0, x1), max(0, y1)),
+            (min(width - 1, x2), min(height - 1, y2)),
+            (255, 255, 255),
+            3,
+        )
+
+    height, width = image.shape[:2]
+    scale = min(
+        VISUAL_FRAME_MAX_WIDTH / float(width),
+        VISUAL_FRAME_MAX_HEIGHT / float(height),
+        1.0,
+    )
+    target_width = max(1, int(round(width * scale)))
+    target_height = max(1, int(round(height * scale)))
+    if (target_width, target_height) != (width, height):
+        image = cv2.resize(
+            image,
+            (target_width, target_height),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    ok, buffer = cv2.imencode(".png", image)
+    if not ok:
+        return None
+    return tk.PhotoImage(data=base64.b64encode(buffer).decode("ascii"))
+
+
+def _candidate_line(visual: dict, key: str, fallback: str) -> str:
+    candidate = (visual.get("candidates") or {}).get(key)
+    if not isinstance(candidate, dict):
+        return f"{fallback}: --"
+    roi_text = "ROI ATIVA" if candidate.get("roi") else "IMAGEM TODA"
+    return (
+        f"{fallback}: {_pct(candidate.get('score'))}  •  "
+        f"limiar {_pct(candidate.get('threshold'))}  •  {roi_text}"
+    )
 
 
 def _set_copy_feedback(
@@ -134,6 +524,14 @@ def _schedule_copy_report(window, top, status_label=None, copy_button=None) -> b
     return True
 
 
+def _close_debug(window) -> None:
+    try:
+        window._display_f3_snapshot_debug_photo = None
+    except Exception:
+        pass
+    window.close_f3_snapshot_debug()
+
+
 def _open_lightweight_snapshot_debug(window):
     report = str(getattr(window, "_display_f3_manual_snapshot_report", "") or "")
     if not report:
@@ -190,19 +588,111 @@ def _open_lightweight_snapshot_debug(window):
     ).pack(fill="x", pady=(4, 0))
 
     body = tk.Frame(shell, bg=manual_module.DEBUG_BG)
-    body.pack(fill="both", expand=True, pady=(34, 20))
+    body.pack(fill="both", expand=True, pady=(20, 16))
+
+    visual = snapshot.get("visual_analysis")
+    visual = visual if isinstance(visual, dict) else {}
+    owner = getattr(window, "_display_f3_manual_debug_owner", None)
+    frozen_frame = getattr(owner, "_display_f3_manual_snapshot_frozen_frame", None)
+
+    visual_area = tk.Frame(body, bg=manual_module.DEBUG_BG)
+    visual_area.pack(fill="both", expand=True)
+    visual_area.grid_columnconfigure(0, weight=3)
+    visual_area.grid_columnconfigure(1, weight=2, minsize=330)
+    visual_area.grid_rowconfigure(0, weight=1)
+
+    frame_column = tk.Frame(visual_area, bg=manual_module.DEBUG_BG)
+    frame_column.grid(row=0, column=0, sticky="nsew", padx=(0, 22))
+    tk.Label(
+        frame_column,
+        text="FRAME CONGELADO • MESMA CÓPIA USADA NA ANÁLISE",
+        font=("Segoe UI", 9, "bold"),
+        bg=manual_module.DEBUG_BG,
+        fg=manual_module.DEBUG_MUTED,
+        anchor="w",
+    ).pack(fill="x", pady=(0, 7))
+
+    photo = _frame_photo(frozen_frame, visual)
+    window._display_f3_snapshot_debug_photo = photo
+    if photo is not None:
+        tk.Label(
+            frame_column,
+            image=photo,
+            bg="#020617",
+            bd=0,
+            anchor="nw",
+        ).pack(anchor="nw")
+    else:
+        tk.Label(
+            frame_column,
+            text="PRÉVIA DO FRAME NÃO DISPONÍVEL",
+            font=("Segoe UI", 11, "bold"),
+            bg=manual_module.DEBUG_BG,
+            fg=manual_module.DEBUG_MUTED,
+            anchor="w",
+        ).pack(fill="x", pady=(30, 0))
+
+    info_column = tk.Frame(visual_area, bg=manual_module.DEBUG_BG)
+    info_column.grid(row=0, column=1, sticky="nsew")
+    tk.Label(
+        info_column,
+        text="ANÁLISE VISUAL • SOMENTE DIAGNÓSTICO",
+        font=("Segoe UI", 10, "bold"),
+        bg=manual_module.DEBUG_BG,
+        fg=manual_module.DEBUG_MUTED,
+        anchor="w",
+    ).pack(fill="x")
+    tk.Label(
+        info_column,
+        text=str(visual.get("status_text") or "ANÁLISE VISUAL: não disponível"),
+        font=("Segoe UI", 13, "bold"),
+        bg=manual_module.DEBUG_BG,
+        fg=str(visual.get("status_color") or manual_module.DEBUG_TEXT),
+        justify="left",
+        anchor="w",
+        wraplength=500,
+    ).pack(fill="x", pady=(8, 10))
+    tk.Label(
+        info_column,
+        text="Não altera OK/NG, CHECK, máscaras, avanço do fluxo ou rearmamento.",
+        font=("Segoe UI", 9),
+        bg=manual_module.DEBUG_BG,
+        fg=manual_module.DEBUG_MUTED,
+        justify="left",
+        anchor="w",
+        wraplength=500,
+    ).pack(fill="x", pady=(0, 14))
+
+    for line in (
+        _candidate_line(visual, "empty_support", "PLACA FORA DO SUPORTE"),
+        _candidate_line(visual, "board_off", "PLACA DESLIGADA NO SUPORTE"),
+        (
+            f"Margem entre referências: {_pct(visual.get('score_margin'))}  •  "
+            f"mínima {_pct(visual.get('minimum_margin'))}"
+        ),
+    ):
+        tk.Label(
+            info_column,
+            text=line,
+            font=("Segoe UI", 9),
+            bg=manual_module.DEBUG_BG,
+            fg=manual_module.DEBUG_TEXT,
+            justify="left",
+            anchor="w",
+            wraplength=500,
+        ).pack(fill="x", pady=(0, 7))
 
     message = tk.Label(
         body,
         text=DEBUG_SUMMARY,
-        font=("Segoe UI", 12),
+        font=("Segoe UI", 10),
         bg=manual_module.DEBUG_BG,
-        fg=manual_module.DEBUG_TEXT,
+        fg=manual_module.DEBUG_MUTED,
         justify="left",
         anchor="nw",
         wraplength=1040,
     )
-    message.pack(anchor="nw", fill="x")
+    message.pack(anchor="nw", fill="x", pady=(14, 0))
 
     def fit_message(event):
         try:
@@ -220,7 +710,7 @@ def _open_lightweight_snapshot_debug(window):
         fg=manual_module.DEBUG_MUTED,
         anchor="w",
     )
-    status.pack(anchor="w", pady=(22, 0))
+    status.pack(anchor="w", pady=(12, 0))
 
     actions = tk.Frame(shell, bg=manual_module.DEBUG_BG)
     actions.pack(fill="x")
@@ -248,7 +738,7 @@ def _open_lightweight_snapshot_debug(window):
     tk.Button(
         actions,
         text="FECHAR",
-        command=window.close_f3_snapshot_debug,
+        command=lambda: _close_debug(window),
         font=("Segoe UI", 10, "bold"),
         bg="#1E293B",
         fg=manual_module.DEBUG_TEXT,
@@ -261,8 +751,8 @@ def _open_lightweight_snapshot_debug(window):
         cursor="hand2",
     ).pack(side="right")
 
-    top.protocol("WM_DELETE_WINDOW", window.close_f3_snapshot_debug)
-    top.bind("<Escape>", lambda _event: window.close_f3_snapshot_debug())
+    top.protocol("WM_DELETE_WINDOW", lambda: _close_debug(window))
+    top.bind("<Escape>", lambda _event: _close_debug(window))
     return top
 
 
@@ -270,11 +760,12 @@ _INSTALLED = False
 
 
 def instalar_debug_snapshot_leve_display_f3() -> None:
-    """Substitui somente a apresentação do snapshot; relatório permanece íntegro."""
+    """Substitui apresentação do snapshot e anexa análise visual informativa."""
     global _INSTALLED
     if _INSTALLED:
         return
 
+    _install_visual_analysis_snapshot_extension()
     DisplayProductionF3Window.open_f3_snapshot_debug = (
         lambda self: _open_lightweight_snapshot_debug(self)
     )
