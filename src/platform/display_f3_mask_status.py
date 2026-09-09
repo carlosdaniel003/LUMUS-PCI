@@ -135,12 +135,14 @@ def _install_mask_status_window() -> None:
         if status_box is None:
             return
 
-        # O status físico continua na primeira linha. A segunda linha é somente
-        # diagnóstico óptico das máscaras e não participa de OK/NG ou do gate.
-        status_box.configure(height=52)
+        # Pilha informativa do F3: estado operacional, máscaras e, logo abaixo,
+        # análise visual. As duas últimas linhas são diagnósticas e não decidem
+        # OK/NG, avanço de CHECK ou rearmamento.
+        status_box.configure(height=76)
         status_box.grid_propagate(False)
         status_box.grid_rowconfigure(0, weight=0)
         status_box.grid_rowconfigure(1, weight=0)
+        status_box.grid_rowconfigure(2, weight=0)
 
         self.mask_analysis_state_label = tk.Label(
             status_box,
@@ -157,6 +159,15 @@ def _install_mask_status_window() -> None:
             sticky="ew",
             pady=(3, 0),
         )
+
+        visual_label = getattr(self, "visual_analysis_state_label", None)
+        if visual_label is not None:
+            visual_label.grid_configure(
+                row=2,
+                column=0,
+                sticky="ew",
+                pady=(3, 0),
+            )
 
     cls.__init__ = init
     cls.set_mask_analysis_status = _set_mask_analysis_status
