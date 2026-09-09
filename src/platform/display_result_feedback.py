@@ -404,7 +404,7 @@ def instalar_feedback_resultado_display_f3() -> None:
         self._set_state(
             background=background,
             foreground="#FFFFFF",
-            status="PLACA JÁ ANALISADA • COLOQUE OUTRA PLACA",
+            status="PLACA JÁ ANALISADA\nCOLOQUE OUTRA PLACA",
             detail=detail,
         )
         self.status_label.configure(font=("DejaVu Sans", 28, "bold"))
