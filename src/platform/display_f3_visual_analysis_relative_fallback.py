@@ -256,14 +256,25 @@ def _collect_visual_candidates(
     matcher: DisplayVisualReferenceMatcher,
     frame,
     project_name: str,
+    score_overrides: dict[str, float] | None = None,
 ) -> dict[str, dict]:
-    """Pontua referências físicas e CHECKS com ROI-first em resolução cheia."""
+    """Pontua referências físicas e CHECKS com ROI-first em resolução cheia.
+
+    Quando o classificador físico do mesmo frame já publicou os scores ROI-first,
+    eles são reutilizados aqui. Assim o status visual não repete leitura de JPEG e
+    comparação de imagem durante o ciclo produtivo.
+    """
     result: dict[str, dict] = {}
+    overrides = score_overrides if isinstance(score_overrides, dict) else {}
     for source in _physical_candidates(matcher, project_name):
         metadata = source.get("metadata")
         if not isinstance(metadata, dict):
             continue
-        score = _score_reference_full_roi(frame, metadata)
+        source_key = str(source.get("key") or "")
+        score = _safe_float(overrides.get(source_key))
+        reused_score = score is not None
+        if score is None:
+            score = _score_reference_full_roi(frame, metadata)
         if score is None:
             continue
         key = _normalized_visual_key(source)
@@ -289,6 +300,7 @@ def _collect_visual_candidates(
             else None,
             "image_path": str(metadata.get("image_path") or ""),
             "comparison_mode": "full_resolution_roi_first",
+            "score_reused_from_same_frame": bool(reused_score),
             "error": None,
         }
         if kind == "check":
@@ -338,7 +350,19 @@ def _build_visual_analysis_state(self, frame, project_name: str) -> dict:
             "decision_mode": "references_incomplete",
         }
 
-    candidates = _collect_visual_candidates(matcher, frame, project_name)
+    operational_state = getattr(self, "_display_f3_operational_state", None)
+    reference_scores = (
+        dict(operational_state.get("reference_scores") or {})
+        if isinstance(operational_state, dict)
+        and isinstance(operational_state.get("reference_scores"), dict)
+        else {}
+    )
+    candidates = _collect_visual_candidates(
+        matcher,
+        frame,
+        project_name,
+        score_overrides=reference_scores,
+    )
     decision = resolver_analise_visual_candidatos_f3(candidates)
     text, color = _visual_text_from_decision(decision)
     check_reference_count = sum(
@@ -356,6 +380,7 @@ def _build_visual_analysis_state(self, frame, project_name: str) -> dict:
         "uses_check_references": True,
         "analysis_type": "all_configured_visual_references",
         "comparison_basis": "full_resolution_roi_first",
+        "reused_operational_scores": bool(reference_scores),
         "check_reference_count": check_reference_count,
         "relative_min_best_score": F3_VISUAL_RELATIVE_MIN_BEST_SCORE,
         "relative_min_margin": F3_VISUAL_RELATIVE_MIN_MARGIN,
@@ -374,7 +399,20 @@ def _extend_debug_snapshot(original):
         if repository is None:
             return snapshot
         matcher = DisplayVisualReferenceMatcher(repository)
-        candidates = _collect_visual_candidates(matcher, frame, project_name)
+        snapshot_scores: dict[str, float] = {}
+        for item in (snapshot.get("reference_analysis") or []):
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "")
+            score = _safe_float(item.get("score"))
+            if key and score is not None:
+                snapshot_scores[key] = score
+        candidates = _collect_visual_candidates(
+            matcher,
+            frame,
+            project_name,
+            score_overrides=snapshot_scores,
+        )
         decision = resolver_analise_visual_candidatos_f3(candidates)
         text, color = _visual_text_from_decision(decision)
 
@@ -386,6 +424,7 @@ def _extend_debug_snapshot(original):
         snapshot["uses_check_references"] = True
         snapshot["analysis_type"] = "all_configured_visual_references"
         snapshot["comparison_basis"] = "full_resolution_roi_first"
+        snapshot["reused_snapshot_reference_scores"] = bool(snapshot_scores)
         snapshot["status_text"] = text
         snapshot["status_color"] = color
         snapshot["candidates"] = candidates
@@ -435,7 +474,8 @@ def _extend_debug_report(original):
                 f"| check_references={visual.get('check_reference_count', 0)} "
                 f"| uses_check_references={visual.get('uses_check_references', False)} "
                 f"| uses_check_state={visual.get('uses_check_state', False)} "
-                f"| comparison={visual.get('comparison_basis', '--')}"
+                f"| comparison={visual.get('comparison_basis', '--')} "
+                f"| reused_snapshot_scores={visual.get('reused_snapshot_reference_scores', False)}"
             ),
         ]
 
