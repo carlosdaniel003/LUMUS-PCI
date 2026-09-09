@@ -477,7 +477,219 @@ def _install_matchers_roi() -> None:
         matcher_cls._display_reference_roi_matcher_installed = True
 
 
+def _open_selector(parent, metadata: dict, on_apply, title: str) -> None:
+    path = Path(str(metadata.get("image_path") or ""))
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR) if path.exists() else None
+    if image is None:
+        messagebox.showwarning(
+            "Sem imagem de referência",
+            "Capture primeiro a foto de referência antes de selecionar a área.",
+            parent=parent,
+        )
+        return
+    DisplayReferenceRoiDialog(
+        parent,
+        image,
+        metadata.get("roi"),
+        on_apply,
+        title,
+    )
+
+
+def _install_check_window_roi() -> None:
+    cls = check_module.DisplayCheckManagerPresenceWindow
+    if bool(getattr(cls, "_display_reference_roi_installed", False)):
+        return
+    original_install = cls._install_presence_panel
+    original_update = cls._update_presence_detail
+
+    def install_panel(self):
+        original_install(self)
+        box = getattr(self.reference_canvas, "master", None)
+        if box is None:
+            return
+        row = tk.Frame(box, bg="#0F1B2C")
+        row.pack(fill=tk.X, padx=12, pady=(0, 7))
+        self._button(
+            row,
+            "SELECIONAR ÁREA",
+            self.select_presence_reference_roi,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        self.reference_roi_status = tk.Label(
+            row,
+            text="IMAGEM TODA",
+            font=("Segoe UI", 8, "bold"),
+            fg="#94A3B8",
+            bg="#0F1B2C",
+            anchor="w",
+        )
+        self.reference_roi_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    def update_detail(self):
+        original_update(self)
+        label = getattr(self, "reference_roi_status", None)
+        store = getattr(self, "_presence_store", None)
+        check_id = self._selected_id()
+        if label is None or store is None or not check_id:
+            return
+        metadata = store.get(self.project_name, check_id)
+        if metadata is None:
+            label.configure(text="IMAGEM TODA", fg="#94A3B8")
+            return
+        roi = normalizar_roi_referencia(metadata.get("roi"))
+        label.configure(
+            text=descricao_roi_referencia(metadata),
+            fg=DISPLAY_REFERENCE_ROI_COLOR if roi is not None else "#94A3B8",
+        )
+        if roi is None or self.reference_canvas is None:
+            return
+        path = Path(str(metadata.get("image_path") or ""))
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR) if path.exists() else None
+        rect = _canvas_roi_rect(image, roi, 326, 88, 165, 46)
+        if rect is not None:
+            self.reference_canvas.create_rectangle(
+                *rect,
+                outline=DISPLAY_REFERENCE_ROI_COLOR,
+                width=2,
+            )
+
+    def select_roi(self) -> None:
+        store = getattr(self, "_presence_store", None)
+        check_id = self._selected_id()
+        if store is None or not check_id:
+            return
+        metadata = store.get(self.project_name, check_id)
+        if metadata is None:
+            messagebox.showwarning(
+                "Sem referência",
+                "Capture primeiro a foto deste CHECK.",
+                parent=self.window,
+            )
+            return
+
+        def apply(roi):
+            store.set_roi(self.project_name, check_id, roi)
+            self._update_presence_detail()
+            self._notify_change()
+            self.status.configure(
+                text="Área da referência visual atualizada."
+            )
+
+        _open_selector(
+            self.window,
+            metadata,
+            apply,
+            f"Área analisada • {check_id}",
+        )
+
+    cls._install_presence_panel = install_panel
+    cls._update_presence_detail = update_detail
+    cls.select_presence_reference_roi = select_roi
+    cls._display_reference_roi_installed = True
+
+
+def _install_project_window_roi() -> None:
+    cls = visual_module.DisplayProjectConfigPresenceWindow
+    if bool(getattr(cls, "_display_reference_roi_installed", False)):
+        return
+    original_install = cls._install_project_presence_panel
+    original_update = cls._update_project_presence_detail
+
+    def install_panel(self):
+        original_install(self)
+        self._project_presence_roi_labels = {}
+        for kind, canvas in self._project_presence_canvases.items():
+            slot = getattr(canvas, "master", None)
+            if slot is None:
+                continue
+            row = tk.Frame(slot, bg="#0B1728")
+            row.pack(fill=tk.X, padx=6, pady=(0, 6))
+            self._button(
+                row,
+                "SELECIONAR ÁREA",
+                lambda k=kind: self.select_project_presence_reference_roi(k),
+            ).pack(side=tk.LEFT)
+            label = tk.Label(
+                slot,
+                text="IMAGEM TODA",
+                font=("Segoe UI", 7, "bold"),
+                fg="#94A3B8",
+                bg="#0B1728",
+                anchor="center",
+            )
+            label.pack(fill=tk.X, padx=6, pady=(0, 5))
+            self._project_presence_roi_labels[kind] = label
+
+    def update_detail(self):
+        original_update(self)
+        store = getattr(self, "_project_presence_store", None)
+        labels = getattr(self, "_project_presence_roi_labels", {})
+        project_name = self._selected_name()
+        if store is None:
+            return
+        for kind in visual_module.DISPLAY_PROJECT_REFERENCE_TYPES:
+            label = labels.get(kind)
+            canvas = self._project_presence_canvases.get(kind)
+            metadata = store.get(project_name or "", kind) if project_name else None
+            if label is not None:
+                roi = normalizar_roi_referencia((metadata or {}).get("roi"))
+                label.configure(
+                    text=descricao_roi_referencia(metadata),
+                    fg=DISPLAY_REFERENCE_ROI_COLOR if roi is not None else "#94A3B8",
+                )
+            if metadata is None or canvas is None:
+                continue
+            roi = normalizar_roi_referencia(metadata.get("roi"))
+            if roi is None:
+                continue
+            path = Path(str(metadata.get("image_path") or ""))
+            image = cv2.imread(str(path), cv2.IMREAD_COLOR) if path.exists() else None
+            rect = _canvas_roi_rect(image, roi, 170, 78, 87, 41)
+            if rect is not None:
+                canvas.create_rectangle(
+                    *rect,
+                    outline=DISPLAY_REFERENCE_ROI_COLOR,
+                    width=2,
+                )
+
+    def select_roi(self, kind: str) -> None:
+        store = getattr(self, "_project_presence_store", None)
+        project_name = self._selected_name()
+        if store is None or not project_name:
+            return
+        metadata = store.get(project_name, kind)
+        if metadata is None:
+            messagebox.showwarning(
+                "Sem referência",
+                "Capture primeiro esta foto de presença da placa.",
+                parent=self.window,
+            )
+            return
+
+        def apply(roi):
+            store.set_roi(project_name, kind, roi)
+            self._update_project_presence_detail()
+            self._notify_change()
+            self.status.configure(
+                text=f"Área analisada de '{visual_module.DISPLAY_PROJECT_REFERENCE_LABELS[kind]}' atualizada."
+            )
+
+        _open_selector(
+            self.window,
+            metadata,
+            apply,
+            f"Área analisada • {visual_module.DISPLAY_PROJECT_REFERENCE_LABELS[kind]}",
+        )
+
+    cls._install_project_presence_panel = install_panel
+    cls._update_project_presence_detail = update_detail
+    cls.select_project_presence_reference_roi = select_roi
+    cls._display_reference_roi_installed = True
+
+
 def instalar_roi_referencias_display_f3() -> None:
     _install_check_store_roi()
     _install_project_store_roi()
     _install_matchers_roi()
+    _install_check_window_roi()
+    _install_project_window_roi()
