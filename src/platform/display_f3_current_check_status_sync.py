@@ -196,3 +196,12 @@ def instalar_sincronia_status_check_atual_display_f3() -> None:
     )
 
     instalar_aprovacao_um_frame_display_f3()
+
+    # A análise visual de presença continua informativa, mas passa a aceitar um
+    # vencedor relativo forte quando a iluminação derruba ambos os scores abaixo
+    # do threshold absoluto. A mesma decisão é publicada no Debug Técnico.
+    from src.platform.display_f3_visual_analysis_relative_fallback import (
+        instalar_fallback_relativo_analise_visual_display_f3,
+    )
+
+    instalar_fallback_relativo_analise_visual_display_f3()
